@@ -39,6 +39,14 @@ const defaultWidgets: Widget[] = [
 		section: 1,
 		order: 1,
 		size: { width: 300, height: 200 }
+	},
+	{
+		id: 'github-projects-1',
+		type: 'github-projects',
+		title: 'GitHub Projects',
+		section: 2,
+		order: 0,
+		size: { width: 0, height: 500 }
 	}
 ];
 
