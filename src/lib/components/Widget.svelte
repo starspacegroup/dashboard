@@ -9,6 +9,10 @@
 
 	function handleMouseDown(e: MouseEvent) {
 		if ((e.target as HTMLElement).closest('.widget-header')) {
+			// Don't start dragging if clicking on collapse button
+			if ((e.target as HTMLElement).closest('.collapse-button')) {
+				return;
+			}
 			isDragging = true;
 			dragOffset = {
 				x: e.clientX - widget.position.x,
@@ -30,6 +34,10 @@
 		isDragging = false;
 	}
 
+	function toggleCollapse() {
+		widgets.toggleCollapse(widget.id);
+	}
+
 	$: if (typeof window !== 'undefined') {
 		if (isDragging) {
 			document.addEventListener('mousemove', handleMouseMove);
@@ -44,16 +52,28 @@
 <div
 	class="widget"
 	class:dragging={isDragging}
+	class:collapsed={widget.collapsed}
 	style="left: {widget.position.x}px; top: {widget.position.y}px; width: {widget.size
-		.width}px; min-height: {widget.size.height}px;"
+		.width}px; {widget.collapsed ? '' : `min-height: ${widget.size.height}px;`}"
 >
 	<div class="widget-header" on:mousedown={handleMouseDown} role="button" tabindex="0">
 		<h3>{widget.title}</h3>
-		<button class="drag-handle" aria-label="Drag widget">⋮⋮</button>
+		<div class="header-buttons">
+			<button 
+				class="collapse-button" 
+				on:click={toggleCollapse}
+				aria-label={widget.collapsed ? 'Expand widget' : 'Collapse widget'}
+			>
+				{widget.collapsed ? '▼' : '▲'}
+			</button>
+			<button class="drag-handle" aria-label="Drag widget">⋮⋮</button>
+		</div>
 	</div>
-	<div class="widget-content">
-		<slot />
-	</div>
+	{#if !widget.collapsed}
+		<div class="widget-content">
+			<slot />
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -64,7 +84,12 @@
 		border-radius: 0.5rem;
 		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 		overflow: hidden;
-		transition: box-shadow 0.2s;
+		transition: box-shadow 0.2s, height 0.3s ease;
+	}
+
+	.widget.collapsed {
+		height: auto !important;
+		min-height: auto !important;
 	}
 
 	.widget:hover {
@@ -92,6 +117,30 @@
 		font-size: 1rem;
 		font-weight: 600;
 		margin: 0;
+		flex: 1;
+	}
+
+	.header-buttons {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.collapse-button {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 0.875rem;
+		padding: 0.25rem;
+		line-height: 1;
+		border-radius: 0.25rem;
+		transition: color 0.2s, background-color 0.2s;
+	}
+
+	.collapse-button:hover {
+		color: var(--text-primary);
+		background-color: rgba(255, 255, 255, 0.1);
 	}
 
 	.drag-handle {

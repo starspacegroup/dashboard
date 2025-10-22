@@ -18,7 +18,8 @@
 				type: 'github',
 				title: 'Personal Repositories',
 				position: { x: 340, y: 240 },
-				size: { width: 620, height: 400 }
+				size: { width: 620, height: 400 },
+				collapsed: true
 			});
 		}
 	}
@@ -32,7 +33,8 @@
 				type: 'organization-projects',
 				title: 'Organization Projects',
 				position: { x: 980, y: 240 },
-				size: { width: 700, height: 500 }
+				size: { width: 700, height: 500 },
+				collapsed: true
 			});
 		}
 	}

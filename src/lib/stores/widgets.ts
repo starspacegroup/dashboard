@@ -30,7 +30,7 @@ function createWidgetStore() {
 
 	return {
 		subscribe,
-		updatePosition: (id: string, position: { x: number; y: number }) => {
+		updatePosition: (id: string, position: { x: number; y: number; }) => {
 			update((widgets) =>
 				widgets.map((widget) => (widget.id === id ? { ...widget, position } : widget))
 			);
@@ -40,6 +40,13 @@ function createWidgetStore() {
 		},
 		removeWidget: (id: string) => {
 			update((widgets) => widgets.filter((widget) => widget.id !== id));
+		},
+		toggleCollapse: (id: string) => {
+			update((widgets) =>
+				widgets.map((widget) =>
+					widget.id === id ? { ...widget, collapsed: !widget.collapsed } : widget
+				)
+			);
 		},
 		reset: () => set(defaultWidgets)
 	};

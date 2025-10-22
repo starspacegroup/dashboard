@@ -10,6 +10,7 @@ export interface Widget {
 		width: number;
 		height: number;
 	};
+	collapsed?: boolean;
 }
 
 export interface DragState {
