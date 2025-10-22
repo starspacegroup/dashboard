@@ -4,6 +4,11 @@ import { env } from '$env/dynamic/private';
 
 const { GITHUB_ID = '', GITHUB_SECRET = '', AUTH_SECRET = '' } = env;
 
+// Trim any whitespace from environment variables
+const githubId = GITHUB_ID.trim();
+const githubSecret = GITHUB_SECRET.trim();
+const authSecret = AUTH_SECRET.trim();
+
 interface ExtendedUser {
 	name?: string | null;
 	email?: string | null;
@@ -23,8 +28,8 @@ interface ExtendedSession {
 export const { handle } = SvelteKitAuth({
 	providers: [
 		GitHub({
-			clientId: GITHUB_ID,
-			clientSecret: GITHUB_SECRET,
+			clientId: githubId,
+			clientSecret: githubSecret,
 			authorization: {
 				params: {
 					scope: 'read:user user:email read:org repo read:project'
@@ -32,7 +37,7 @@ export const { handle } = SvelteKitAuth({
 			}
 		})
 	],
-	secret: AUTH_SECRET,
+	secret: authSecret,
 	trustHost: true,
 	callbacks: {
 		async session({ session, token }) {
