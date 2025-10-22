@@ -16,8 +16,8 @@
 	{#if projects.length === 0}
 		<div class="empty-state">
 			<div class="empty-icon">📦</div>
-			<p>No GitHub projects found</p>
-			<p class="empty-hint">Sign in with GitHub to see your projects</p>
+			<p>No personal repositories found</p>
+			<p class="empty-hint">Create repositories on GitHub to see them here</p>
 		</div>
 	{:else}
 		<div class="projects-grid">

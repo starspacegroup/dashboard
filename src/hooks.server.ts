@@ -15,11 +15,21 @@ interface ExtendedProfile {
 	login?: string;
 }
 
+interface ExtendedSession {
+	user?: ExtendedUser;
+	accessToken?: string;
+}
+
 export const { handle } = SvelteKitAuth({
 	providers: [
 		GitHub({
 			clientId: GITHUB_ID,
-			clientSecret: GITHUB_SECRET
+			clientSecret: GITHUB_SECRET,
+			authorization: {
+				params: {
+					scope: 'read:user user:email read:org repo'
+				}
+			}
 		})
 	],
 	secret: AUTH_SECRET,
@@ -27,14 +37,18 @@ export const { handle } = SvelteKitAuth({
 	callbacks: {
 		async session({ session, token }) {
 			if (session.user && token) {
-				// Add GitHub username to session
+				// Add GitHub username and access token to session
 				(session.user as ExtendedUser).login = token.login as string;
+				(session as ExtendedSession).accessToken = token.accessToken as string;
 			}
 			return session;
 		},
-		async jwt({ token, profile }) {
+		async jwt({ token, profile, account }) {
 			if (profile) {
 				token.login = (profile as ExtendedProfile).login;
+			}
+			if (account) {
+				token.accessToken = account.access_token;
 			}
 			return token;
 		}

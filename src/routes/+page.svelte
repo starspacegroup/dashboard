@@ -4,6 +4,7 @@
 	import TrafficWidget from '$lib/components/TrafficWidget.svelte';
 	import CalendarWidget from '$lib/components/CalendarWidget.svelte';
 	import GithubWidget from '$lib/components/GithubWidget.svelte';
+	import OrganizationProjectsWidget from '$lib/components/OrganizationProjectsWidget.svelte';
 	import { widgets } from '$lib/stores/widgets';
 
 	export let data;
@@ -15,9 +16,23 @@
 			widgets.addWidget({
 				id: 'github-1',
 				type: 'github',
-				title: 'GitHub Projects',
+				title: 'Personal Repositories',
 				position: { x: 340, y: 240 },
 				size: { width: 620, height: 400 }
+			});
+		}
+	}
+
+	// Add Organization Projects widget if user is logged in and has organization projects
+	$: if (data.user && data.organizationProjects && data.organizationProjects.length > 0) {
+		const hasOrgProjectsWidget = $widgets.some((w) => w.type === 'organization-projects');
+		if (!hasOrgProjectsWidget) {
+			widgets.addWidget({
+				id: 'org-projects-1',
+				type: 'organization-projects',
+				title: 'Organization Projects',
+				position: { x: 980, y: 240 },
+				size: { width: 700, height: 500 }
 			});
 		}
 	}
@@ -40,6 +55,8 @@
 					<CalendarWidget />
 				{:else if widget.type === 'github'}
 					<GithubWidget projects={data.githubProjects || []} />
+				{:else if widget.type === 'organization-projects'}
+					<OrganizationProjectsWidget organizationProjects={data.organizationProjects || []} />
 				{/if}
 			</Widget>
 		{/each}

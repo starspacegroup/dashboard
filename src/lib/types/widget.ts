@@ -1,6 +1,6 @@
 export interface Widget {
 	id: string;
-	type: 'weather' | 'traffic' | 'calendar' | 'github';
+	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects';
 	title: string;
 	position: {
 		x: number;

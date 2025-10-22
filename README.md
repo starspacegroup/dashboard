@@ -1,22 +1,31 @@
 # Dashboard
 
-A web dashboard with movable widgets, including weather, traffic, calendar, and GitHub projects. Built with SvelteKit and designed to be hosted on Cloudflare Pages.
+A web dashboard with movable widgets, including weather, traffic, calendar, and
+GitHub projects. Built with SvelteKit and designed to be hosted on Cloudflare
+Pages.
 
 ## Features
 
-- 🎯 **Movable Widgets**: Drag and drop widgets to customize your dashboard layout
+- 🎯 **Movable Widgets**: Drag and drop widgets to customize your dashboard
+  layout
 - 🌤️ **Weather Widget**: Displays current weather information
 - 🚗 **Traffic Widget**: Shows traffic conditions for common routes
 - 📅 **Calendar Widget**: Displays upcoming events and appointments
-- 🐙 **GitHub Projects**: Shows your GitHub repositories when logged in (optional)
-- 🔐 **GitHub OAuth**: Optional sign-in to view your GitHub projects
+- 🐙 **GitHub Personal Repositories**: Shows your personal GitHub repositories
+  when logged in
+- 🏢 **Organization Projects**: Shows projects from all your GitHub
+  organizations in tile format
+- 🔐 **GitHub OAuth**: Sign-in to view your GitHub projects and organization
+  repositories
 
 ## Screenshots
 
 ### Dashboard with Widgets
+
 ![Dashboard](https://github.com/user-attachments/assets/adcd5230-362a-4fa0-a2bf-10a7f678d681)
 
 ### Movable Widgets
+
 ![Movable Widgets](https://github.com/user-attachments/assets/c2ff79c1-1834-4ab4-9a35-fe812ce67383)
 
 ## Development
@@ -29,17 +38,20 @@ A web dashboard with movable widgets, including weather, traffic, calendar, and 
 ### Setup
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/starspacegroup/dashboard.git
 cd dashboard
 ```
 
 2. Install dependencies:
+
 ```bash
 npm install
 ```
 
 3. Create a `.env` file based on `.env.example`:
+
 ```bash
 cp .env.example .env
 ```
@@ -49,8 +61,11 @@ cp .env.example .env
    - Create a new OAuth App
    - Set the callback URL to: `http://localhost:5173/auth/callback/github`
    - Add your Client ID and Secret to the `.env` file
+   - The app will request the following scopes: `read:user`, `user:email`,
+     `read:org`, `repo`
 
 5. Start the development server:
+
 ```bash
 npm run dev
 ```
