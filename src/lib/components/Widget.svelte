@@ -170,9 +170,9 @@
 		background-color: var(--surface);
 		border: 1px solid var(--border);
 		border-radius: 0.5rem;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+		box-shadow: 0 4px 6px var(--shadow);
 		overflow: hidden;
-		transition: box-shadow 0.2s, transform 0.1s ease;
+		transition: box-shadow 0.2s, transform 0.1s ease, background-color 0.3s ease;
 		margin-bottom: 1rem;
 		position: relative;
 	}
@@ -182,13 +182,13 @@
 	}
 
 	.widget:hover {
-		box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+		box-shadow: 0 6px 12px var(--shadow-hover);
 	}
 
 	.widget.dragging {
 		opacity: 0.6;
 		cursor: grabbing;
-		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+		box-shadow: 0 12px 24px var(--shadow-hover);
 		z-index: 1000;
 		transform: translateY(-4px) scale(1.02);
 		transition: none;
@@ -196,7 +196,7 @@
 	}
 
 	.widget-header {
-		background-color: rgba(0, 0, 0, 0.2);
+		background-color: var(--surface-variant);
 		padding: 0.75rem 1rem;
 		display: flex;
 		justify-content: space-between;
@@ -232,7 +232,7 @@
 
 	.collapse-button:hover {
 		color: var(--text-primary);
-		background-color: rgba(255, 255, 255, 0.1);
+		background-color: var(--surface-hover);
 	}
 
 	.drag-handle {

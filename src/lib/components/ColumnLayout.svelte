@@ -207,8 +207,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background-color: rgba(0, 122, 204, 0.1);
-		border: 2px dashed var(--primary-color, #007acc);
+		background-color: var(--primary-container);
+		border: 2px dashed var(--primary);
 		border-radius: 8px;
 		z-index: 1;
 	}
@@ -221,7 +221,7 @@
 	.drop-zone-label {
 		font-size: 0.875rem;
 		font-weight: 600;
-		color: var(--primary-color, #007acc);
+		color: var(--primary);
 		text-transform: uppercase;
 		letter-spacing: 1px;
 	}
@@ -229,9 +229,9 @@
 	.section {
 		display: flex;
 		flex-direction: column;
-		background-color: var(--surface, #ffffff);
+		background-color: var(--surface);
 		border-radius: 8px;
-		border: 2px solid var(--outline-variant, #e0e0e0);
+		border: 2px solid var(--border);
 		overflow: hidden;
 		min-height: fit-content;
 		height: fit-content;
@@ -242,8 +242,8 @@
 	}
 	
 	.section:hover {
-		border-color: var(--primary-color, #007acc);
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		border-color: var(--primary);
+		box-shadow: 0 2px 8px var(--shadow);
 	}
 	
 	.section.dragging {
@@ -256,14 +256,14 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 0.5rem 0.75rem;
-		background-color: var(--surface-variant, #f5f5f5);
-		border-bottom: 1px solid var(--outline-variant, #e0e0e0);
+		background-color: var(--surface-variant);
+		border-bottom: 1px solid var(--border);
 		gap: 0.5rem;
 	}
 	
 	.drag-handle {
 		cursor: grab;
-		color: var(--on-surface-variant, #666);
+		color: var(--text-secondary);
 	}
 	
 	.drag-handle:active {
@@ -284,20 +284,20 @@
 		height: 28px;
 		padding: 0;
 		background-color: transparent;
-		border: 1px solid var(--outline-variant, #e0e0e0);
+		border: 1px solid var(--border);
 		border-radius: 4px;
 		cursor: pointer;
-		color: var(--on-surface, #333);
+		color: var(--text-primary);
 		transition: background-color 0.2s, border-color 0.2s;
 	}
 	
 	.control-btn:hover:not(:disabled) {
-		background-color: var(--surface-container-high, #e8e8e8);
-		border-color: var(--primary-color, #007acc);
+		background-color: var(--surface-hover);
+		border-color: var(--primary);
 	}
 	
 	.control-btn:active:not(:disabled) {
-		background-color: var(--surface-container-highest, #d8d8d8);
+		background-color: var(--surface-variant);
 	}
 	
 	.control-btn:disabled {
@@ -308,7 +308,7 @@
 	.span-indicator {
 		font-size: 0.75rem;
 		font-weight: 600;
-		color: var(--on-surface-variant, #666);
+		color: var(--text-secondary);
 		padding: 0 0.25rem;
 		min-width: 35px;
 		text-align: center;
