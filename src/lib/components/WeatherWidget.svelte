@@ -49,6 +49,8 @@
 	let moonPosition = { x: -100, y: -100 };
 	let earthGradient = '';
 	let textColor = 'rgba(255, 255, 255, 0.95)';
+	let moonPhase = 0; // 0 = new moon, 0.5 = full moon, 1 = new moon again
+	let moonScale = 1; // Scale factor for moon size (1.0 to 1.9)
 	
 	// Date test mode
 	let dateTestMode = false;
@@ -434,7 +436,7 @@
 	}
 
 	// Calculate moon position based on moonrise/moonset
-	function getMoonPosition(testDate: Date) {
+	function getMoonPosition(testDate: Date): { x: number; y: number; scale: number } {
 		const secondsSinceMidnight = testDate.getHours() * 3600 + testDate.getMinutes() * 60 + testDate.getSeconds();
 		
 		// Convert Unix timestamps to seconds since midnight (local time)
@@ -450,20 +452,55 @@
 			moonsetTime = moonsetDate.getHours() * 3600 + moonsetDate.getMinutes() * 60 + moonsetDate.getSeconds();
 		}
 		
+		// Constants for orbit calculation
+		const earthSize = 320;
+		const earthRadius = earthSize / 2; // 160px
+		const moonRadius = 30; // Half of moon's 60px width
+		
+		// Orbit radii - smaller when hidden, larger when visible
+		const visibleOrbitRadius = earthRadius + moonRadius; // 190px - moon visible around Earth
+		const hiddenOrbitRadius = earthRadius + (moonRadius * 0.5); // Moon stays ~50% visible behind Earth so phase is always visible
+		
+		// Calculate moon scale (moon illusion near horizon)
+		const horizonScaleDuration = 30 * 60; // 30 minutes in seconds
+		const maxScale = 1.9;
+		const normalScale = 1.0;
+		const hiddenScale = 0.7;
+		let scale = normalScale;
+		
 		let angle;
+		let orbitRadius;
 		
 		// Determine if moon is in its visible arc (rise to set) or hidden arc (set to rise)
 		if (moonriseTime < moonsetTime) {
 			// Normal case: moon rises before it sets (same day)
 			// e.g., rises at 18:00, sets at 23:59
 			if (secondsSinceMidnight >= moonriseTime && secondsSinceMidnight <= moonsetTime) {
-				// Moon is visible - rises from bottom, peaks at top, sets at bottom
+				// Moon is visible - rises from left, peaks at top, sets at right
 				const visibleDuration = moonsetTime - moonriseTime;
 				const visibleProgress = (secondsSinceMidnight - moonriseTime) / visibleDuration;
-				// Progress from 0 (rise/bottom) to 0.5 (peak/top) to 1 (set/bottom)
-				angle = (visibleProgress * Math.PI) + Math.PI / 2; // PI/2 to 3PI/2 (bottom to top to bottom)
+				// Progress from 0 (rise/left) to 0.5 (peak/top) to 1 (set/right)
+				// Map to angles: left (270°/-90°) -> top (0°/360°) -> right (90°)
+				angle = -Math.PI/2 + (visibleProgress * Math.PI); // -90° to 90° (left to top to right)
+				
+				// Use larger orbit radius when visible
+				orbitRadius = visibleOrbitRadius;
+				
+				// Calculate scale - large near rise and set
+				const timeSinceRise = secondsSinceMidnight - moonriseTime;
+				const timeBeforeSet = moonsetTime - secondsSinceMidnight;
+				
+				if (timeSinceRise <= horizonScaleDuration) {
+					// 30 mins after moonrise - scale from max to normal
+					const scaleProgress = timeSinceRise / horizonScaleDuration;
+					scale = maxScale - (scaleProgress * (maxScale - normalScale));
+				} else if (timeBeforeSet <= horizonScaleDuration) {
+					// 30 mins before moonset - scale from normal to max
+					const scaleProgress = timeBeforeSet / horizonScaleDuration;
+					scale = maxScale - (scaleProgress * (maxScale - normalScale));
+				}
 			} else {
-				// Moon is hidden - bottom to bottom on the far side
+				// Moon is hidden - right to bottom to left on the far side
 				const hiddenDuration = (86400 - moonsetTime) + moonriseTime;
 				let hiddenProgress;
 				if (secondsSinceMidnight > moonsetTime) {
@@ -471,8 +508,14 @@
 				} else {
 					hiddenProgress = ((86400 - moonsetTime) + secondsSinceMidnight) / hiddenDuration;
 				}
-				// Progress from 0 (set/bottom) to 0.5 (nadir/bottom far side) to 1 (rise/bottom)
-				angle = (hiddenProgress * Math.PI) + 3 * Math.PI / 2; // 3PI/2 to 5PI/2 (bottom hidden arc)
+				// Progress from right (90°) -> bottom (180°) -> left (270°)
+				angle = Math.PI/2 + (hiddenProgress * Math.PI); // 90° to 270° (right to bottom to left)
+				
+				// Use smaller orbit radius when hidden
+				orbitRadius = hiddenOrbitRadius;
+				
+				// Moon is smaller when hidden
+				scale = hiddenScale;
 			}
 		} else {
 			// Moon rises late and sets early next day (crosses midnight)
@@ -481,28 +524,55 @@
 				// Moon is visible
 				const visibleDuration = (86400 - moonriseTime) + moonsetTime;
 				let visibleProgress;
+				let timeSinceRise, timeBeforeSet;
+				
 				if (secondsSinceMidnight >= moonriseTime) {
 					visibleProgress = (secondsSinceMidnight - moonriseTime) / visibleDuration;
+					timeSinceRise = secondsSinceMidnight - moonriseTime;
+					timeBeforeSet = (86400 - secondsSinceMidnight) + moonsetTime;
 				} else {
 					visibleProgress = ((86400 - moonriseTime) + secondsSinceMidnight) / visibleDuration;
+					timeSinceRise = (86400 - moonriseTime) + secondsSinceMidnight;
+					timeBeforeSet = moonsetTime - secondsSinceMidnight;
 				}
-				angle = (visibleProgress * Math.PI) + Math.PI / 2; // Bottom to top to bottom
+				// Map to angles: left (270°/-90°) -> top (0°/360°) -> right (90°)
+				angle = -Math.PI/2 + (visibleProgress * Math.PI); // -90° to 90° (left to top to right)
+				
+				// Use larger orbit radius when visible
+				orbitRadius = visibleOrbitRadius;
+				
+				// Calculate scale - large near rise and set
+				if (timeSinceRise <= horizonScaleDuration) {
+					// 30 mins after moonrise - scale from max to normal
+					const scaleProgress = timeSinceRise / horizonScaleDuration;
+					scale = maxScale - (scaleProgress * (maxScale - normalScale));
+				} else if (timeBeforeSet <= horizonScaleDuration) {
+					// 30 mins before moonset - scale from normal to max
+					const scaleProgress = timeBeforeSet / horizonScaleDuration;
+					scale = maxScale - (scaleProgress * (maxScale - normalScale));
+				}
 			} else {
 				// Moon is hidden
 				const hiddenDuration = moonriseTime - moonsetTime;
 				const hiddenProgress = (secondsSinceMidnight - moonsetTime) / hiddenDuration;
-				angle = (hiddenProgress * Math.PI) + 3 * Math.PI / 2; // Bottom hidden arc
+				// Progress from right (90°) -> bottom (180°) -> left (270°)
+				angle = Math.PI/2 + (hiddenProgress * Math.PI); // 90° to 270° (right to bottom to left)
+				
+				// Use smaller orbit radius when hidden
+				orbitRadius = hiddenOrbitRadius;
+				
+				// Moon is smaller when hidden
+				scale = hiddenScale;
 			}
 		}
 		
-		// Same orbit radius as sun
-		const earthSize = 320;
-		const orbitRadius = 190; // pixels from Earth's center
+		// Rotate all angles by -90° to align 0° with top instead of right
+		angle = angle - Math.PI/2;
 		
 		const x = (earthSize / 2) + Math.cos(angle) * orbitRadius;
 		const y = (earthSize / 2) + Math.sin(angle) * orbitRadius;
 		
-		return { x, y };
+		return { x, y, scale };
 	}
 
 	// Calculate Earth's color based on time of day and weather
@@ -611,6 +681,21 @@
 		};
 	}
 
+	// Calculate moon phase based on date
+	// Returns a value from 0 to 1 representing the lunar cycle
+	// 0 = New Moon, 0.25 = First Quarter, 0.5 = Full Moon, 0.75 = Last Quarter, 1 = New Moon
+	function calculateMoonPhase(date: Date): number {
+		// Known new moon: January 6, 2000, 18:14 UTC
+		const knownNewMoon = new Date('2000-01-06T18:14:00Z').getTime();
+		const lunarCycle = 29.53058770576; // days
+		
+		const currentTime = date.getTime();
+		const daysSinceNewMoon = (currentTime - knownNewMoon) / (1000 * 60 * 60 * 24);
+		const phase = (daysSinceNewMoon % lunarCycle) / lunarCycle;
+		
+		return phase;
+	}
+
 	// Reactive calculations for sun/moon positions and night mode
 	// Track testDateOffset explicitly to trigger recalculation
 	$: if (testDateOffset !== undefined) {
@@ -620,7 +705,10 @@
 			: now;
 		
 		sunPosition = getSunPosition(testDate);
-		moonPosition = getMoonPosition(testDate);
+		const moonData = getMoonPosition(testDate);
+		moonPosition = { x: moonData.x, y: moonData.y };
+		moonScale = moonData.scale;
+		moonPhase = calculateMoonPhase(testDate);
 		isNight = testDate.getHours() < 6 || testDate.getHours() >= 18;
 		
 		// Update Earth colors based on time and weather
@@ -660,8 +748,20 @@
 		<!-- Moon (Behind Earth) -->
 		<div 
 			class="moon" 
-			style="left: {moonPosition.x}px; top: {moonPosition.y}px"
+			style="
+				left: {moonPosition.x}px; 
+				top: {moonPosition.y}px;
+				transform: translate(-50%, -50%) scale({moonScale});
+			"
 		>
+			<div class="moon-surface"></div>
+			<div 
+				class="moon-shadow" 
+				style="
+					transform: translateX({moonPhase < 0.5 ? (1 - moonPhase * 2) * 30 : (moonPhase - 0.5) * 2 * -30}px) scaleX({moonPhase < 0.5 ? 1 : -1});
+					opacity: {Math.abs(moonPhase - 0.5) * 2};
+				"
+			></div>
 			<div class="moon-crescent"></div>
 		</div>
 		
@@ -787,10 +887,10 @@
 		border-radius: 50%;
 		transition: all 0.3s ease;
 		z-index: 0;
-		transform: translate(-50%, -50%); /* Center the celestial body on its position */
 	}
-
+	
 	.sun {
+		transform: translate(-50%, -50%); /* Center the celestial body on its position */
 		background: radial-gradient(circle, #ff9d5c 0%, #e8754a 100%);
 		box-shadow: 0 0 30px rgba(255, 157, 92, 0.6);
 	}
@@ -798,6 +898,30 @@
 	.moon {
 		background: radial-gradient(circle, #f5e6d3 0%, #d4c5b0 100%);
 		box-shadow: 0 0 20px rgba(245, 230, 211, 0.4);
+		overflow: hidden;
+	}
+
+	.moon-surface {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		border-radius: 50%;
+		background: radial-gradient(circle, #f5e6d3 0%, #d4c5b0 100%);
+		z-index: 1;
+	}
+
+	.moon-shadow {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		border-radius: 50%;
+		background: radial-gradient(circle, rgba(20, 15, 25, 0.95) 0%, rgba(40, 35, 45, 0.9) 100%);
+		z-index: 2;
+		transition: transform 0.3s ease, opacity 0.3s ease;
 	}
 
 	.moon-crescent {
@@ -809,6 +933,7 @@
 		border-radius: 50%;
 		background: radial-gradient(circle, rgba(180, 150, 130, 0.3) 0%, rgba(140, 120, 100, 0.5) 100%);
 		box-shadow: inset -4px -2px 8px rgba(0, 0, 0, 0.2);
+		z-index: 3;
 	}
 
 	.unit-switch-container {
