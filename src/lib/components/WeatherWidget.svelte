@@ -955,6 +955,12 @@
 	<!-- Time Test Slider (only shown when ?timeTest=true) -->
 	{#if timeTestMode}
 		<div class="time-test-slider">
+			<a href="/" class="close-time-test" data-sveltekit-reload title="Disable Time Travel Mode">
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<line x1="18" y1="6" x2="6" y2="18"/>
+					<line x1="6" y1="6" x2="18" y2="18"/>
+				</svg>
+			</a>
 			<label for="time-offset">
 				Time: {testDateOffset === 0 ? 'Now' : `${Math.abs(testDateOffset)} mins ago`}
 			</label>
@@ -971,6 +977,13 @@
 				<span>12h ago</span>
 				<span>Now</span>
 			</div>
+			<div class="time-test-info">
+				ℹ️ Time travel currently changes the time but not  the weather data (YET!)
+			</div>
+		</div>
+	{:else}
+		<div class="time-test-link-container">
+			<a href="/?timeTest=true" class="time-test-link" data-sveltekit-reload>Enable Time Travel Mode</a>
 		</div>
 	{/if}
 	{:else}
@@ -1300,6 +1313,39 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+		position: relative;
+	}
+
+	.close-time-test {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.5rem;
+		color: rgba(255, 255, 255, 0.5);
+		cursor: pointer;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		border-radius: 4px;
+		text-decoration: none;
+	}
+
+	.close-time-test:hover {
+		color: rgba(255, 255, 255, 0.9);
+		background: rgba(255, 255, 255, 0.1);
+	}
+
+	.time-test-info {
+		padding: 0.625rem 0.75rem;
+		background: rgba(100, 150, 255, 0.1);
+		border: 1px solid rgba(100, 150, 255, 0.2);
+		border-radius: 6px;
+		color: rgba(150, 180, 255, 0.95);
+		font-size: 0.75rem;
+		text-align: center;
+		margin-top: 0.25rem;
 	}
 
 	.time-test-slider label {
@@ -1345,6 +1391,29 @@
 		justify-content: space-between;
 		color: rgba(255, 255, 255, 0.6);
 		font-size: 0.75rem;
+	}
+
+	/* Time Test Link */
+	.time-test-link-container {
+		width: 100%;
+		max-width: 320px;
+		display: flex;
+		justify-content: center;
+		margin-top: 0.5rem;
+	}
+
+	.time-test-link {
+		font-size: 0.8125rem;
+		color: rgba(255, 255, 255, 0.5);
+		text-decoration: none;
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		transition: all 0.2s ease;
+	}
+
+	.time-test-link:hover {
+		color: rgba(255, 255, 255, 0.8);
+		background: rgba(255, 255, 255, 0.05);
 	}
 
 	/* No Location Message */
