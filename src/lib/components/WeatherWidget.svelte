@@ -381,12 +381,44 @@
 				orbitRadius = minOrbitRadius + (contractionProgress * (maxOrbitRadius - minOrbitRadius));
 			}
 		} else {
-			// Sun is hidden - nighttime hours
-			// Keep the sun at the bottom (180°)
-			angle = Math.PI; // 180° (bottom)
+			// Sun is hidden - nighttime hours (sunset to sunrise on the opposite side)
+			// Calculate solar midnight as the midpoint between sunset and next sunrise
+			const solarMidnightTime = (sunsetTime + sunriseTime + 86400) / 2; // Add 86400 to get next sunrise
 			
-			// During night, keep orbit small so sun stays hidden behind Earth
-			orbitRadius = earthRadius - sunRadius; // 130px - sun orbits inside Earth's perimeter
+			// Use smaller orbit radius to keep sun completely hidden behind Earth during night
+			const nightOrbitRadius = earthRadius - (sunRadius * 1.5); // Sun stays well behind Earth
+			
+			// Split night into two phases: sunset → midnight, and midnight → sunrise
+			if (secondsSinceMidnight <= sunriseTime) {
+				// Early morning before sunrise (after midnight)
+				// Calculate night duration and progress
+				const nightDuration = (86400 - sunsetTime) + sunriseTime; // Total night duration
+				const effectiveMidnight = solarMidnightTime > 86400 ? solarMidnightTime - 86400 : solarMidnightTime;
+				
+				// From midnight to sunrise
+				const preSunriseDuration = sunriseTime - effectiveMidnight;
+				const preSunriseProgress = (secondsSinceMidnight - effectiveMidnight) / preSunriseDuration;
+				
+				// Progress from bottom (180°) to left (270°)
+				angle = Math.PI + (preSunriseProgress * Math.PI/2); // 180° to 270°
+				
+				// Keep orbit small and constant during night
+				orbitRadius = nightOrbitRadius;
+			} else {
+				// Evening after sunset (before midnight)
+				const nightDuration = (86400 - sunsetTime) + sunriseTime;
+				const effectiveMidnight = solarMidnightTime > 86400 ? solarMidnightTime - 86400 : solarMidnightTime;
+				
+				// From sunset to midnight
+				const postSunsetDuration = (effectiveMidnight + (solarMidnightTime > 86400 ? 86400 : 0)) - sunsetTime;
+				const postSunsetProgress = (secondsSinceMidnight - sunsetTime) / postSunsetDuration;
+				
+				// Progress from right (90°) to bottom (180°)
+				angle = Math.PI/2 + (postSunsetProgress * Math.PI/2); // 90° to 180°
+				
+				// Keep orbit small and constant during night
+				orbitRadius = nightOrbitRadius;
+			}
 		}
 		
 		// Rotate all angles by -90° to align 0° with top instead of right
