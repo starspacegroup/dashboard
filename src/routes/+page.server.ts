@@ -85,7 +85,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 
 		const headers = {
 			Accept: 'application/vnd.github.v3+json',
-			Authorization: `token ${accessToken}`
+			Authorization: `token ${accessToken}`,
+			'User-Agent': 'Dashboard-App'
 		};
 
 		// Fetch user's organizations
@@ -197,6 +198,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				headers: {
 					'Authorization': `Bearer ${accessToken}`,
 					'Content-Type': 'application/json',
+					'User-Agent': 'Dashboard-App'
 				},
 				body: JSON.stringify({ query: projectsQuery })
 			});
