@@ -117,25 +117,8 @@
 			return;
 		}
 
-		// Try to load from localStorage first
-		const cached = localStorage.getItem(WEATHER_CACHE_KEY);
-		if (cached) {
-			try {
-				const data: WeatherData = JSON.parse(cached);
-				const age = Date.now() - data.timestamp;
-				
-				// If cache is less than 5 minutes old, use it
-				if (age < CACHE_DURATION) {
-					applyWeatherData(data);
-					isLoading = false;
-					return;
-				}
-			} catch (error) {
-				console.error('Error parsing cached weather data:', error);
-			}
-		}
-
-		// Cache is stale or doesn't exist, fetch new data
+		// Don't load cached data unless we have permission or a saved zip code
+		// We'll try to get browser location instead
 		await fetchWeatherData();
 	}
 
@@ -148,14 +131,17 @@
 						const { latitude, longitude } = position.coords;
 						await fetchWeatherFromAPI(latitude, longitude);
 					},
-					async () => {
-						// Geolocation failed, use default city
-						await fetchWeatherFromAPI();
+					async (error) => {
+						// Geolocation failed or denied - don't load any weather data
+						console.log('Geolocation denied or failed:', error.message);
+						isLoading = false;
+						// Don't set hasLocationData = true
 					}
 				);
 			} else {
-				// Geolocation not supported, use default city
-				await fetchWeatherFromAPI();
+				// Geolocation not supported - don't load any weather data
+				console.log('Geolocation not supported');
+				isLoading = false;
 			}
 		} catch (error) {
 			console.error('Error fetching weather:', error);
@@ -265,6 +251,11 @@
 		hasLocationData = false;
 		
 		// Fetch weather data using browser location
+		fetchWeatherData();
+	}
+
+	function requestBrowserLocation() {
+		// Trigger browser location request
 		fetchWeatherData();
 	}
 
@@ -857,6 +848,7 @@
 </script>
 
 <div class="weather-widget" class:loaded={hasLocationData}>
+	{#if hasLocationData}
 	<!-- Temperature Unit Toggle Switch -->
 	<div class="unit-switch-container">
 		<button 
@@ -876,7 +868,7 @@
 	</div>
 
 	<!-- Celestial System Container (centers everything together) -->
-	<div class="celestial-container">
+	<div class="celestial-container" class:loaded={hasLocationData}>
 		<!-- Sun (Behind Earth) -->
 		<div 
 			class="sun" 
@@ -981,8 +973,17 @@
 			</div>
 		</div>
 	{/if}
+	{:else}
+		<!-- No Location Message -->
+		<div class="no-location-message">
+			<p>Set location for weather widget</p>
+			<button on:click={requestBrowserLocation} class="share-location-button">
+				Share location from device
+			</button>
+		</div>
+	{/if}
 	
-	<!-- Zip Code Entry Form -->
+	<!-- Zip Code Entry Form (always visible) -->
 	<div class="location-controls">
 		<form on:submit|preventDefault={handleZipCodeSubmit} class="zip-form">
 			<input 
@@ -998,8 +999,10 @@
 			</button>
 		</form>
 		{#if savedZipCode}
-			<button on:click={handleResetLocation} class="reset-button">
-				Reset to Browser Location
+			<button on:click={handleResetLocation} class="reset-button" title="Reset to Browser Location">
+				<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+				</svg>
 			</button>
 		{/if}
 	</div>
@@ -1014,12 +1017,6 @@
 		padding: 2rem;
 		min-height: 400px;
 		position: relative;
-		opacity: 0;
-		transition: opacity 0.8s ease-in-out;
-	}
-
-	.weather-widget.loaded {
-		opacity: 1;
 	}
 
 	.celestial-container {
@@ -1029,6 +1026,12 @@
 		flex-shrink: 0;
 		padding: 40px;
 		box-sizing: content-box;
+		opacity: 0;
+		transition: opacity 0.8s ease-in-out;
+	}
+
+	.celestial-container.loaded {
+		opacity: 1;
 	}
 
 	.earth {
@@ -1344,6 +1347,46 @@
 		font-size: 0.75rem;
 	}
 
+	/* No Location Message */
+	.no-location-message {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1rem;
+		min-height: 400px;
+		width: 100%;
+	}
+
+	.no-location-message p {
+		font-size: 1.125rem;
+		color: rgba(255, 255, 255, 0.7);
+		text-align: center;
+		margin: 0;
+	}
+
+	.share-location-button {
+		padding: 0.75rem 1.5rem;
+		font-size: 0.9375rem;
+		font-weight: 600;
+		background: rgba(100, 150, 255, 0.2);
+		border: 1px solid rgba(100, 150, 255, 0.4);
+		border-radius: 8px;
+		color: rgba(150, 180, 255, 0.95);
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.share-location-button:hover {
+		background: rgba(100, 150, 255, 0.3);
+		border-color: rgba(100, 150, 255, 0.6);
+		transform: translateY(-1px);
+	}
+
+	.share-location-button:active {
+		transform: translateY(0);
+	}
+
 	/* Location Controls */
 	.location-controls {
 		width: 100%;
@@ -1407,20 +1450,21 @@
 
 	.reset-button {
 		width: 100%;
-		padding: 0.6rem 1rem;
-		font-size: 0.875rem;
-		font-weight: 600;
-		background: rgba(255, 100, 100, 0.15);
-		border: 1px solid rgba(255, 100, 100, 0.3);
+		padding: 0.6rem;
+		background: rgba(100, 150, 255, 0.15);
+		border: 1px solid rgba(100, 150, 255, 0.3);
 		border-radius: 8px;
-		color: rgba(255, 150, 150, 0.95);
+		color: rgba(150, 180, 255, 0.95);
 		cursor: pointer;
 		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.reset-button:hover {
-		background: rgba(255, 100, 100, 0.25);
-		border-color: rgba(255, 100, 100, 0.4);
+		background: rgba(100, 150, 255, 0.25);
+		border-color: rgba(100, 150, 255, 0.4);
 	}
 
 	.reset-button:active {
