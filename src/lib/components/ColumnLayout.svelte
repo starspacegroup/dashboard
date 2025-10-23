@@ -8,6 +8,7 @@
 	
 	let containerRef: HTMLDivElement;
 	let draggedSectionId: number | null = null;
+	let isDraggingFromHandle = false;
 	
 	// Organize widgets by section
 	$: widgetsBySection = $widgets.reduce((acc, widget) => {
@@ -39,12 +40,25 @@
 	});
 	
 	function handleSectionDragStart(sectionId: number, event: DragEvent) {
+		// Only allow drag if it's from the handle
+		if (!isDraggingFromHandle) {
+			event.preventDefault();
+			return;
+		}
 		draggedSectionId = sectionId;
 		isDraggingAny.set(true);
 		if (event.dataTransfer) {
 			event.dataTransfer.effectAllowed = 'move';
 			event.dataTransfer.setData('text/plain', sectionId.toString());
 		}
+	}
+	
+	function handleDragHandleMouseDown() {
+		isDraggingFromHandle = true;
+	}
+	
+	function handleDragHandleMouseUp() {
+		isDraggingFromHandle = false;
 	}
 	
 	function handleSectionDragOver(event: DragEvent) {
@@ -68,6 +82,7 @@
 	function handleSectionDragEnd() {
 		draggedSectionId = null;
 		isDraggingAny.set(false);
+		isDraggingFromHandle = false;
 	}
 	
 	function increaseSpan(sectionId: number) {
@@ -127,6 +142,8 @@
 					class="control-btn drag-handle"
 					title="Drag to move section"
 					aria-label="Drag to move section"
+					on:mousedown={handleDragHandleMouseDown}
+					on:mouseup={handleDragHandleMouseUp}
 				>
 					<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
 						<path d="M10 3a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm0 5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm0 5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/>

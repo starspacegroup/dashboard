@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
+	import { page } from '$app/stores';
 
 	const WEATHER_CACHE_KEY = 'dashboard-weather-data';
 	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
@@ -43,6 +44,21 @@
 	let moonrise = 0;
 	let moonset = 0;
 	let isCelsius = true;
+	let isNight = false;
+	let sunPosition = { x: -100, y: -100 };
+	let moonPosition = { x: -100, y: -100 };
+	let earthGradient = '';
+	let textColor = 'rgba(255, 255, 255, 0.95)';
+	
+	// Date test mode
+	let dateTestMode = false;
+	let testDateOffset = 0; // Hours offset from current time
+
+	// Check for dateTest URL parameter
+	if (browser) {
+		const urlParams = new URLSearchParams(window.location.search);
+		dateTestMode = urlParams.get('dateTest') === 'true';
+	}
 
 	// Load user's unit preference from localStorage
 	if (browser) {
@@ -253,7 +269,12 @@
 	onMount(() => {
 		const updateTime = () => {
 			const now = new Date();
-			currentTime = now.toLocaleTimeString('en-US', { 
+			// Apply test offset if in date test mode
+			const displayDate = dateTestMode 
+				? new Date(now.getTime() + testDateOffset * 60 * 60 * 1000)
+				: now;
+				
+			currentTime = displayDate.toLocaleTimeString('en-US', { 
 				hour: '2-digit', 
 				minute: '2-digit', 
 				second: '2-digit',
@@ -261,10 +282,10 @@
 			});
 			
 			// Format date as "2025 October 22 (Wednesday)"
-			const year = now.getFullYear();
-			const month = now.toLocaleString('en-US', { month: 'long' });
-			const day = now.getDate();
-			const weekday = now.toLocaleString('en-US', { weekday: 'long' });
+			const year = displayDate.getFullYear();
+			const month = displayDate.toLocaleString('en-US', { month: 'long' });
+			const day = displayDate.getDate();
+			const weekday = displayDate.toLocaleString('en-US', { weekday: 'long' });
 			currentDate = `${year} ${month} ${day} (${weekday})`;
 		};
 		updateTime();
@@ -299,73 +320,282 @@
 	}
 
 	// Calculate sun position based on sunrise/sunset
-	function getSunPosition() {
-		const now = new Date();
-		const currentTime = now.getTime() / 1000; // Convert to seconds
+	function getSunPosition(testDate: Date) {
+		// Convert Unix timestamps to seconds since midnight (local time)
+		let sunriseTime = 6 * 3600; // Default 6am
+		let sunsetTime = 18 * 3600; // Default 6pm
 		
-		// Use actual sunrise/sunset if available, otherwise use defaults
-		const sunriseTime = sunrise || (6 * 3600); // Default 6am
-		const sunsetTime = sunset || (18 * 3600); // Default 6pm
+		if (sunrise) {
+			const sunriseDate = new Date(sunrise * 1000);
+			sunriseTime = sunriseDate.getHours() * 3600 + sunriseDate.getMinutes() * 60 + sunriseDate.getSeconds();
+		}
+		if (sunset) {
+			const sunsetDate = new Date(sunset * 1000);
+			sunsetTime = sunsetDate.getHours() * 3600 + sunsetDate.getMinutes() * 60 + sunsetDate.getSeconds();
+		}
 		
 		// Get current time in seconds since midnight
-		const secondsSinceMidnight = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+		const secondsSinceMidnight = testDate.getHours() * 3600 + testDate.getMinutes() * 60 + testDate.getSeconds();
 		
-		if (secondsSinceMidnight >= sunriseTime && secondsSinceMidnight < sunsetTime) {
-			// Daytime: sun rises and sets based on actual times
-			const dayProgress = (secondsSinceMidnight - sunriseTime) / (sunsetTime - sunriseTime);
-			const angle = Math.PI * dayProgress;
-			return {
-				x: 50 + Math.sin(angle) * 35,
-				y: 15 + (1 - Math.cos(angle)) * 30
-			};
+		// Constants for orbit calculation
+		const earthSize = 320;
+		const earthRadius = earthSize / 2; // 160px
+		const sunRadius = 30; // Half of sun's 60px width
+		
+		// Calculate the angle based on time
+		// The sun should be behind the Earth (bottom) from sunset to sunrise
+		// And visible (rising to top to setting) from sunrise to sunset
+		let angle;
+		let orbitRadius;
+		
+		if (secondsSinceMidnight >= sunriseTime && secondsSinceMidnight <= sunsetTime) {
+			// Sun is visible - daylight hours
+			// Calculate solar noon as the midpoint between sunrise and sunset
+			const solarNoonTime = (sunriseTime + sunsetTime) / 2;
+			
+			// Split into two phases: sunrise → noon, and noon → sunset
+			if (secondsSinceMidnight <= solarNoonTime) {
+				// Morning: sunrise to solar noon
+				// Map from left (270° = -90°) to top (0° = -90° + 90° = 0° adjusted)
+				const morningDuration = solarNoonTime - sunriseTime;
+				const morningProgress = (secondsSinceMidnight - sunriseTime) / morningDuration;
+				// Progress from 270° to 360° (or -90° to 0° in radians)
+				angle = -Math.PI/2 + (morningProgress * Math.PI/2); // -90° to 0°
+				
+				// Orbit expands from minimum to maximum
+				const expansionProgress = Math.sin(morningProgress * Math.PI/2); // 0 → 1
+				const minOrbitRadius = earthRadius + (sunRadius * 0.1); // 166px
+				const maxOrbitRadius = earthRadius + sunRadius; // 190px
+				orbitRadius = minOrbitRadius + (expansionProgress * (maxOrbitRadius - minOrbitRadius));
+			} else {
+				// Afternoon: solar noon to sunset
+				// Map from top (0°) to right (90°)
+				const afternoonDuration = sunsetTime - solarNoonTime;
+				const afternoonProgress = (secondsSinceMidnight - solarNoonTime) / afternoonDuration;
+				angle = 0 + (afternoonProgress * Math.PI/2); // 0° to 90°
+				
+				// Orbit contracts from maximum to minimum
+				const contractionProgress = Math.cos(afternoonProgress * Math.PI/2); // 1 → 0
+				const minOrbitRadius = earthRadius + (sunRadius * 0.1); // 166px
+				const maxOrbitRadius = earthRadius + sunRadius; // 190px
+				orbitRadius = minOrbitRadius + (contractionProgress * (maxOrbitRadius - minOrbitRadius));
+			}
 		} else {
-			// Return position off-screen when sun is not visible
-			return { x: -100, y: -100 };
+			// Sun is hidden - nighttime hours
+			// Keep the sun at the bottom (180°)
+			angle = Math.PI; // 180° (bottom)
+			
+			// During night, keep orbit small so sun stays hidden behind Earth
+			orbitRadius = earthRadius - sunRadius; // 130px - sun orbits inside Earth's perimeter
 		}
+		
+		// Rotate all angles by -90° to align 0° with top instead of right
+		// In standard math: 0° = right, 90° = top, 180° = left, 270° = bottom
+		// We want: 0° = top, 90° = right, 180° = bottom, 270° = left
+		angle = angle - Math.PI/2; // Subtract 90° to rotate coordinate system
+		
+		// Calculate position in pixels from Earth's center
+		const x = (earthSize / 2) + Math.cos(angle) * orbitRadius;
+		const y = (earthSize / 2) + Math.sin(angle) * orbitRadius;
+		
+		return { x, y };
 	}
 
 	// Calculate moon position based on moonrise/moonset
-	function getMoonPosition() {
-		const now = new Date();
-		const secondsSinceMidnight = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+	function getMoonPosition(testDate: Date) {
+		const secondsSinceMidnight = testDate.getHours() * 3600 + testDate.getMinutes() * 60 + testDate.getSeconds();
 		
-		// Use actual moonrise/moonset if available, otherwise use defaults
-		const moonriseTime = moonrise || (18 * 3600); // Default 6pm
-		const moonsetTime = moonset || (6 * 3600); // Default 6am
+		// Convert Unix timestamps to seconds since midnight (local time)
+		let moonriseTime = 18 * 3600; // Default 6pm
+		let moonsetTime = 6 * 3600; // Default 6am
 		
-		// Handle moon crossing midnight
-		let isVisible = false;
-		let moonProgress = 0;
+		if (moonrise) {
+			const moonriseDate = new Date(moonrise * 1000);
+			moonriseTime = moonriseDate.getHours() * 3600 + moonriseDate.getMinutes() * 60 + moonriseDate.getSeconds();
+		}
+		if (moonset) {
+			const moonsetDate = new Date(moonset * 1000);
+			moonsetTime = moonsetDate.getHours() * 3600 + moonsetDate.getMinutes() * 60 + moonsetDate.getSeconds();
+		}
 		
+		let angle;
+		
+		// Determine if moon is in its visible arc (rise to set) or hidden arc (set to rise)
 		if (moonriseTime < moonsetTime) {
-			// Moon doesn't cross midnight (rises and sets same day)
-			isVisible = secondsSinceMidnight >= moonriseTime && secondsSinceMidnight < moonsetTime;
-			moonProgress = (secondsSinceMidnight - moonriseTime) / (moonsetTime - moonriseTime);
-		} else {
-			// Moon crosses midnight
-			isVisible = secondsSinceMidnight >= moonriseTime || secondsSinceMidnight < moonsetTime;
-			if (secondsSinceMidnight >= moonriseTime) {
-				moonProgress = (secondsSinceMidnight - moonriseTime) / (86400 - moonriseTime + moonsetTime);
+			// Normal case: moon rises before it sets (same day)
+			// e.g., rises at 18:00, sets at 23:59
+			if (secondsSinceMidnight >= moonriseTime && secondsSinceMidnight <= moonsetTime) {
+				// Moon is visible - rises from bottom, peaks at top, sets at bottom
+				const visibleDuration = moonsetTime - moonriseTime;
+				const visibleProgress = (secondsSinceMidnight - moonriseTime) / visibleDuration;
+				// Progress from 0 (rise/bottom) to 0.5 (peak/top) to 1 (set/bottom)
+				angle = (visibleProgress * Math.PI) + Math.PI / 2; // PI/2 to 3PI/2 (bottom to top to bottom)
 			} else {
-				moonProgress = (86400 - moonriseTime + secondsSinceMidnight) / (86400 - moonriseTime + moonsetTime);
+				// Moon is hidden - bottom to bottom on the far side
+				const hiddenDuration = (86400 - moonsetTime) + moonriseTime;
+				let hiddenProgress;
+				if (secondsSinceMidnight > moonsetTime) {
+					hiddenProgress = (secondsSinceMidnight - moonsetTime) / hiddenDuration;
+				} else {
+					hiddenProgress = ((86400 - moonsetTime) + secondsSinceMidnight) / hiddenDuration;
+				}
+				// Progress from 0 (set/bottom) to 0.5 (nadir/bottom far side) to 1 (rise/bottom)
+				angle = (hiddenProgress * Math.PI) + 3 * Math.PI / 2; // 3PI/2 to 5PI/2 (bottom hidden arc)
+			}
+		} else {
+			// Moon rises late and sets early next day (crosses midnight)
+			// e.g., rises at 22:00, sets at 08:00
+			if (secondsSinceMidnight >= moonriseTime || secondsSinceMidnight <= moonsetTime) {
+				// Moon is visible
+				const visibleDuration = (86400 - moonriseTime) + moonsetTime;
+				let visibleProgress;
+				if (secondsSinceMidnight >= moonriseTime) {
+					visibleProgress = (secondsSinceMidnight - moonriseTime) / visibleDuration;
+				} else {
+					visibleProgress = ((86400 - moonriseTime) + secondsSinceMidnight) / visibleDuration;
+				}
+				angle = (visibleProgress * Math.PI) + Math.PI / 2; // Bottom to top to bottom
+			} else {
+				// Moon is hidden
+				const hiddenDuration = moonriseTime - moonsetTime;
+				const hiddenProgress = (secondsSinceMidnight - moonsetTime) / hiddenDuration;
+				angle = (hiddenProgress * Math.PI) + 3 * Math.PI / 2; // Bottom hidden arc
 			}
 		}
 		
-		if (isVisible) {
-			const angle = Math.PI * moonProgress;
-			return {
-				x: 50 + Math.sin(angle) * 35,
-				y: 15 + (1 - Math.cos(angle)) * 30
-			};
-		} else {
-			// Return position off-screen when moon is not visible
-			return { x: -100, y: -100 };
-		}
+		// Same orbit radius as sun
+		const earthSize = 320;
+		const orbitRadius = 190; // pixels from Earth's center
+		
+		const x = (earthSize / 2) + Math.cos(angle) * orbitRadius;
+		const y = (earthSize / 2) + Math.sin(angle) * orbitRadius;
+		
+		return { x, y };
 	}
 
-	$: sunPosition = getSunPosition();
-	$: moonPosition = getMoonPosition();
-	$: isNight = new Date().getHours() < 6 || new Date().getHours() >= 18;
+	// Calculate Earth's color based on time of day and weather
+	function calculateEarthColor(hour: number, weatherCondition: string): { gradient: string; textColor: string } {
+		// Calculate brightness based on time of day (0 = midnight, 12 = noon)
+		// Use a smooth curve: darkest at midnight (0/24), brightest at noon (12)
+		const hoursFromNoon = Math.abs(12 - hour);
+		const dayBrightness = 1 - (hoursFromNoon / 12); // 0 at midnight, 1 at noon
+		
+		// Base colors for different times of day
+		let baseColor1, baseColor2, baseColor3, baseColor4;
+		
+		if (dayBrightness > 0.8) {
+			// Noon - very bright
+			baseColor1 = { r: 245, g: 240, b: 235 };
+			baseColor2 = { r: 230, g: 220, b: 210 };
+			baseColor3 = { r: 215, g: 205, b: 195 };
+			baseColor4 = { r: 200, g: 190, b: 180 };
+		} else if (dayBrightness > 0.6) {
+			// Morning/Afternoon - bright
+			baseColor1 = { r: 212, g: 180, b: 140 };
+			baseColor2 = { r: 195, g: 165, b: 125 };
+			baseColor3 = { r: 180, g: 150, b: 115 };
+			baseColor4 = { r: 165, g: 140, b: 105 };
+		} else if (dayBrightness > 0.4) {
+			// Early morning/Evening - moderate
+			baseColor1 = { r: 150, g: 120, b: 100 };
+			baseColor2 = { r: 130, g: 105, b: 90 };
+			baseColor3 = { r: 115, g: 95, b: 80 };
+			baseColor4 = { r: 100, g: 85, b: 70 };
+		} else if (dayBrightness > 0.2) {
+			// Dusk/Dawn - dim
+			baseColor1 = { r: 90, g: 75, b: 85 };
+			baseColor2 = { r: 75, g: 65, b: 75 };
+			baseColor3 = { r: 65, g: 55, b: 65 };
+			baseColor4 = { r: 55, g: 48, b: 58 };
+		} else {
+			// Night - very dark
+			baseColor1 = { r: 45, g: 40, b: 55 };
+			baseColor2 = { r: 38, g: 35, b: 48 };
+			baseColor3 = { r: 32, g: 30, b: 42 };
+			baseColor4 = { r: 25, g: 23, b: 35 };
+		}
+		
+		// Adjust colors based on weather conditions
+		if (weatherCondition.includes('cloud') || weatherCondition === 'partly-cloudy') {
+			// Add gray/reduce saturation
+			const grayFactor = 0.7;
+			baseColor1 = mixWithGray(baseColor1, grayFactor);
+			baseColor2 = mixWithGray(baseColor2, grayFactor);
+			baseColor3 = mixWithGray(baseColor3, grayFactor);
+			baseColor4 = mixWithGray(baseColor4, grayFactor);
+		} else if (weatherCondition.includes('rain')) {
+			// Add blue tint and more gray
+			const blueTint = { r: 0, g: 20, b: 40 };
+			baseColor1 = mixColors(baseColor1, blueTint, 0.3);
+			baseColor2 = mixColors(baseColor2, blueTint, 0.35);
+			baseColor3 = mixColors(baseColor3, blueTint, 0.4);
+			baseColor4 = mixColors(baseColor4, blueTint, 0.45);
+			
+			const grayFactor = 0.6;
+			baseColor1 = mixWithGray(baseColor1, grayFactor);
+			baseColor2 = mixWithGray(baseColor2, grayFactor);
+			baseColor3 = mixWithGray(baseColor3, grayFactor);
+			baseColor4 = mixWithGray(baseColor4, grayFactor);
+		}
+		
+		// Create gradient string
+		const gradient = `linear-gradient(135deg, 
+			rgba(${baseColor1.r}, ${baseColor1.g}, ${baseColor1.b}, 0.95) 0%,
+			rgba(${baseColor2.r}, ${baseColor2.g}, ${baseColor2.b}, 0.95) 30%,
+			rgba(${baseColor3.r}, ${baseColor3.g}, ${baseColor3.b}, 0.95) 60%,
+			rgba(${baseColor4.r}, ${baseColor4.g}, ${baseColor4.b}, 0.95) 100%
+		)`;
+		
+		// Calculate text color for visibility
+		// Use average brightness to determine if we need dark or light text
+		const avgBrightness = (baseColor1.r + baseColor1.g + baseColor1.b + 
+		                        baseColor2.r + baseColor2.g + baseColor2.b) / 6;
+		
+		const textColor = avgBrightness > 160 
+			? 'rgba(40, 40, 40, 0.95)' // Dark text for bright backgrounds
+			: 'rgba(255, 255, 255, 0.95)'; // Light text for dark backgrounds
+		
+		return { gradient, textColor };
+	}
+	
+	function mixWithGray(color: { r: number; g: number; b: number }, factor: number) {
+		const avg = (color.r + color.g + color.b) / 3;
+		return {
+			r: Math.round(color.r * (1 - factor) + avg * factor),
+			g: Math.round(color.g * (1 - factor) + avg * factor),
+			b: Math.round(color.b * (1 - factor) + avg * factor)
+		};
+	}
+	
+	function mixColors(
+		color1: { r: number; g: number; b: number }, 
+		color2: { r: number; g: number; b: number }, 
+		ratio: number
+	) {
+		return {
+			r: Math.round(color1.r * (1 - ratio) + color2.r * ratio),
+			g: Math.round(color1.g * (1 - ratio) + color2.g * ratio),
+			b: Math.round(color1.b * (1 - ratio) + color2.b * ratio)
+		};
+	}
+
+	// Reactive calculations for sun/moon positions and night mode
+	// Track testDateOffset explicitly to trigger recalculation
+	$: if (testDateOffset !== undefined) {
+		const now = new Date();
+		const testDate = dateTestMode 
+			? new Date(now.getTime() + testDateOffset * 60 * 60 * 1000)
+			: now;
+		
+		sunPosition = getSunPosition(testDate);
+		moonPosition = getMoonPosition(testDate);
+		isNight = testDate.getHours() < 6 || testDate.getHours() >= 18;
+		
+		// Update Earth colors based on time and weather
+		const colorData = calculateEarthColor(testDate.getHours(), condition);
+		earthGradient = colorData.gradient;
+		textColor = colorData.textColor;
+	}
 </script>
 
 <div class="weather-widget">
@@ -387,21 +617,23 @@
 		</button>
 	</div>
 
-	<!-- Sun (Behind the circle) -->
-	<div 
-		class="celestial-body sun" 
-		style="left: {sunPosition.x}%; top: {sunPosition.y}%"
-	></div>
-	
-	<!-- Moon (Behind the circle) -->
-	<div 
-		class="celestial-body moon" 
-		style="left: {moonPosition.x}%; top: {moonPosition.y}%"
-	>
-		<div class="moon-crescent"></div>
-	</div>
-	
-	<div class="weather-circle" class:night={isNight}>
+	<!-- Celestial System Container (centers everything together) -->
+	<div class="celestial-container">
+		<!-- Sun (Behind Earth) -->
+		<div 
+			class="sun" 
+			style="left: {sunPosition.x}px; top: {sunPosition.y}px"
+		></div>
+		
+		<!-- Moon (Behind Earth) -->
+		<div 
+			class="moon" 
+			style="left: {moonPosition.x}px; top: {moonPosition.y}px"
+		>
+			<div class="moon-crescent"></div>
+		</div>
+		
+		<div class="earth" style="background: {earthGradient}; --text-color: {textColor}">
 
 		<!-- Time and Date Section -->
 		<div class="time-date-section">
@@ -451,11 +683,34 @@
 			</span>
 		</div>
 		
-		<!-- Humidity Wave (at bottom) -->
-		<div class="humidity">
-			<div class="humidity-wave"></div>
+			<!-- Humidity Wave (at bottom) -->
+			<div class="humidity">
+				<div class="humidity-wave"></div>
+			</div>
 		</div>
 	</div>
+	
+	<!-- Date Test Slider (only shown when ?dateTest=true) -->
+	{#if dateTestMode}
+		<div class="date-test-slider">
+			<label for="date-offset">
+				Time Offset: {testDateOffset > 0 ? '+' : ''}{testDateOffset}h
+			</label>
+			<input 
+				id="date-offset"
+				type="range" 
+				min="-24" 
+				max="24" 
+				step="1"
+				bind:value={testDateOffset}
+			/>
+			<div class="slider-labels">
+				<span>-24h</span>
+				<span>Now</span>
+				<span>+24h</span>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -469,52 +724,46 @@
 		position: relative;
 	}
 
-	.weather-circle {
+	.celestial-container {
+		position: relative;
+		width: 320px;
+		height: 320px;
+		flex-shrink: 0;
+	}
+
+	.earth {
 		position: relative;
 		width: 320px;
 		height: 320px;
 		border-radius: 50%;
-		background: linear-gradient(135deg, 
-			rgba(212, 163, 115, 0.91) 0%,
-			rgba(176, 137, 104, 0.91) 30%,
-			rgba(156, 122, 98, 0.91) 60%,
-			rgba(139, 111, 94, 0.91) 100%
-		);
 		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		transition: background 0.5s ease;
+		transition: background 1s ease, color 1s ease;
 		overflow: hidden;
 		flex-shrink: 0;
 		aspect-ratio: 1 / 1;
 	}
 
-	.weather-circle.night {
-		background: linear-gradient(135deg, 
-			rgba(74, 63, 94, 0.91) 0%,
-			rgba(61, 53, 82, 0.91) 30%,
-			rgba(52, 45, 71, 0.91) 60%,
-			rgba(42, 37, 60, 0.91) 100%
-		);
-	}
-
-	.celestial-body {
+	.sun,
+	.moon {
 		position: absolute;
 		width: 60px;
 		height: 60px;
 		border-radius: 50%;
-		transition: all 1s ease;
+		transition: all 0.3s ease;
 		z-index: 0;
+		transform: translate(-50%, -50%); /* Center the celestial body on its position */
 	}
 
-	.celestial-body.sun {
+	.sun {
 		background: radial-gradient(circle, #ff9d5c 0%, #e8754a 100%);
 		box-shadow: 0 0 30px rgba(255, 157, 92, 0.6);
 	}
 
-	.celestial-body.moon {
+	.moon {
 		background: radial-gradient(circle, #f5e6d3 0%, #d4c5b0 100%);
 		box-shadow: 0 0 20px rgba(245, 230, 211, 0.4);
 	}
@@ -568,7 +817,7 @@
 		z-index: 3;
 		font-size: 1.75rem;
 		font-weight: 300;
-		color: rgba(255, 255, 255, 0.95);
+		color: var(--text-color, rgba(255, 255, 255, 0.95));
 		letter-spacing: 0.5px;
 		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 		font-variant-numeric: tabular-nums;
@@ -578,7 +827,8 @@
 		position: relative;
 		z-index: 3;
 		font-size: 0.75rem;
-		color: rgba(255, 255, 255, 0.7);
+		color: var(--text-color, rgba(255, 255, 255, 0.7));
+		opacity: 0.7;
 		margin-top: 0.25rem;
 		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 	}
@@ -587,7 +837,8 @@
 		position: relative;
 		z-index: 3;
 		font-size: 1rem;
-		color: rgba(255, 255, 255, 0.8);
+		color: var(--text-color, rgba(255, 255, 255, 0.8));
+		opacity: 0.8;
 		margin-top: 0.5rem;
 		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 	}
@@ -610,7 +861,7 @@
 		z-index: 2;
 		font-size: 5rem;
 		font-weight: 600;
-		color: rgba(255, 255, 255, 0.98);
+		color: var(--text-color, rgba(255, 255, 255, 0.98));
 		line-height: 1;
 		text-shadow: 
 			0 2px 4px rgba(0, 0, 0, 0.4),
@@ -636,7 +887,7 @@
 		z-index: 2;
 		font-size: 1.5rem;
 		font-weight: 300;
-		color: rgba(255, 255, 255, 0.9);
+		color: var(--text-color, rgba(255, 255, 255, 0.9));
 		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 		display: flex;
 		align-items: center;
@@ -710,9 +961,72 @@
 		clip-path: ellipse(160px 40px at 50% 100%);
 	}
 
+	/* Date Test Slider */
+	.date-test-slider {
+		width: 100%;
+		max-width: 320px;
+		padding: 1rem;
+		background: rgba(255, 255, 255, 0.05);
+		border-radius: 12px;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.date-test-slider label {
+		color: rgba(255, 255, 255, 0.9);
+		font-size: 0.875rem;
+		font-weight: 500;
+		text-align: center;
+	}
+
+	.date-test-slider input[type="range"] {
+		width: 100%;
+		height: 6px;
+		background: rgba(255, 255, 255, 0.1);
+		border-radius: 3px;
+		outline: none;
+		appearance: none;
+		-webkit-appearance: none;
+	}
+
+	.date-test-slider input[type="range"]::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 18px;
+		height: 18px;
+		background: rgba(255, 255, 255, 0.9);
+		border-radius: 50%;
+		cursor: pointer;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+	}
+
+	.date-test-slider input[type="range"]::-moz-range-thumb {
+		width: 18px;
+		height: 18px;
+		background: rgba(255, 255, 255, 0.9);
+		border-radius: 50%;
+		cursor: pointer;
+		border: none;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+	}
+
+	.slider-labels {
+		display: flex;
+		justify-content: space-between;
+		color: rgba(255, 255, 255, 0.6);
+		font-size: 0.75rem;
+	}
+
 	/* Responsive adjustments */
 	@media (max-width: 768px) {
-		.weather-circle {
+		.celestial-container {
+			width: 280px;
+			height: 280px;
+		}
+
+		.earth {
 			width: 280px;
 			height: 280px;
 		}
@@ -725,7 +1039,8 @@
 			font-size: 4rem;
 		}
 
-		.celestial-body {
+		.sun,
+		.moon {
 			width: 50px;
 			height: 50px;
 		}
