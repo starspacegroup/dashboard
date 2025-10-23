@@ -457,6 +457,7 @@
 		const secondsSinceMidnight = testDate.getHours() * 3600 + testDate.getMinutes() * 60 + testDate.getSeconds();
 		
 		// Constants for orbit calculation
+		const padding = 40; // Container padding
 		const earthSize = 320;
 		const earthRadius = earthSize / 2; // 160px
 		const sunRadius = 30; // Half of sun's 60px width
@@ -545,9 +546,9 @@
 		// We want: 0° = top, 90° = right, 180° = bottom, 270° = left
 		angle = angle - Math.PI/2; // Subtract 90° to rotate coordinate system
 		
-		// Calculate position in pixels from Earth's center
-		const x = (earthSize / 2) + Math.cos(angle) * orbitRadius;
-		const y = (earthSize / 2) + Math.sin(angle) * orbitRadius;
+		// Calculate position in pixels from Earth's center (including padding offset)
+		const x = padding + (earthSize / 2) + Math.cos(angle) * orbitRadius;
+		const y = padding + (earthSize / 2) + Math.sin(angle) * orbitRadius;
 		
 		return { x, y };
 	}
@@ -570,6 +571,7 @@
 		}
 		
 		// Constants for orbit calculation
+		const padding = 40; // Container padding
 		const earthSize = 320;
 		const earthRadius = earthSize / 2; // 160px
 		const moonRadius = 30; // Half of moon's 60px width
@@ -686,8 +688,8 @@
 		// Rotate all angles by -90° to align 0° with top instead of right
 		angle = angle - Math.PI/2;
 		
-		const x = (earthSize / 2) + Math.cos(angle) * orbitRadius;
-		const y = (earthSize / 2) + Math.sin(angle) * orbitRadius;
+		const x = padding + (earthSize / 2) + Math.cos(angle) * orbitRadius;
+		const y = padding + (earthSize / 2) + Math.sin(angle) * orbitRadius;
 		
 		return { x, y, scale };
 	}
@@ -1025,6 +1027,8 @@
 		width: 320px;
 		height: 320px;
 		flex-shrink: 0;
+		padding: 40px;
+		box-sizing: content-box;
 	}
 
 	.earth {
