@@ -60,6 +60,10 @@
 	let moonScale = 1; // Scale factor for moon size (1.0 to 1.9)
 	let currentTimestamp = Date.now(); // Track current time for reactive updates
 	
+	// Responsive earth size (updated based on window size)
+	let earthSize = 320;
+	let padding = 40;
+	
 	// Coordinates (if available)
 	let latitude: number | null = null;
 	let longitude: number | null = null;
@@ -382,8 +386,28 @@
 		return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 	}
 
+	// Update earth size based on window width
+	function updateEarthSize() {
+		if (browser && window.innerWidth <= 768) {
+			earthSize = 280;
+			padding = 40;
+		} else {
+			earthSize = 320;
+			padding = 40;
+		}
+	}
+
 	// Update time every second
 	onMount(() => {
+		// Set initial earth size
+		updateEarthSize();
+		
+		// Listen for window resize
+		const handleResize = () => {
+			updateEarthSize();
+		};
+		window.addEventListener('resize', handleResize);
+		
 		const updateTime = () => {
 			const now = new Date();
 			currentTimestamp = now.getTime(); // Update timestamp to trigger reactive statements
@@ -436,6 +460,7 @@
 		return () => {
 			clearInterval(interval);
 			clearInterval(weatherInterval);
+			window.removeEventListener('resize', handleResize);
 		};
 	});
 
@@ -471,11 +496,9 @@
 		// Get current time in seconds since midnight
 		const secondsSinceMidnight = testDate.getHours() * 3600 + testDate.getMinutes() * 60 + testDate.getSeconds();
 		
-		// Constants for orbit calculation
-		const padding = 40; // Container padding
-		const earthSize = 320;
-		const earthRadius = earthSize / 2; // 160px
-		const sunRadius = 30; // Half of sun's 60px width
+		// Constants for orbit calculation - use reactive values
+		const earthRadius = earthSize / 2;
+		const sunRadius = earthSize * 0.09375; // Proportional to earth size (30/320 = 0.09375)
 		
 		// Calculate the angle based on time
 		// The sun should be behind the Earth (bottom) from sunset to sunrise
@@ -585,11 +608,9 @@
 			moonsetTime = moonsetDate.getHours() * 3600 + moonsetDate.getMinutes() * 60 + moonsetDate.getSeconds();
 		}
 		
-		// Constants for orbit calculation
-		const padding = 40; // Container padding
-		const earthSize = 320;
-		const earthRadius = earthSize / 2; // 160px
-		const moonRadius = 30; // Half of moon's 60px width
+		// Constants for orbit calculation - use reactive values
+		const earthRadius = earthSize / 2;
+		const moonRadius = earthSize * 0.09375; // Proportional to earth size (30/320 = 0.09375)
 		
 		// Orbit radii - smaller when hidden, larger when visible
 		const visibleOrbitRadius = earthRadius + moonRadius; // 190px - moon visible around Earth
@@ -912,7 +933,7 @@
 	</div>
 
 	<!-- Celestial System Container (centers everything together) -->
-	<div class="celestial-container" class:loaded={hasLocationData}>
+	<div class="celestial-container" class:loaded={hasLocationData} style="--earth-size: {earthSize}px;">
 		<!-- Sun (Behind Earth) -->
 		<div 
 			class="sun" 
@@ -1236,8 +1257,8 @@
 
 	.celestial-container {
 		position: relative;
-		width: 320px;
-		height: 320px;
+		width: var(--earth-size, 320px);
+		height: var(--earth-size, 320px);
 		flex-shrink: 0;
 		padding: 40px;
 		box-sizing: content-box;
@@ -1251,8 +1272,8 @@
 
 	.earth {
 		position: relative;
-		width: 320px;
-		height: 320px;
+		width: var(--earth-size, 320px);
+		height: var(--earth-size, 320px);
 		border-radius: 50%;
 		box-shadow: 0 8px 32px var(--shadow);
 		display: flex;
@@ -1268,8 +1289,8 @@
 	.sun,
 	.moon {
 		position: absolute;
-		width: 60px;
-		height: 60px;
+		width: calc(var(--earth-size, 320px) * 0.1875); /* 60px / 320px = 0.1875 */
+		height: calc(var(--earth-size, 320px) * 0.1875);
 		border-radius: 50%;
 		transition: all 0.3s ease;
 		z-index: 0;
@@ -1840,28 +1861,12 @@
 
 	/* Responsive adjustments */
 	@media (max-width: 768px) {
-		.celestial-container {
-			width: 280px;
-			height: 280px;
-		}
-
-		.earth {
-			width: 280px;
-			height: 280px;
-		}
-
 		.time {
 			font-size: 1.5rem;
 		}
 
 		.temperature {
 			font-size: 4rem;
-		}
-
-		.sun,
-		.moon {
-			width: 50px;
-			height: 50px;
 		}
 
 		.data-table {
