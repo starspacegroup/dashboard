@@ -175,7 +175,7 @@
 								{:else if widget.type === 'organization-projects'}
 									<svelte:component this={widgetComponents.OrganizationProjectsWidget} organizationProjects={data.organizationProjects || []} />
 								{:else if widget.type === 'github-projects'}
-									<svelte:component this={widgetComponents.GithubProjectsWidget} projects={data.allGithubProjects || []} />
+									<svelte:component this={widgetComponents.GithubProjectsWidget} projects={data.allGithubProjects || []} isLoggedIn={!!data.user} />
 								{/if}
 							</Widget>
 						</div>

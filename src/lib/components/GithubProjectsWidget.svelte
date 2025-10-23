@@ -14,6 +14,7 @@
 	}
 
 	export let projects: GitHubProject[] = [];
+	export let isLoggedIn: boolean = false;
 
 	function formatDate(dateString: string): string {
 		const date = new Date(dateString);
@@ -31,7 +32,13 @@
 </script>
 
 <div class="github-projects-widget">
-	{#if projects.length === 0}
+	{#if !isLoggedIn}
+		<div class="empty-state">
+			<div class="empty-icon">🔒</div>
+			<p>Log in to GitHub to see your Projects</p>
+			<a href="/auth/signin" class="login-button">Sign in with GitHub</a>
+		</div>
+	{:else if projects.length === 0}
 		<div class="empty-state">
 			<div class="empty-icon">📊</div>
 			<p>No GitHub Projects found</p>
@@ -98,6 +105,24 @@
 	.empty-hint {
 		font-size: 0.875rem;
 		opacity: 0.7;
+	}
+
+	.login-button {
+		margin-top: 1rem;
+		padding: 0.75rem 1.5rem;
+		background-color: var(--primary);
+		color: white;
+		text-decoration: none;
+		border-radius: 6px;
+		font-weight: 500;
+		transition: all 0.2s ease;
+		display: inline-block;
+	}
+
+	.login-button:hover {
+		background-color: var(--primary-hover);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px var(--shadow-hover);
 	}
 
 	.projects-grid {
