@@ -39,6 +39,7 @@
 	let condition = 'partly-cloudy';
 	let hourlyData: HourlyData[] = [];
 	let isLoading = true;
+	let hasLocationData = false;
 	let sunrise = 0;
 	let sunset = 0;
 	let moonrise = 0;
@@ -52,14 +53,14 @@
 	let moonPhase = 0; // 0 = new moon, 0.5 = full moon, 1 = new moon again
 	let moonScale = 1; // Scale factor for moon size (1.0 to 1.9)
 	
-	// Date test mode
-	let dateTestMode = false;
-	let testDateOffset = 0; // Hours offset from current time
+	// Time test mode
+	let timeTestMode = false;
+	let testDateOffset = 0; // Minutes offset from current time (negative = past)
 
-	// Check for dateTest URL parameter
+	// Check for timeTest URL parameter
 	if (browser) {
 		const urlParams = new URLSearchParams(window.location.search);
-		dateTestMode = urlParams.get('dateTest') === 'true';
+		timeTestMode = urlParams.get('timeTest') === 'true';
 	}
 
 	// Load user's unit preference from localStorage
@@ -183,6 +184,9 @@
 		moonrise = data.moonrise || 0;
 		moonset = data.moonset || 0;
 		
+		// Mark that we have location data
+		hasLocationData = true;
+		
 		// Map OpenWeather conditions to our conditions
 		const weatherCondition = data.condition.toLowerCase();
 		if (weatherCondition.includes('clear')) {
@@ -271,9 +275,9 @@
 	onMount(() => {
 		const updateTime = () => {
 			const now = new Date();
-			// Apply test offset if in date test mode
-			const displayDate = dateTestMode 
-				? new Date(now.getTime() + testDateOffset * 60 * 60 * 1000)
+			// Apply test offset if in time test mode (offset is in minutes)
+			const displayDate = timeTestMode 
+				? new Date(now.getTime() + testDateOffset * 60 * 1000)
 				: now;
 				
 			currentTime = displayDate.toLocaleTimeString('en-US', { 
@@ -700,8 +704,8 @@
 	// Track testDateOffset explicitly to trigger recalculation
 	$: if (testDateOffset !== undefined) {
 		const now = new Date();
-		const testDate = dateTestMode 
-			? new Date(now.getTime() + testDateOffset * 60 * 60 * 1000)
+		const testDate = timeTestMode 
+			? new Date(now.getTime() + testDateOffset * 60 * 1000)
 			: now;
 		
 		sunPosition = getSunPosition(testDate);
@@ -718,7 +722,7 @@
 	}
 </script>
 
-<div class="weather-widget">
+<div class="weather-widget" class:loaded={hasLocationData}>
 	<!-- Temperature Unit Toggle Switch -->
 	<div class="unit-switch-container">
 		<button 
@@ -822,24 +826,24 @@
 		</div>
 	</div>
 	
-	<!-- Date Test Slider (only shown when ?dateTest=true) -->
-	{#if dateTestMode}
-		<div class="date-test-slider">
-			<label for="date-offset">
-				Time Offset: {testDateOffset > 0 ? '+' : ''}{testDateOffset}h
+	<!-- Time Test Slider (only shown when ?timeTest=true) -->
+	{#if timeTestMode}
+		<div class="time-test-slider">
+			<label for="time-offset">
+				Time: {testDateOffset === 0 ? 'Now' : `${Math.abs(testDateOffset)} mins ago`}
 			</label>
 			<input 
-				id="date-offset"
+				id="time-offset"
 				type="range" 
-				min="-24" 
-				max="24" 
-				step="1"
+				min="-1440" 
+				max="0" 
+				step="10"
 				bind:value={testDateOffset}
 			/>
 			<div class="slider-labels">
-				<span>-24h</span>
+				<span>24h ago</span>
+				<span>12h ago</span>
 				<span>Now</span>
-				<span>+24h</span>
 			</div>
 		</div>
 	{/if}
@@ -854,6 +858,12 @@
 		padding: 2rem;
 		min-height: 400px;
 		position: relative;
+		opacity: 0;
+		transition: opacity 0.8s ease-in-out;
+	}
+
+	.weather-widget.loaded {
+		opacity: 1;
 	}
 
 	.celestial-container {
@@ -1118,8 +1128,8 @@
 		clip-path: ellipse(160px 40px at 50% 100%);
 	}
 
-	/* Date Test Slider */
-	.date-test-slider {
+	/* Time Test Slider */
+	.time-test-slider {
 		width: 100%;
 		max-width: 320px;
 		padding: 1rem;
@@ -1131,14 +1141,14 @@
 		gap: 0.5rem;
 	}
 
-	.date-test-slider label {
+	.time-test-slider label {
 		color: rgba(255, 255, 255, 0.9);
 		font-size: 0.875rem;
 		font-weight: 500;
 		text-align: center;
 	}
 
-	.date-test-slider input[type="range"] {
+	.time-test-slider input[type="range"] {
 		width: 100%;
 		height: 6px;
 		background: rgba(255, 255, 255, 0.1);
@@ -1148,7 +1158,7 @@
 		-webkit-appearance: none;
 	}
 
-	.date-test-slider input[type="range"]::-webkit-slider-thumb {
+	.time-test-slider input[type="range"]::-webkit-slider-thumb {
 		-webkit-appearance: none;
 		appearance: none;
 		width: 18px;
@@ -1159,7 +1169,7 @@
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
 
-	.date-test-slider input[type="range"]::-moz-range-thumb {
+	.time-test-slider input[type="range"]::-moz-range-thumb {
 		width: 18px;
 		height: 18px;
 		background: rgba(255, 255, 255, 0.9);
