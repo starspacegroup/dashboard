@@ -1,4 +1,7 @@
 // See https://kit.svelte.dev/docs/types#app
+
+/// <reference types="@types/google.maps" />
+
 declare global {
 	namespace App {
 		// interface Error {}
@@ -18,4 +21,4 @@ declare global {
 	}
 }
 
-export {};
+export { };
