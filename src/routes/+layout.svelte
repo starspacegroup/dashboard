@@ -19,8 +19,12 @@
 		// Global keyboard handler for Esc key
 		function handleGlobalKeyDown(event: KeyboardEvent) {
 			if (event.key === 'Escape') {
-				event.preventDefault();
-				commandPaletteOpen = !commandPaletteOpen;
+				// Only open the palette if it's not already open
+				// Let the CommandPalette component handle closing itself
+				if (!commandPaletteOpen) {
+					event.preventDefault();
+					commandPaletteOpen = true;
+				}
 			}
 		}
 

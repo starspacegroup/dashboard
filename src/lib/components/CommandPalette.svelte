@@ -61,18 +61,37 @@
 		if (shortcutMatch && command.shortcut === shortcutMatch[1]) {
 			// Execute with the search term
 			command.execute(shortcutMatch[2]);
+			closeAndReset();
+		} else if (command.shortcut && command.category === 'search') {
+			// For search commands without a query, insert the shortcut with a space
+			searchQuery = `${command.shortcut} `;
+			selectedIndex = 0;
+			// Focus the input and move cursor to the end
+			setTimeout(() => {
+				if (searchInput) {
+					searchInput.focus();
+					searchInput.setSelectionRange(searchQuery.length, searchQuery.length);
+				}
+			}, 0);
 		} else {
 			// Execute without parameters
 			command.execute();
+			closeAndReset();
 		}
-		
-		closeAndReset();
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			event.preventDefault();
-			closeAndReset();
+			event.stopPropagation(); // Stop the event from bubbling to global handler
+			// If search query is not empty, clear it first
+			// If search query is empty, close the palette
+			if (searchQuery.trim()) {
+				searchQuery = '';
+				selectedIndex = 0;
+			} else {
+				closeAndReset();
+			}
 		} else if (event.key === 'ArrowDown') {
 			event.preventDefault();
 			selectedIndex = (selectedIndex + 1) % filteredCommands.length;
