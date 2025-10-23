@@ -1,19 +1,35 @@
 <script lang="ts">
 	import '../app.css';
 	import { theme } from '$lib/stores/theme';
+	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import { onMount } from 'svelte';
 	import type { Theme } from '$lib/stores/theme';
 
 	export let data;
 
 	let currentTheme: Theme = 'auto';
+	let commandPaletteOpen = false;
 
 	onMount(() => {
 		theme.initialize();
 		const unsubscribe = theme.subscribe(t => {
 			currentTheme = t;
 		});
-		return unsubscribe;
+
+		// Global keyboard handler for Esc key
+		function handleGlobalKeyDown(event: KeyboardEvent) {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				commandPaletteOpen = !commandPaletteOpen;
+			}
+		}
+
+		window.addEventListener('keydown', handleGlobalKeyDown);
+
+		return () => {
+			unsubscribe();
+			window.removeEventListener('keydown', handleGlobalKeyDown);
+		};
 	});
 
 	function toggleTheme() {
@@ -31,12 +47,25 @@
 		if (currentTheme === 'dark') return '🌙';
 		return '🌓';
 	}
+
+	function handleCommandPaletteClose() {
+		commandPaletteOpen = false;
+	}
+
+	function openCommandPalette() {
+		commandPaletteOpen = true;
+	}
 </script>
+
+<CommandPalette isOpen={commandPaletteOpen} onClose={handleCommandPaletteClose} />
 
 <div class="app">
 	<header>
 		<h1>Dashboard</h1>
 		<nav>
+			<button class="command-palette-button" on:click={openCommandPalette} title="Command Palette (ESC)">
+				⌘
+			</button>
 			<button class="theme-toggle" on:click={toggleTheme} title="Toggle theme">
 				{getThemeIcon()}
 			</button>
@@ -102,6 +131,21 @@
 
 	button:hover {
 		background-color: var(--primary-color-hover);
+	}
+
+	.command-palette-button {
+		background-color: var(--primary-color);
+		color: white;
+		border: none;
+		padding: 0.5rem 0.75rem;
+		font-size: 1.25rem;
+		line-height: 1;
+		transition: background-color 0.2s, transform 0.2s;
+	}
+
+	.command-palette-button:hover {
+		background-color: var(--primary-color-hover);
+		transform: scale(1.05);
 	}
 
 	.theme-toggle {
