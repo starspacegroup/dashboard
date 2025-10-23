@@ -7,6 +7,7 @@
 	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 	const UNIT_PREFERENCE_KEY = 'dashboard-temp-unit';
 	const ZIP_CODE_KEY = 'dashboard-zip-code';
+	const DATA_TABLE_COLLAPSED_KEY = 'dashboard-data-table-collapsed';
 
 	interface WeatherData {
 		temperature: number;
@@ -59,6 +60,12 @@
 	let moonScale = 1; // Scale factor for moon size (1.0 to 1.9)
 	let currentTimestamp = Date.now(); // Track current time for reactive updates
 	
+	// Coordinates (if available)
+	let latitude: number | null = null;
+	let longitude: number | null = null;
+	let lastUpdate = 0;
+	let description = '';
+	
 	// Zip code override
 	let savedZipCode = '';
 	let zipCodeInput = '';
@@ -66,11 +73,20 @@
 	// Time test mode
 	let timeTestMode = false;
 	let testDateOffset = 0; // Minutes offset from current time (negative = past)
+	
+	// Data table collapse state
+	let isDataTableCollapsed = true;
 
 	// Check for timeTest URL parameter
 	if (browser) {
 		const urlParams = new URLSearchParams(window.location.search);
 		timeTestMode = urlParams.get('timeTest') === 'true';
+		
+		// Load data table collapsed preference
+		const savedCollapsed = localStorage.getItem(DATA_TABLE_COLLAPSED_KEY);
+		if (savedCollapsed !== null) {
+			isDataTableCollapsed = savedCollapsed === 'true';
+		}
 	}
 
 	// Load user's unit preference from localStorage
@@ -171,6 +187,12 @@
 			
 			console.log('Weather data received:', data);
 			
+			// Save coordinates if provided
+			if (lat && lon) {
+				latitude = lat;
+				longitude = lon;
+			}
+			
 			// Save to localStorage
 			localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(data));
 			
@@ -263,6 +285,7 @@
 		temperature = data.temperature;
 		humidity = data.humidity;
 		location = data.location;
+		description = data.description || '';
 		hourlyData = data.hourly || [];
 		sunrise = data.sunrise || 0;
 		sunset = data.sunset || 0;
@@ -270,6 +293,7 @@
 		moonset = data.moonset || 0;
 		timezone = data.timezone || '';
 		timezoneOffset = data.timezoneOffset || 0;
+		lastUpdate = data.timestamp || Date.now();
 		
 		// Mark that we have location data
 		hasLocationData = true;
@@ -806,6 +830,26 @@
 		return phase;
 	}
 
+	function getMoonPhaseName(phase: number): string {
+		// Phase is 0 to 1 where 0/1 = new moon, 0.5 = full moon
+		if (phase < 0.0625) return 'New Moon';
+		if (phase < 0.1875) return 'Waxing Crescent';
+		if (phase < 0.3125) return 'First Quarter';
+		if (phase < 0.4375) return 'Waxing Gibbous';
+		if (phase < 0.5625) return 'Full Moon';
+		if (phase < 0.6875) return 'Waning Gibbous';
+		if (phase < 0.8125) return 'Last Quarter';
+		if (phase < 0.9375) return 'Waning Crescent';
+		return 'New Moon';
+	}
+
+	function toggleDataTable() {
+		isDataTableCollapsed = !isDataTableCollapsed;
+		if (browser) {
+			localStorage.setItem(DATA_TABLE_COLLAPSED_KEY, isDataTableCollapsed.toString());
+		}
+	}
+
 	// Reactive calculations for sun/moon positions and night mode
 	// Track testDateOffset and currentTimestamp to trigger recalculation
 	$: if (currentTimestamp && testDateOffset !== undefined) {
@@ -986,6 +1030,164 @@
 			<a href="/?timeTest=true" class="time-test-link" data-sveltekit-reload>Enable Time Travel Mode</a>
 		</div>
 	{/if}
+	
+	<!-- Data Table -->
+	<div class="data-table">
+		<button class="data-table-header" on:click={toggleDataTable}>
+			<h3>Lotsa Data</h3>
+			<svg 
+				class="collapse-icon" 
+				class:collapsed={isDataTableCollapsed}
+				xmlns="http://www.w3.org/2000/svg" 
+				width="20" 
+				height="20" 
+				viewBox="0 0 24 24" 
+				fill="none" 
+				stroke="currentColor" 
+				stroke-width="2" 
+				stroke-linecap="round" 
+				stroke-linejoin="round"
+			>
+				<polyline points="6 9 12 15 18 9"></polyline>
+			</svg>
+		</button>
+		{#if !isDataTableCollapsed}
+		<table>
+			<tbody>
+				<!-- Time Data -->
+				<tr class="section-header">
+					<td colspan="2">Time Information</td>
+				</tr>
+				<tr>
+					<td>Current Time</td>
+					<td>{currentTime}</td>
+				</tr>
+				<tr>
+					<td>Current Date</td>
+					<td>{currentDate}</td>
+				</tr>
+				<tr>
+					<td>Timezone</td>
+					<td>{timezone || 'N/A'}</td>
+				</tr>
+				<tr>
+					<td>UTC Offset</td>
+					<td>{timezoneOffset ? `${timezoneOffset > 0 ? '+' : ''}${Math.round(timezoneOffset / 3600)} hours` : 'N/A'}</td>
+				</tr>
+				{#if timeTestMode}
+				<tr>
+					<td>Time Travel Offset</td>
+					<td>{testDateOffset === 0 ? 'None (Now)' : `${Math.abs(testDateOffset)} minutes ago`}</td>
+				</tr>
+				{/if}
+				
+				<!-- Location Data -->
+				<tr class="section-header">
+					<td colspan="2">Location Information</td>
+				</tr>
+				<tr>
+					<td>Location</td>
+					<td>{location}</td>
+				</tr>
+				{#if latitude !== null && longitude !== null}
+				<tr>
+					<td>Coordinates</td>
+					<td>{latitude.toFixed(4)}°, {longitude.toFixed(4)}°</td>
+				</tr>
+				{/if}
+				<tr>
+					<td>Data Source</td>
+					<td>{savedZipCode ? `ZIP Code (${savedZipCode})` : 'Browser Location'}</td>
+				</tr>
+				
+				<!-- Weather Data -->
+				<tr class="section-header">
+					<td colspan="2">Weather Information</td>
+				</tr>
+				<tr>
+					<td>Temperature</td>
+					<td>{displayTemp}°{isCelsius ? 'C' : 'F'} ({temperature}°F)</td>
+				</tr>
+				<tr>
+					<td>Humidity</td>
+					<td>{humidity}%</td>
+				</tr>
+				<tr>
+					<td>Condition</td>
+					<td>{condition.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</td>
+				</tr>
+				{#if description}
+				<tr>
+					<td>Description</td>
+					<td>{description}</td>
+				</tr>
+				{/if}
+				
+				<!-- Celestial Data -->
+				<tr class="section-header">
+					<td colspan="2">Celestial Information</td>
+				</tr>
+				{#if sunrise}
+				<tr>
+					<td>Sunrise</td>
+					<td>{new Date(sunrise * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</td>
+				</tr>
+				{/if}
+				{#if sunset}
+				<tr>
+					<td>Sunset</td>
+					<td>{new Date(sunset * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</td>
+				</tr>
+				{/if}
+				{#if moonrise}
+				<tr>
+					<td>Moonrise</td>
+					<td>{new Date(moonrise * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</td>
+				</tr>
+				{/if}
+				{#if moonset}
+				<tr>
+					<td>Moonset</td>
+					<td>{new Date(moonset * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</td>
+				</tr>
+				{/if}
+				<tr>
+					<td>Moon Phase</td>
+					<td>{(moonPhase * 100).toFixed(1)}% ({getMoonPhaseName(moonPhase)})</td>
+				</tr>
+				<tr>
+					<td>Moon Scale</td>
+					<td>{moonScale.toFixed(2)}x</td>
+				</tr>
+				<tr>
+					<td>Sun Position</td>
+					<td>X: {sunPosition.x.toFixed(1)}px, Y: {sunPosition.y.toFixed(1)}px</td>
+				</tr>
+				<tr>
+					<td>Moon Position</td>
+					<td>X: {moonPosition.x.toFixed(1)}px, Y: {moonPosition.y.toFixed(1)}px</td>
+				</tr>
+				
+				<!-- System Data -->
+				<tr class="section-header">
+					<td colspan="2">System Information</td>
+				</tr>
+				<tr>
+					<td>Last Update</td>
+					<td>{new Date(lastUpdate).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}</td>
+				</tr>
+				<tr>
+					<td>Current Timestamp</td>
+					<td>{currentTimestamp}</td>
+				</tr>
+				<tr>
+					<td>Hourly Data Points</td>
+					<td>{hourlyData.length} hours</td>
+				</tr>
+			</tbody>
+		</table>
+		{/if}
+	</div>
 	{:else}
 		<!-- No Location Message -->
 		<div class="no-location-message">
@@ -1540,6 +1742,102 @@
 		transform: scale(0.98);
 	}
 
+	/* Data Table */
+	.data-table {
+		width: 100%;
+		max-width: 500px;
+		margin-top: 1.5rem;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 12px;
+		backdrop-filter: blur(10px);
+		overflow: hidden;
+	}
+
+	.data-table-header {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem;
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		transition: background 0.2s ease;
+	}
+
+	.data-table-header:hover {
+		background: rgba(255, 255, 255, 0.05);
+	}
+
+	.data-table-header h3 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.9);
+		text-align: left;
+	}
+
+	.collapse-icon {
+		color: rgba(255, 255, 255, 0.7);
+		transition: transform 0.3s ease;
+		flex-shrink: 0;
+	}
+
+	.collapse-icon.collapsed {
+		transform: rotate(-90deg);
+	}
+
+	.data-table table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.8125rem;
+		padding: 0 1rem 1rem;
+	}
+
+	.data-table tbody tr {
+		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+	}
+
+	.data-table tbody tr:last-child {
+		border-bottom: none;
+	}
+
+	.data-table tbody tr.section-header {
+		border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+	}
+
+	.data-table tbody tr.section-header td {
+		padding: 0.75rem 0.5rem 0.5rem;
+		font-weight: 600;
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: rgba(255, 255, 255, 0.6);
+		text-align: left;
+	}
+
+	.data-table tbody tr.section-header:first-child td {
+		padding-top: 0;
+	}
+
+	.data-table td {
+		padding: 0.5rem;
+		color: rgba(255, 255, 255, 0.85);
+	}
+
+	.data-table td:first-child {
+		font-weight: 500;
+		color: rgba(255, 255, 255, 0.7);
+		width: 45%;
+	}
+
+	.data-table td:last-child {
+		text-align: right;
+		color: rgba(255, 255, 255, 0.95);
+		font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+	}
+
 	/* Responsive adjustments */
 	@media (max-width: 768px) {
 		.celestial-container {
@@ -1564,6 +1862,15 @@
 		.moon {
 			width: 50px;
 			height: 50px;
+		}
+
+		.data-table {
+			max-width: 100%;
+			font-size: 0.75rem;
+		}
+
+		.data-table td {
+			padding: 0.4rem;
 		}
 	}
 </style>
