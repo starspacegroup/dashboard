@@ -7,8 +7,9 @@ const { OPENWEATHER_API_KEY = '' } = env;
 export const GET: RequestHandler = async ({ url }) => {
   const lat = url.searchParams.get('lat');
   const lon = url.searchParams.get('lon');
+  const zip = url.searchParams.get('zip');
 
-  console.log('Weather API called with:', { lat, lon });
+  console.log('Weather API called with:', { lat, lon, zip });
   console.log('API Key configured:', !!OPENWEATHER_API_KEY.trim());
 
   if (!OPENWEATHER_API_KEY.trim()) {
@@ -24,7 +25,19 @@ export const GET: RequestHandler = async ({ url }) => {
     let latitude: string;
     let longitude: string;
 
-    if (lat && lon) {
+    if (zip) {
+      // Convert zip code to coordinates using geocoding API
+      console.log('Converting zip code to coordinates:', zip);
+      const coords = await getCoordinatesFromZip(zip);
+      if (!coords) {
+        return json(
+          { error: 'Invalid zip code or unable to geocode' },
+          { status: 400 }
+        );
+      }
+      latitude = coords.lat;
+      longitude = coords.lon;
+    } else if (lat && lon) {
       latitude = lat;
       longitude = lon;
     } else {
@@ -78,6 +91,8 @@ export const GET: RequestHandler = async ({ url }) => {
       sunset: data.current.sunset,
       moonrise: data.daily?.[0]?.moonrise || 0,
       moonset: data.daily?.[0]?.moonset || 0,
+      timezone: data.timezone,
+      timezoneOffset: data.timezone_offset,
       timestamp: Date.now()
     };
 
@@ -128,6 +143,31 @@ async function fallbackToCurrentWeather(lat: string, lon: string) {
       { status: 500 }
     );
   }
+}
+
+// Convert zip code to coordinates using geocoding API
+async function getCoordinatesFromZip(zip: string): Promise<{ lat: string; lon: string; } | null> {
+  try {
+    // OpenWeather geocoding API for zip codes (US only by default)
+    const geoUrl = `https://api.openweathermap.org/geo/1.0/zip?zip=${zip},US&appid=${OPENWEATHER_API_KEY.trim()}`;
+    console.log('Geocoding zip code...');
+    const response = await fetch(geoUrl);
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('Geocoding successful:', data);
+      return {
+        lat: data.lat.toString(),
+        lon: data.lon.toString()
+      };
+    } else {
+      console.error('Geocoding failed:', await response.text());
+    }
+  } catch (error) {
+    console.error('Error geocoding zip code:', error);
+  }
+
+  return null;
 }
 
 // Get location name from coordinates using reverse geocoding

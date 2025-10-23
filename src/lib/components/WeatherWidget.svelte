@@ -6,6 +6,7 @@
 	const WEATHER_CACHE_KEY = 'dashboard-weather-data';
 	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 	const UNIT_PREFERENCE_KEY = 'dashboard-temp-unit';
+	const ZIP_CODE_KEY = 'dashboard-zip-code';
 
 	interface WeatherData {
 		temperature: number;
@@ -20,6 +21,8 @@
 		sunset?: number;
 		moonrise?: number;
 		moonset?: number;
+		timezone?: string;
+		timezoneOffset?: number;
 	}
 
 	interface HourlyData {
@@ -44,6 +47,8 @@
 	let sunset = 0;
 	let moonrise = 0;
 	let moonset = 0;
+	let timezone = '';
+	let timezoneOffset = 0; // Offset in seconds from UTC
 	let isCelsius = true;
 	let isNight = false;
 	let sunPosition = { x: -100, y: -100 };
@@ -52,6 +57,11 @@
 	let textColor = 'rgba(255, 255, 255, 0.95)';
 	let moonPhase = 0; // 0 = new moon, 0.5 = full moon, 1 = new moon again
 	let moonScale = 1; // Scale factor for moon size (1.0 to 1.9)
+	let currentTimestamp = Date.now(); // Track current time for reactive updates
+	
+	// Zip code override
+	let savedZipCode = '';
+	let zipCodeInput = '';
 	
 	// Time test mode
 	let timeTestMode = false;
@@ -68,6 +78,13 @@
 		const savedUnit = localStorage.getItem(UNIT_PREFERENCE_KEY);
 		if (savedUnit !== null) {
 			isCelsius = savedUnit === 'celsius';
+		}
+		
+		// Load saved zip code
+		const savedZip = localStorage.getItem(ZIP_CODE_KEY);
+		if (savedZip) {
+			savedZipCode = savedZip;
+			zipCodeInput = savedZip;
 		}
 	}
 
@@ -93,6 +110,12 @@
 	// Load weather data from cache or API
 	async function loadWeatherData() {
 		if (!browser) return;
+
+		// Check if there's a saved zip code override
+		if (savedZipCode) {
+			await fetchWeatherByZipCode(savedZipCode);
+			return;
+		}
 
 		// Try to load from localStorage first
 		const cached = localStorage.getItem(WEATHER_CACHE_KEY);
@@ -174,6 +197,77 @@
 		}
 	}
 
+	async function fetchWeatherByZipCode(zipCode: string) {
+		try {
+			const url = `/api/weather?zip=${zipCode}`;
+			
+			console.log('Fetching weather by zip code:', url);
+			
+			const response = await fetch(url);
+			
+			console.log('Weather API response status:', response.status);
+			
+			if (!response.ok) {
+				const errorText = await response.text();
+				console.error('Weather API error:', errorText);
+				throw new Error(`Failed to fetch weather: ${response.status}`);
+			}
+
+			const data: WeatherData = await response.json();
+			
+			console.log('Weather data received:', data);
+			
+			// Save to localStorage
+			localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(data));
+			
+			// Apply the data
+			applyWeatherData(data);
+			isLoading = false;
+		} catch (error) {
+			console.error('Error fetching weather by zip code:', error);
+			isLoading = false;
+		}
+	}
+
+	function handleZipCodeSubmit() {
+		const trimmedZip = zipCodeInput.trim();
+		
+		// Validate zip code format (5 digits)
+		if (!trimmedZip || !/^\d{5}$/.test(trimmedZip)) {
+			alert('Please enter a valid 5-digit ZIP code');
+			return;
+		}
+		
+		// Save zip code to localStorage
+		savedZipCode = trimmedZip;
+		localStorage.setItem(ZIP_CODE_KEY, savedZipCode);
+		
+		// Clear cached weather data to force fresh fetch
+		localStorage.removeItem(WEATHER_CACHE_KEY);
+		
+		// Reset location flag to trigger fade effect
+		hasLocationData = false;
+		
+		// Immediately fetch weather with new zip code
+		fetchWeatherByZipCode(savedZipCode);
+	}
+
+	function handleResetLocation() {
+		// Clear zip code
+		savedZipCode = '';
+		zipCodeInput = '';
+		localStorage.removeItem(ZIP_CODE_KEY);
+		
+		// Clear cached weather data
+		localStorage.removeItem(WEATHER_CACHE_KEY);
+		
+		// Reset location flag to trigger fade-out/in
+		hasLocationData = false;
+		
+		// Fetch weather data using browser location
+		fetchWeatherData();
+	}
+
 	function applyWeatherData(data: WeatherData) {
 		temperature = data.temperature;
 		humidity = data.humidity;
@@ -183,6 +277,8 @@
 		sunset = data.sunset || 0;
 		moonrise = data.moonrise || 0;
 		moonset = data.moonset || 0;
+		timezone = data.timezone || '';
+		timezoneOffset = data.timezoneOffset || 0;
 		
 		// Mark that we have location data
 		hasLocationData = true;
@@ -275,10 +371,27 @@
 	onMount(() => {
 		const updateTime = () => {
 			const now = new Date();
-			// Apply test offset if in time test mode (offset is in minutes)
-			const displayDate = timeTestMode 
-				? new Date(now.getTime() + testDateOffset * 60 * 1000)
-				: now;
+			currentTimestamp = now.getTime(); // Update timestamp to trigger reactive statements
+			
+			// Calculate the display date based on timezone offset
+			let displayDate: Date;
+			if (timeTestMode) {
+				// In time test mode, start from location's time and apply offset
+				if (timezoneOffset !== 0) {
+					const utcTime = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
+					const locationTime = utcTime + (timezoneOffset * 1000);
+					displayDate = new Date(locationTime + testDateOffset * 60 * 1000);
+				} else {
+					displayDate = new Date(now.getTime() + testDateOffset * 60 * 1000);
+				}
+			} else if (timezoneOffset !== 0) {
+				// Apply location's timezone offset
+				// Get UTC time, then add the location's offset
+				const utcTime = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
+				displayDate = new Date(utcTime + (timezoneOffset * 1000));
+			} else {
+				displayDate = now;
+			}
 				
 			currentTime = displayDate.toLocaleTimeString('en-US', { 
 				hour: '2-digit', 
@@ -701,22 +814,41 @@
 	}
 
 	// Reactive calculations for sun/moon positions and night mode
-	// Track testDateOffset explicitly to trigger recalculation
-	$: if (testDateOffset !== undefined) {
-		const now = new Date();
-		const testDate = timeTestMode 
-			? new Date(now.getTime() + testDateOffset * 60 * 1000)
-			: now;
+	// Track testDateOffset and currentTimestamp to trigger recalculation
+	$: if (currentTimestamp && testDateOffset !== undefined) {
+		const now = new Date(currentTimestamp);
+		
+		// For sun/moon positions, we need to work with the actual moment in time
+		// The sunrise/sunset/moonrise/moonset are Unix timestamps (absolute moments)
+		let testDate: Date;
+		if (timeTestMode) {
+			// In time test mode, just apply the offset to current time
+			// Don't convert to location timezone - that's only for display
+			testDate = new Date(now.getTime() + testDateOffset * 60 * 1000);
+		} else {
+			// Use current time - sun/moon calculations use Unix timestamps which are absolute
+			testDate = now;
+		}
 		
 		sunPosition = getSunPosition(testDate);
 		const moonData = getMoonPosition(testDate);
 		moonPosition = { x: moonData.x, y: moonData.y };
 		moonScale = moonData.scale;
 		moonPhase = calculateMoonPhase(testDate);
-		isNight = testDate.getHours() < 6 || testDate.getHours() >= 18;
+		
+		// For determining day/night, use the location's hour
+		let displayHour: number;
+		if (timezoneOffset !== 0) {
+			const utcTime = testDate.getTime() + (testDate.getTimezoneOffset() * 60 * 1000);
+			const locationTime = new Date(utcTime + (timezoneOffset * 1000));
+			displayHour = locationTime.getHours();
+		} else {
+			displayHour = testDate.getHours();
+		}
+		isNight = displayHour < 6 || displayHour >= 18;
 		
 		// Update Earth colors based on time and weather
-		const colorData = calculateEarthColor(testDate.getHours(), condition);
+		const colorData = calculateEarthColor(displayHour, condition);
 		earthGradient = colorData.gradient;
 		textColor = colorData.textColor;
 	}
@@ -847,6 +979,28 @@
 			</div>
 		</div>
 	{/if}
+	
+	<!-- Zip Code Entry Form -->
+	<div class="location-controls">
+		<form on:submit|preventDefault={handleZipCodeSubmit} class="zip-form">
+			<input 
+				type="text" 
+				bind:value={zipCodeInput}
+				placeholder="Enter ZIP code"
+				inputmode="numeric"
+				maxlength="5"
+				class="zip-input"
+			/>
+			<button type="submit" class="zip-submit">
+				Set Location
+			</button>
+		</form>
+		{#if savedZipCode}
+			<button on:click={handleResetLocation} class="reset-button">
+				Reset to Browser Location
+			</button>
+		{/if}
+	</div>
 </div>
 
 <style>
@@ -1184,6 +1338,89 @@
 		justify-content: space-between;
 		color: rgba(255, 255, 255, 0.6);
 		font-size: 0.75rem;
+	}
+
+	/* Location Controls */
+	.location-controls {
+		width: 100%;
+		max-width: 320px;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-top: 0.5rem;
+	}
+
+	.zip-form {
+		display: flex;
+		gap: 0.5rem;
+		width: 100%;
+	}
+
+	.zip-input {
+		flex: 1;
+		padding: 0.6rem 0.875rem;
+		font-size: 0.875rem;
+		background: rgba(255, 255, 255, 0.05);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 8px;
+		color: rgba(255, 255, 255, 0.95);
+		outline: none;
+		transition: all 0.2s ease;
+		font-family: inherit;
+	}
+
+	.zip-input::placeholder {
+		color: rgba(255, 255, 255, 0.4);
+	}
+
+	.zip-input:focus {
+		background: rgba(255, 255, 255, 0.08);
+		border-color: rgba(255, 255, 255, 0.4);
+		box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+	}
+
+	.zip-submit {
+		padding: 0.6rem 1.25rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		background: rgba(255, 255, 255, 0.15);
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		border-radius: 8px;
+		color: rgba(255, 255, 255, 0.95);
+		cursor: pointer;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+	}
+
+	.zip-submit:hover {
+		background: rgba(255, 255, 255, 0.25);
+		border-color: rgba(255, 255, 255, 0.4);
+	}
+
+	.zip-submit:active {
+		transform: scale(0.98);
+	}
+
+	.reset-button {
+		width: 100%;
+		padding: 0.6rem 1rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		background: rgba(255, 100, 100, 0.15);
+		border: 1px solid rgba(255, 100, 100, 0.3);
+		border-radius: 8px;
+		color: rgba(255, 150, 150, 0.95);
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.reset-button:hover {
+		background: rgba(255, 100, 100, 0.25);
+		border-color: rgba(255, 100, 100, 0.4);
+	}
+
+	.reset-button:active {
+		transform: scale(0.98);
 	}
 
 	/* Responsive adjustments */
