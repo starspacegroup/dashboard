@@ -297,27 +297,27 @@
 		justify-content: center;
 		width: 32px;
 		height: 32px;
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		background: var(--surface-variant);
+		border: 1px solid var(--border);
 		border-radius: 6px;
-		color: rgba(255, 255, 255, 0.7);
+		color: var(--text-secondary);
 		cursor: pointer;
 		transition: all 0.2s ease;
 	}
 
 	.nav-button:hover {
-		background: rgba(255, 255, 255, 0.1);
-		border-color: rgba(255, 255, 255, 0.2);
-		color: rgba(255, 255, 255, 0.9);
+		background: var(--surface-container-high);
+		border-color: var(--outline-variant);
+		color: var(--text-primary);
 	}
 
 	.header-title {
 		flex: 1;
 		padding: 0.5rem 1rem;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		background: var(--surface-variant);
+		border: 1px solid var(--border);
 		border-radius: 6px;
-		color: rgba(255, 255, 255, 0.9);
+		color: var(--text-primary);
 		font-size: 0.9375rem;
 		font-weight: 600;
 		cursor: pointer;
@@ -326,18 +326,18 @@
 	}
 
 	.header-title:hover {
-		background: rgba(255, 255, 255, 0.05);
-		border-color: rgba(255, 255, 255, 0.2);
+		background: var(--surface-container-high);
+		border-color: var(--outline-variant);
 	}
 
 	/* Today Button */
 	.today-button {
 		width: 100%;
 		padding: 0.5rem;
-		background: rgba(100, 150, 255, 0.15);
-		border: 1px solid rgba(100, 150, 255, 0.3);
+		background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+		border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
 		border-radius: 6px;
-		color: rgba(150, 180, 255, 0.95);
+		color: var(--primary-color);
 		font-size: 0.875rem;
 		font-weight: 500;
 		cursor: pointer;
@@ -345,8 +345,8 @@
 	}
 
 	.today-button:hover {
-		background: rgba(100, 150, 255, 0.25);
-		border-color: rgba(100, 150, 255, 0.4);
+		background: color-mix(in srgb, var(--primary-color) 25%, transparent);
+		border-color: color-mix(in srgb, var(--primary-color) 40%, transparent);
 	}
 
 	/* Calendar Grid - Days View */
@@ -361,7 +361,7 @@
 		text-align: center;
 		font-size: 0.75rem;
 		font-weight: 600;
-		color: rgba(255, 255, 255, 0.5);
+		color: var(--text-secondary);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -372,27 +372,27 @@
 		align-items: center;
 		justify-content: center;
 		padding: 0.5rem;
-		background: rgba(255, 255, 255, 0.03);
+		background: var(--surface-variant);
 		border-radius: 4px;
 		font-size: 0.875rem;
-		color: rgba(255, 255, 255, 0.9);
+		color: var(--text-primary);
 		transition: all 0.2s ease;
 		cursor: pointer;
 	}
 
 	.calendar-day:hover {
-		background: rgba(255, 255, 255, 0.08);
+		background: var(--surface-container-high);
 	}
 
 	.calendar-day.other-month {
-		color: rgba(255, 255, 255, 0.3);
-		background: rgba(255, 255, 255, 0.01);
+		color: color-mix(in srgb, var(--text-secondary) 50%, transparent);
+		background: color-mix(in srgb, var(--surface-variant) 30%, transparent);
 	}
 
 	.calendar-day.today {
-		background: rgba(100, 150, 255, 0.3);
-		border: 2px solid rgba(100, 150, 255, 0.6);
-		color: rgba(255, 255, 255, 1);
+		background: color-mix(in srgb, var(--primary-color) 30%, transparent);
+		border: 2px solid color-mix(in srgb, var(--primary-color) 60%, transparent);
+		color: var(--text-primary);
 		font-weight: 700;
 	}
 
@@ -405,10 +405,10 @@
 
 	.month-item {
 		padding: 1rem;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		background: var(--surface-variant);
+		border: 1px solid var(--border);
 		border-radius: 6px;
-		color: rgba(255, 255, 255, 0.9);
+		color: var(--text-primary);
 		font-size: 0.875rem;
 		font-weight: 500;
 		cursor: pointer;
@@ -416,17 +416,17 @@
 	}
 
 	.month-item:hover {
-		background: rgba(255, 255, 255, 0.08);
-		border-color: rgba(255, 255, 255, 0.2);
+		background: var(--surface-container-high);
+		border-color: var(--outline-variant);
 	}
 
 	.month-item.current {
-		border-color: rgba(100, 150, 255, 0.4);
+		border-color: color-mix(in srgb, var(--primary-color) 40%, transparent);
 	}
 
 	.month-item.selected {
-		background: rgba(100, 150, 255, 0.2);
-		border-color: rgba(100, 150, 255, 0.5);
+		background: color-mix(in srgb, var(--primary-color) 20%, transparent);
+		border-color: color-mix(in srgb, var(--primary-color) 50%, transparent);
 	}
 
 	/* Years Grid */
@@ -438,10 +438,10 @@
 
 	.year-item {
 		padding: 1rem;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		background: var(--surface-variant);
+		border: 1px solid var(--border);
 		border-radius: 6px;
-		color: rgba(255, 255, 255, 0.9);
+		color: var(--text-primary);
 		font-size: 0.875rem;
 		font-weight: 500;
 		cursor: pointer;
@@ -449,17 +449,17 @@
 	}
 
 	.year-item:hover {
-		background: rgba(255, 255, 255, 0.08);
-		border-color: rgba(255, 255, 255, 0.2);
+		background: var(--surface-container-high);
+		border-color: var(--outline-variant);
 	}
 
 	.year-item.current {
-		border-color: rgba(100, 150, 255, 0.4);
+		border-color: color-mix(in srgb, var(--primary-color) 40%, transparent);
 	}
 
 	.year-item.selected {
-		background: rgba(100, 150, 255, 0.2);
-		border-color: rgba(100, 150, 255, 0.5);
+		background: color-mix(in srgb, var(--primary-color) 20%, transparent);
+		border-color: color-mix(in srgb, var(--primary-color) 50%, transparent);
 	}
 
 	/* Decades Grid */
@@ -471,10 +471,10 @@
 
 	.decade-item {
 		padding: 1rem;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		background: var(--surface-variant);
+		border: 1px solid var(--border);
 		border-radius: 6px;
-		color: rgba(255, 255, 255, 0.9);
+		color: var(--text-primary);
 		font-size: 0.875rem;
 		font-weight: 500;
 		cursor: pointer;
@@ -482,17 +482,17 @@
 	}
 
 	.decade-item:hover {
-		background: rgba(255, 255, 255, 0.08);
-		border-color: rgba(255, 255, 255, 0.2);
+		background: var(--surface-container-high);
+		border-color: var(--outline-variant);
 	}
 
 	.decade-item.current {
-		border-color: rgba(100, 150, 255, 0.4);
+		border-color: color-mix(in srgb, var(--primary-color) 40%, transparent);
 	}
 
 	.decade-item.selected {
-		background: rgba(100, 150, 255, 0.2);
-		border-color: rgba(100, 150, 255, 0.5);
+		background: color-mix(in srgb, var(--primary-color) 20%, transparent);
+		border-color: color-mix(in srgb, var(--primary-color) 50%, transparent);
 	}
 
 	/* Responsive Design */

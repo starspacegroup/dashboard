@@ -1254,7 +1254,7 @@
 		width: 320px;
 		height: 320px;
 		border-radius: 50%;
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+		box-shadow: 0 8px 32px var(--shadow);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -1347,11 +1347,11 @@
 	}
 
 	.unit-option:hover {
-		background: var(--hover-bg);
+		background: var(--surface-variant);
 	}
 
 	.unit-option.active {
-		background: var(--primary);
+		background: var(--primary-color);
 		color: white;
 	}
 
@@ -1360,9 +1360,9 @@
 		z-index: 3;
 		font-size: 1.75rem;
 		font-weight: 300;
-		color: var(--text-color, rgba(255, 255, 255, 0.95));
+		color: var(--text-color, var(--text-primary));
 		letter-spacing: 0.5px;
-		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+		text-shadow: 0 2px 4px var(--shadow);
 		font-variant-numeric: tabular-nums;
 	}
 
@@ -1370,20 +1370,20 @@
 		position: relative;
 		z-index: 3;
 		font-size: 0.75rem;
-		color: var(--text-color, rgba(255, 255, 255, 0.7));
+		color: var(--text-color, var(--text-secondary));
 		opacity: 0.7;
 		margin-top: 0.25rem;
-		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+		text-shadow: 0 1px 2px var(--shadow);
 	}
 
 	.location {
 		position: relative;
 		z-index: 3;
 		font-size: 1rem;
-		color: var(--text-color, rgba(255, 255, 255, 0.8));
+		color: var(--text-color, var(--text-primary));
 		opacity: 0.8;
 		margin-top: 0.5rem;
-		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+		text-shadow: 0 1px 2px var(--shadow);
 	}
 
 	.time-date-section {
@@ -1404,12 +1404,12 @@
 		z-index: 2;
 		font-size: 5rem;
 		font-weight: 600;
-		color: var(--text-color, rgba(255, 255, 255, 0.98));
+		color: var(--text-color, var(--text-primary));
 		line-height: 1;
 		text-shadow: 
-			0 2px 4px rgba(0, 0, 0, 0.4),
-			0 4px 8px rgba(0, 0, 0, 0.3),
-			0 0 20px rgba(0, 0, 0, 0.2);
+			0 2px 4px var(--shadow),
+			0 4px 8px var(--shadow),
+			0 0 20px var(--shadow);
 		display: flex;
 		align-items: flex-start;
 		justify-content: center;
@@ -1430,8 +1430,8 @@
 		z-index: 2;
 		font-size: 1.5rem;
 		font-weight: 300;
-		color: var(--text-color, rgba(255, 255, 255, 0.9));
-		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+		color: var(--text-color, var(--text-primary));
+		text-shadow: 0 2px 4px var(--shadow);
 		display: flex;
 		align-items: center;
 		gap: 0.3rem;
@@ -1509,9 +1509,9 @@
 		width: 100%;
 		max-width: 320px;
 		padding: 1rem;
-		background: rgba(255, 255, 255, 0.05);
+		background: var(--surface-variant);
 		border-radius: 12px;
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		border: 1px solid var(--border);
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
@@ -1522,7 +1522,7 @@
 		position: absolute;
 		top: 0.5rem;
 		right: 0.5rem;
-		color: rgba(255, 255, 255, 0.5);
+		color: var(--text-secondary);
 		cursor: pointer;
 		transition: all 0.2s ease;
 		display: flex;
@@ -1535,23 +1535,23 @@
 	}
 
 	.close-time-test:hover {
-		color: rgba(255, 255, 255, 0.9);
-		background: rgba(255, 255, 255, 0.1);
+		color: var(--text-primary);
+		background: var(--surface-container-high);
 	}
 
 	.time-test-info {
 		padding: 0.625rem 0.75rem;
-		background: rgba(100, 150, 255, 0.1);
-		border: 1px solid rgba(100, 150, 255, 0.2);
+		background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent);
 		border-radius: 6px;
-		color: rgba(150, 180, 255, 0.95);
+		color: var(--primary-color);
 		font-size: 0.75rem;
 		text-align: center;
 		margin-top: 0.25rem;
 	}
 
 	.time-test-slider label {
-		color: rgba(255, 255, 255, 0.9);
+		color: var(--text-primary);
 		font-size: 0.875rem;
 		font-weight: 500;
 		text-align: center;
@@ -1560,7 +1560,7 @@
 	.time-test-slider input[type="range"] {
 		width: 100%;
 		height: 6px;
-		background: rgba(255, 255, 255, 0.1);
+		background: var(--surface-container-high);
 		border-radius: 3px;
 		outline: none;
 		appearance: none;
@@ -1572,26 +1572,26 @@
 		appearance: none;
 		width: 18px;
 		height: 18px;
-		background: rgba(255, 255, 255, 0.9);
+		background: var(--text-primary);
 		border-radius: 50%;
 		cursor: pointer;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+		box-shadow: 0 2px 4px var(--shadow);
 	}
 
 	.time-test-slider input[type="range"]::-moz-range-thumb {
 		width: 18px;
 		height: 18px;
-		background: rgba(255, 255, 255, 0.9);
+		background: var(--text-primary);
 		border-radius: 50%;
 		cursor: pointer;
 		border: none;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+		box-shadow: 0 2px 4px var(--shadow);
 	}
 
 	.slider-labels {
 		display: flex;
 		justify-content: space-between;
-		color: rgba(255, 255, 255, 0.6);
+		color: var(--text-secondary);
 		font-size: 0.75rem;
 	}
 
@@ -1606,7 +1606,7 @@
 
 	.time-test-link {
 		font-size: 0.8125rem;
-		color: rgba(255, 255, 255, 0.5);
+		color: var(--text-secondary);
 		text-decoration: none;
 		padding: 0.5rem 1rem;
 		border-radius: 6px;
@@ -1614,8 +1614,8 @@
 	}
 
 	.time-test-link:hover {
-		color: rgba(255, 255, 255, 0.8);
-		background: rgba(255, 255, 255, 0.05);
+		color: var(--text-primary);
+		background: var(--surface-variant);
 	}
 
 	/* No Location Message */
@@ -1631,7 +1631,7 @@
 
 	.no-location-message p {
 		font-size: 1.125rem;
-		color: rgba(255, 255, 255, 0.7);
+		color: var(--text-secondary);
 		text-align: center;
 		margin: 0;
 	}
@@ -1640,17 +1640,17 @@
 		padding: 0.75rem 1.5rem;
 		font-size: 0.9375rem;
 		font-weight: 600;
-		background: rgba(100, 150, 255, 0.2);
-		border: 1px solid rgba(100, 150, 255, 0.4);
+		background: color-mix(in srgb, var(--primary-color) 20%, transparent);
+		border: 1px solid color-mix(in srgb, var(--primary-color) 40%, transparent);
 		border-radius: 8px;
-		color: rgba(150, 180, 255, 0.95);
+		color: var(--primary-color);
 		cursor: pointer;
 		transition: all 0.2s ease;
 	}
 
 	.share-location-button:hover {
-		background: rgba(100, 150, 255, 0.3);
-		border-color: rgba(100, 150, 255, 0.6);
+		background: color-mix(in srgb, var(--primary-color) 30%, transparent);
+		border-color: color-mix(in srgb, var(--primary-color) 60%, transparent);
 		transform: translateY(-1px);
 	}
 
@@ -1678,41 +1678,41 @@
 		flex: 1;
 		padding: 0.6rem 0.875rem;
 		font-size: 0.875rem;
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.2);
+		background: var(--surface-variant);
+		border: 1px solid var(--border);
 		border-radius: 8px;
-		color: rgba(255, 255, 255, 0.95);
+		color: var(--text-primary);
 		outline: none;
 		transition: all 0.2s ease;
 		font-family: inherit;
 	}
 
 	.zip-input::placeholder {
-		color: rgba(255, 255, 255, 0.4);
+		color: var(--text-secondary);
 	}
 
 	.zip-input:focus {
-		background: rgba(255, 255, 255, 0.08);
-		border-color: rgba(255, 255, 255, 0.4);
-		box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+		background: var(--surface-container-high);
+		border-color: var(--outline-variant);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 10%, transparent);
 	}
 
 	.zip-submit {
 		padding: 0.6rem 1.25rem;
 		font-size: 0.875rem;
 		font-weight: 600;
-		background: rgba(255, 255, 255, 0.15);
-		border: 1px solid rgba(255, 255, 255, 0.3);
+		background: var(--surface-container-high);
+		border: 1px solid var(--outline-variant);
 		border-radius: 8px;
-		color: rgba(255, 255, 255, 0.95);
+		color: var(--text-primary);
 		cursor: pointer;
 		transition: all 0.2s ease;
 		white-space: nowrap;
 	}
 
 	.zip-submit:hover {
-		background: rgba(255, 255, 255, 0.25);
-		border-color: rgba(255, 255, 255, 0.4);
+		background: var(--surface-container-highest);
+		border-color: var(--outline-variant);
 	}
 
 	.zip-submit:active {
@@ -1722,10 +1722,10 @@
 	.reset-button {
 		width: 100%;
 		padding: 0.6rem;
-		background: rgba(100, 150, 255, 0.15);
-		border: 1px solid rgba(100, 150, 255, 0.3);
+		background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+		border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
 		border-radius: 8px;
-		color: rgba(150, 180, 255, 0.95);
+		color: var(--primary-color);
 		cursor: pointer;
 		transition: all 0.2s ease;
 		display: flex;
@@ -1734,8 +1734,8 @@
 	}
 
 	.reset-button:hover {
-		background: rgba(100, 150, 255, 0.25);
-		border-color: rgba(100, 150, 255, 0.4);
+		background: color-mix(in srgb, var(--primary-color) 25%, transparent);
+		border-color: color-mix(in srgb, var(--primary-color) 40%, transparent);
 	}
 
 	.reset-button:active {
@@ -1747,8 +1747,8 @@
 		width: 100%;
 		max-width: 500px;
 		margin-top: 1.5rem;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		background: var(--surface-variant);
+		border: 1px solid var(--border);
 		border-radius: 12px;
 		backdrop-filter: blur(10px);
 		overflow: hidden;
@@ -1767,19 +1767,19 @@
 	}
 
 	.data-table-header:hover {
-		background: rgba(255, 255, 255, 0.05);
+		background: var(--surface-container-high);
 	}
 
 	.data-table-header h3 {
 		margin: 0;
 		font-size: 1rem;
 		font-weight: 600;
-		color: rgba(255, 255, 255, 0.9);
+		color: var(--text-primary);
 		text-align: left;
 	}
 
 	.collapse-icon {
-		color: rgba(255, 255, 255, 0.7);
+		color: var(--text-secondary);
 		transition: transform 0.3s ease;
 		flex-shrink: 0;
 	}
@@ -1796,7 +1796,7 @@
 	}
 
 	.data-table tbody tr {
-		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+		border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
 	}
 
 	.data-table tbody tr:last-child {
@@ -1804,7 +1804,7 @@
 	}
 
 	.data-table tbody tr.section-header {
-		border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+		border-bottom: 1px solid var(--border);
 	}
 
 	.data-table tbody tr.section-header td {
@@ -1813,7 +1813,7 @@
 		font-size: 0.75rem;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		color: rgba(255, 255, 255, 0.6);
+		color: var(--text-secondary);
 		text-align: left;
 	}
 
@@ -1823,18 +1823,18 @@
 
 	.data-table td {
 		padding: 0.5rem;
-		color: rgba(255, 255, 255, 0.85);
+		color: var(--on-surface);
 	}
 
 	.data-table td:first-child {
 		font-weight: 500;
-		color: rgba(255, 255, 255, 0.7);
+		color: var(--text-secondary);
 		width: 45%;
 	}
 
 	.data-table td:last-child {
 		text-align: right;
-		color: rgba(255, 255, 255, 0.95);
+		color: var(--text-primary);
 		font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
 	}
 
