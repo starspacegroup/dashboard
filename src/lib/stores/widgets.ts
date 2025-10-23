@@ -251,6 +251,15 @@ function createWidgetStore() {
 				return updatedWidgets;
 			});
 		},
+		updateTitle: (id: string, title: string) => {
+			update((widgets) => {
+				const updatedWidgets = widgets.map((widget) =>
+					widget.id === id ? { ...widget, title } : widget
+				);
+				saveWidgets(updatedWidgets);
+				return updatedWidgets;
+			});
+		},
 		reset: () => {
 			set(defaultWidgets);
 			saveWidgets(defaultWidgets);

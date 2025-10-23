@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { widgets } from '$lib/stores/widgets';
+	import type { Widget } from '$lib/types/widget';
 
 	type ViewMode = 'days' | 'months' | 'years' | 'decades';
 
@@ -19,6 +21,25 @@
 	];
 
 	const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+	// Get ordinal suffix for day (1st, 2nd, 3rd, etc.)
+	function getOrdinalSuffix(day: number): string {
+		if (day > 3 && day < 21) return 'th';
+		switch (day % 10) {
+			case 1: return 'st';
+			case 2: return 'nd';
+			case 3: return 'rd';
+			default: return 'th';
+		}
+	}
+
+	// Format today's date as "Today: 2025 October 23rd"
+	const todayFormatted = `(Today: ${currentYear} ${monthNames[currentMonth]} ${currentDay}${getOrdinalSuffix(currentDay)})`;
+
+	// Update the calendar widget title on mount
+	onMount(() => {
+		widgets.updateTitle('calendar-1', `Calendar ${todayFormatted}`);
+	});
 
 	function getDaysInMonth(year: number, month: number): number {
 		return new Date(year, month + 1, 0).getDate();
