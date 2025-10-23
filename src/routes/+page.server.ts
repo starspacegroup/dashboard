@@ -53,7 +53,12 @@ interface ExtendedSession {
 export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const session = await locals.getSession() as ExtendedSession | null;
 
+	console.log('[DEBUG] Session exists:', !!session);
+	console.log('[DEBUG] User exists:', !!session?.user);
+	console.log('[DEBUG] User login:', session?.user?.login);
+
 	if (!session?.user) {
+		console.log('[DEBUG] No user in session, returning empty');
 		return {
 			user: null,
 			githubProjects: [],
@@ -65,7 +70,11 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	try {
 		// Get the user's access token from the session
 		const accessToken = session.accessToken;
+		console.log('[DEBUG] Access token exists:', !!accessToken);
+		console.log('[DEBUG] Access token length:', accessToken?.length);
+
 		if (!accessToken) {
+			console.error('[ERROR] No access token in session!');
 			return {
 				user: session.user,
 				githubProjects: [],
@@ -181,6 +190,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		`;
 
 		try {
+			console.log('[DEBUG] Fetching GitHub Projects via GraphQL...');
+
 			const graphqlResponse = await fetch('https://api.github.com/graphql', {
 				method: 'POST',
 				headers: {
@@ -190,10 +201,13 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				body: JSON.stringify({ query: projectsQuery })
 			});
 
+			console.log('[DEBUG] GraphQL Response Status:', graphqlResponse.status);
+			console.log('[DEBUG] GraphQL Response OK:', graphqlResponse.ok);
+
 			if (graphqlResponse.ok) {
 				const result = await graphqlResponse.json();
 
-				console.log('GraphQL Response:', JSON.stringify(result, null, 2));
+				console.log('[DEBUG] GraphQL Response:', JSON.stringify(result, null, 2));
 
 				// Check for errors in the response
 				if (result.errors) {
@@ -242,13 +256,17 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 					}
 				}
 
-				console.log('Total GitHub Projects found:', allGithubProjects.length);
+				console.log('[DEBUG] Total GitHub Projects found:', allGithubProjects.length);
 			} else {
 				const errorText = await graphqlResponse.text();
-				console.error('GraphQL Response not OK:', graphqlResponse.status, errorText);
+				console.error('[ERROR] GraphQL Response not OK:', graphqlResponse.status, errorText);
 			}
 		} catch (error) {
-			console.error('Failed to fetch GitHub Projects:', error);
+			console.error('[ERROR] Failed to fetch GitHub Projects:', error);
+			if (error instanceof Error) {
+				console.error('[ERROR] Error message:', error.message);
+				console.error('[ERROR] Error stack:', error.stack);
+			}
 		}
 
 		return {
