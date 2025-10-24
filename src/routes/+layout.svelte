@@ -2,6 +2,7 @@
 	import '../app.css';
 	import { theme } from '$lib/stores/theme';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import Footer from '$lib/components/Footer.svelte';
 	import { onMount } from 'svelte';
 	import type { Theme } from '$lib/stores/theme';
 
@@ -89,6 +90,8 @@
 	<main>
 		<slot />
 	</main>
+
+	<Footer />
 </div>
 
 <style>
