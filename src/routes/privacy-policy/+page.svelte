@@ -1,3 +1,7 @@
+<script>
+	import '$lib/styles/legal-page.css';
+</script>
+
 <svelte:head>
 	<title>Privacy Policy - Dashboard</title>
 	<meta name="description" content="Privacy Policy for Dashboard" />
@@ -7,7 +11,7 @@
 	<div class="legal-content">
 		<h1>Privacy Policy</h1>
 		
-		<p class="last-updated">Last Updated: {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+		<p class="last-updated">Last Updated: October 24, 2025</p>
 
 		<section>
 			<h2>1. Introduction</h2>
@@ -95,71 +99,3 @@
 		</section>
 	</div>
 </div>
-
-<style>
-	.legal-page {
-		max-width: 800px;
-		margin: 0 auto;
-		padding: 2rem;
-	}
-
-	.legal-content {
-		background-color: var(--surface);
-		border-radius: 0.5rem;
-		padding: 2rem;
-		box-shadow: 0 1px 3px var(--shadow);
-	}
-
-	h1 {
-		color: var(--text-primary);
-		font-size: 2rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.last-updated {
-		color: var(--text-secondary);
-		font-size: 0.875rem;
-		margin-bottom: 2rem;
-		font-style: italic;
-	}
-
-	section {
-		margin-bottom: 2rem;
-	}
-
-	h2 {
-		color: var(--text-primary);
-		font-size: 1.25rem;
-		margin-bottom: 1rem;
-	}
-
-	p {
-		color: var(--text-primary);
-		line-height: 1.8;
-		margin-bottom: 1rem;
-	}
-
-	ul {
-		margin-left: 2rem;
-		margin-bottom: 1rem;
-	}
-
-	li {
-		color: var(--text-primary);
-		line-height: 1.8;
-		margin-bottom: 0.5rem;
-	}
-
-	a {
-		color: var(--primary-color);
-		text-decoration: none;
-	}
-
-	a:hover {
-		text-decoration: underline;
-	}
-
-	strong {
-		font-weight: 600;
-	}
-</style>
