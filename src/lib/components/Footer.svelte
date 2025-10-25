@@ -9,7 +9,7 @@
 			<a href="/privacy-policy" class="footer-link">Privacy Policy</a>
 		</div>
 		<div class="footer-attribution">
-			Built at <a href="https://starspace.group" target="_blank" rel="noopener noreferrer" class="footer-link">*Space</a>
+			Built at <a href="https://starspace.group" target="_blank" rel="noopener noreferrer" class="footer-link">*Space</a> | Open Source on <a href="https://github.com/starspacegroup/dashboard" target="_blank" rel="noopener noreferrer" class="footer-link">GitHub</a>
 		</div>
 	</div>
 </footer>
