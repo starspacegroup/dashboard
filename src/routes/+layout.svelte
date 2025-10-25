@@ -1,7 +1,9 @@
 <script lang="ts">
 	import '../app.css';
 	import { theme } from '$lib/stores/theme';
+	import { voiceChat } from '$lib/stores/voiceChat';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import VoiceChat from '$lib/components/VoiceChat.svelte';
 	import { onMount } from 'svelte';
 	import type { Theme } from '$lib/stores/theme';
 
@@ -9,11 +11,16 @@
 
 	let currentTheme: Theme = 'auto';
 	let commandPaletteOpen = false;
+	let voiceChatOpen = false;
 
 	onMount(() => {
 		theme.initialize();
-		const unsubscribe = theme.subscribe(t => {
+		const unsubscribeTheme = theme.subscribe(t => {
 			currentTheme = t;
+		});
+
+		const unsubscribeVoiceChat = voiceChat.subscribe(isOpen => {
+			voiceChatOpen = isOpen;
 		});
 
 		// Global keyboard handler for Esc key
@@ -31,7 +38,8 @@
 		window.addEventListener('keydown', handleGlobalKeyDown);
 
 		return () => {
-			unsubscribe();
+			unsubscribeTheme();
+			unsubscribeVoiceChat();
 			window.removeEventListener('keydown', handleGlobalKeyDown);
 		};
 	});
@@ -59,9 +67,14 @@
 	function openCommandPalette() {
 		commandPaletteOpen = true;
 	}
+
+	function handleVoiceChatClose() {
+		voiceChat.close();
+	}
 </script>
 
 <CommandPalette isOpen={commandPaletteOpen} onClose={handleCommandPaletteClose} />
+<VoiceChat isOpen={voiceChatOpen} onClose={handleVoiceChatClose} />
 
 <div class="app">
 	<header>

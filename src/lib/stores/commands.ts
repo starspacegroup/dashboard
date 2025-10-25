@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import { theme } from './theme';
+import { voiceChat } from './voiceChat';
 import { browser } from '$app/environment';
 
 export interface Command {
@@ -66,6 +67,16 @@ function createCommandsStore() {
       category: 'theme',
       execute: () => {
         theme.setTheme('auto');
+      }
+    },
+    {
+      id: 'voice-chat',
+      name: 'Start Voice Chat',
+      description: 'Open AI voice assistant chat session',
+      shortcut: 'voice',
+      category: 'custom',
+      execute: () => {
+        voiceChat.open();
       }
     }
   ];

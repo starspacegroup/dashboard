@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "vite dev",
+    "dev:wrangler": "wrangler pages dev .svelte-kit/cloudflare --compatibility-date=2024-01-01 --port=5173",
     "build": "vite build",
     "preview": "vite preview",
+    "preview:wrangler": "npm run build && wrangler pages dev .svelte-kit/cloudflare",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "lint": "eslint ."

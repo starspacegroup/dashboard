@@ -1,0 +1,8 @@
+# Copy this to .dev.vars and add your actual values
+CLOUDFLARE_ACCOUNT_ID=your_account_id
+CLOUDFLARE_API_TOKEN=your_api_token
+GITHUB_ID=your_github_id
+GITHUB_SECRET=your_github_secret
+AUTH_SECRET=your_auth_secret
+OPENWEATHER_API_KEY=your_openweather_key
+GOOGLE_MAPS_API_KEY=your_google_maps_key
