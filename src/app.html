@@ -4,6 +4,39 @@
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script>
+			// Prevent FOUC by applying theme before page renders
+			(function() {
+				const THEME_STORAGE_KEY = 'dashboard-theme';
+				
+				function getSystemTheme() {
+					return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+				}
+				
+				function getStoredTheme() {
+					try {
+						const stored = localStorage.getItem(THEME_STORAGE_KEY);
+						if (stored === 'light' || stored === 'dark' || stored === 'auto') {
+							return stored;
+						}
+					} catch (error) {
+						console.warn('Failed to load theme from localStorage:', error);
+					}
+					return 'auto';
+				}
+				
+				const theme = getStoredTheme();
+				const resolvedTheme = theme === 'auto' ? getSystemTheme() : theme;
+				
+				if (resolvedTheme === 'dark') {
+					document.documentElement.classList.add('dark');
+					document.documentElement.classList.remove('light');
+				} else {
+					document.documentElement.classList.add('light');
+					document.documentElement.classList.remove('dark');
+				}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
