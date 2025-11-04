@@ -12,6 +12,7 @@
 	interface WeatherData {
 		temperature: number;
 		humidity: number;
+		dewPoint: number;
 		condition: string;
 		description: string;
 		location: string;
@@ -31,6 +32,7 @@
 		temperature: number;
 		feelsLike: number;
 		humidity: number;
+		dewPoint: number;
 		condition: string;
 		icon: string;
 	}
@@ -39,6 +41,7 @@
 	let currentDate = '';
 	let temperature = 72;
 	let humidity = 65;
+	let dewPoint = 50;
 	let location = 'Lewiston, ME';
 	let condition = 'partly-cloudy';
 	let hourlyData: HourlyData[] = [];
@@ -288,6 +291,7 @@
 	function applyWeatherData(data: WeatherData) {
 		temperature = data.temperature;
 		humidity = data.humidity;
+		dewPoint = data.dewPoint || 0;
 		location = data.location;
 		description = data.description || '';
 		hourlyData = data.hourly || [];
@@ -336,6 +340,34 @@
 			const x = padding + (index / (hourly.length - 1)) * (width - 2 * padding);
 			const normalizedTemp = (hour.temperature - minTemp) / tempRange;
 			const y = height - padding - normalizedTemp * (height - 2 * padding);
+			return `${x},${y}`;
+		});
+
+		// Create simple polyline path
+		return `M ${points.join(' L ')}`;
+	}
+
+	// Generate SVG path for dew point graph
+	$: dewPointPath = generateDewPointPath(hourlyData);
+
+	function generateDewPointPath(hourly: HourlyData[]): string {
+		if (hourly.length === 0) return '';
+
+		const width = 320;
+		const height = 60;
+		const padding = 0;
+
+		// Find min and max dew points for scaling (always use Fahrenheit for graph)
+		const dewPoints = hourly.map(h => h.dewPoint);
+		const minDewPoint = Math.min(...dewPoints);
+		const maxDewPoint = Math.max(...dewPoints);
+		const dewPointRange = maxDewPoint - minDewPoint || 10; // Avoid division by zero
+
+		// Generate path points - simple line connecting all 24 points
+		const points = hourly.map((hour, index) => {
+			const x = padding + (index / (hourly.length - 1)) * (width - 2 * padding);
+			const normalizedDewPoint = (hour.dewPoint - minDewPoint) / dewPointRange;
+			const y = height - padding - normalizedDewPoint * (height - 2 * padding);
 			return `${x},${y}`;
 		});
 
@@ -1133,6 +1165,36 @@
 					<td>Humidity</td>
 					<td>{humidity}%</td>
 				</tr>
+				<tr>
+					<td>Dew Point</td>
+					<td>{isCelsius ? Math.round((dewPoint - 32) * 5 / 9) : dewPoint}°{isCelsius ? 'C' : 'F'} ({dewPoint}°F)</td>
+				</tr>
+				{#if hourlyData.length > 0}
+				<tr>
+					<td colspan="2" style="padding: 0.75rem 0.5rem;">
+						<div style="display: flex; flex-direction: column; gap: 0.25rem;">
+							<span style="font-weight: 500; color: var(--text-secondary); font-size: 0.8125rem;">Dew Point (24h Trend)</span>
+							<svg width="320" height="60" viewBox="0 0 320 60" style="width: 100%; height: auto;">
+								<defs>
+									<linearGradient id="dewPointGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+										<stop offset="0%" stop-color="#60a5fa" />
+										<stop offset="50%" stop-color="#3b82f6" />
+										<stop offset="100%" stop-color="#2563eb" />
+									</linearGradient>
+								</defs>
+								<path
+									d={dewPointPath}
+									fill="none"
+									stroke="url(#dewPointGradient)"
+									stroke-width="3"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</div>
+					</td>
+				</tr>
+				{/if}
 				<tr>
 					<td>Condition</td>
 					<td>{condition.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</td>
