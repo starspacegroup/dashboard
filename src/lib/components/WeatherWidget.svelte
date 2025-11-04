@@ -351,8 +351,8 @@
 		: '';
 
 	// Generate SVG path for dew point graph
-	$: dewPointPath = hourlyData.length > 0
-		? generateGraphPath(hourlyData.map(h => h.dewPoint), 320, 60)
+	$: dewPointPath = hourlyData.length > 0 && hourlyData.some(h => h.dewPoint !== undefined && h.dewPoint !== 0)
+		? generateGraphPath(hourlyData.map(h => h.dewPoint || 0), 320, 60)
 		: '';
 
 	function formatHour(timestamp: number): string {
