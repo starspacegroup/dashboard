@@ -12,6 +12,7 @@
 	interface WeatherData {
 		temperature: number;
 		humidity: number;
+		dewPoint: number;
 		condition: string;
 		description: string;
 		location: string;
@@ -31,6 +32,7 @@
 		temperature: number;
 		feelsLike: number;
 		humidity: number;
+		dewPoint: number;
 		condition: string;
 		icon: string;
 	}
@@ -39,6 +41,7 @@
 	let currentDate = '';
 	let temperature = 72;
 	let humidity = 65;
+	let dewPoint = 50;
 	let location = 'Lewiston, ME';
 	let condition = 'partly-cloudy';
 	let hourlyData: HourlyData[] = [];
@@ -288,6 +291,7 @@
 	function applyWeatherData(data: WeatherData) {
 		temperature = data.temperature;
 		humidity = data.humidity;
+		dewPoint = data.dewPoint || 0;
 		location = data.location;
 		description = data.description || '';
 		hourlyData = data.hourly || [];
@@ -315,33 +319,41 @@
 		}
 	}
 
-	// Generate SVG path for temperature graph
-	$: temperaturePath = generateTemperaturePath(hourlyData);
+	// Helper function to generate SVG path from data points
+	function generateGraphPath(
+		data: number[],
+		width: number,
+		height: number,
+		padding = 0
+	): string {
+		if (data.length === 0) return '';
 
-	function generateTemperaturePath(hourly: HourlyData[]): string {
-		if (hourly.length === 0) return '';
+		// Find min and max values for scaling
+		const minValue = Math.min(...data);
+		const maxValue = Math.max(...data);
+		const valueRange = maxValue - minValue || 10; // Avoid division by zero
 
-		const width = 320;
-		const height = 80;
-		const padding = 0;
-
-		// Find min and max temperatures for scaling (always use Fahrenheit for graph)
-		const temps = hourly.map(h => h.temperature);
-		const minTemp = Math.min(...temps);
-		const maxTemp = Math.max(...temps);
-		const tempRange = maxTemp - minTemp || 10; // Avoid division by zero
-
-		// Generate path points - simple line connecting all 24 points
-		const points = hourly.map((hour, index) => {
-			const x = padding + (index / (hourly.length - 1)) * (width - 2 * padding);
-			const normalizedTemp = (hour.temperature - minTemp) / tempRange;
-			const y = height - padding - normalizedTemp * (height - 2 * padding);
+		// Generate path points - simple line connecting all points
+		const points = data.map((value, index) => {
+			const x = padding + (index / (data.length - 1)) * (width - 2 * padding);
+			const normalizedValue = (value - minValue) / valueRange;
+			const y = height - padding - normalizedValue * (height - 2 * padding);
 			return `${x},${y}`;
 		});
 
 		// Create simple polyline path
 		return `M ${points.join(' L ')}`;
 	}
+
+	// Generate SVG path for temperature graph
+	$: temperaturePath = hourlyData.length > 0
+		? generateGraphPath(hourlyData.map(h => h.temperature), 320, 80)
+		: '';
+
+	// Generate SVG path for dew point graph
+	$: dewPointPath = hourlyData.length > 0 && hourlyData.some(h => h.dewPoint !== undefined && h.dewPoint !== 0)
+		? generateGraphPath(hourlyData.map(h => h.dewPoint || 0), 320, 60)
+		: '';
 
 	function formatHour(timestamp: number): string {
 		const date = new Date(timestamp * 1000);
@@ -1133,6 +1145,36 @@
 					<td>Humidity</td>
 					<td>{humidity}%</td>
 				</tr>
+				<tr>
+					<td>Dew Point</td>
+					<td>{convertTemp(dewPoint)}°{isCelsius ? 'C' : 'F'} ({dewPoint}°F)</td>
+				</tr>
+				{#if hourlyData.length > 0}
+				<tr>
+					<td colspan="2" style="padding: 0.75rem 0.5rem;">
+						<div style="display: flex; flex-direction: column; gap: 0.25rem;">
+							<span style="font-weight: 500; color: var(--text-secondary); font-size: 0.8125rem;">Dew Point (24h Trend)</span>
+							<svg width="320" height="60" viewBox="0 0 320 60" style="width: 100%; height: auto;">
+								<defs>
+									<linearGradient id="dewPointGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+										<stop offset="0%" stop-color="#60a5fa" />
+										<stop offset="50%" stop-color="#3b82f6" />
+										<stop offset="100%" stop-color="#2563eb" />
+									</linearGradient>
+								</defs>
+								<path
+									d={dewPointPath}
+									fill="none"
+									stroke="url(#dewPointGradient)"
+									stroke-width="3"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</div>
+					</td>
+				</tr>
+				{/if}
 				<tr>
 					<td>Condition</td>
 					<td>{condition.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</td>

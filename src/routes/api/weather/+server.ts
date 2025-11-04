@@ -74,6 +74,7 @@ export const GET: RequestHandler = async ({ url }) => {
       temperature: Math.round(hour.temp),
       feelsLike: Math.round(hour.feels_like),
       humidity: hour.humidity,
+      dewPoint: Math.round(hour.dew_point),
       condition: hour.weather[0].main.toLowerCase(),
       icon: hour.weather[0].icon
     }));
@@ -82,6 +83,7 @@ export const GET: RequestHandler = async ({ url }) => {
     const weatherData = {
       temperature: Math.round(data.current.temp),
       humidity: data.current.humidity,
+      dewPoint: Math.round(data.current.dew_point),
       condition: data.current.weather[0].main.toLowerCase(),
       description: data.current.weather[0].description,
       location: await getLocationName(latitude, longitude),
@@ -126,6 +128,7 @@ async function fallbackToCurrentWeather(lat: string, lon: string) {
     const weatherData = {
       temperature: Math.round(data.main.temp),
       humidity: data.main.humidity,
+      dewPoint: 0, // Fallback API doesn't have dew point data
       condition: data.weather[0].main.toLowerCase(),
       description: data.weather[0].description,
       location: `${data.name}, ${data.sys.country}`,
