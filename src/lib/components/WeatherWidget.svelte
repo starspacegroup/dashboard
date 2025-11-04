@@ -1147,7 +1147,7 @@
 				</tr>
 				<tr>
 					<td>Dew Point</td>
-					<td>{isCelsius ? Math.round((dewPoint - 32) * 5 / 9) : dewPoint}°{isCelsius ? 'C' : 'F'} ({dewPoint}°F)</td>
+					<td>{convertTemp(dewPoint)}°{isCelsius ? 'C' : 'F'} ({dewPoint}°F)</td>
 				</tr>
 				{#if hourlyData.length > 0}
 				<tr>
