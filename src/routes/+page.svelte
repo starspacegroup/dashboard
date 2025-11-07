@@ -5,6 +5,7 @@
 	import GithubWidget from '$lib/components/GithubWidget.svelte';
 	import OrganizationProjectsWidget from '$lib/components/OrganizationProjectsWidget.svelte';
 	import GithubProjectsWidget from '$lib/components/GithubProjectsWidget.svelte';
+	import SpotifyWidget from '$lib/components/SpotifyWidget.svelte';
 	import ColumnLayout from '$lib/components/ColumnLayout.svelte';
 	import { widgets, sections } from '$lib/stores/widgets';
 	import { onMount } from 'svelte';
@@ -18,7 +19,8 @@
 		CalendarWidget,
 		GithubWidget,
 		OrganizationProjectsWidget,
-		GithubProjectsWidget
+		GithubProjectsWidget,
+		SpotifyWidget
 	};
 
 	// Load data on mount

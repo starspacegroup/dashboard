@@ -48,6 +48,8 @@ interface ExtendedSession {
 		login?: string;
 	};
 	accessToken?: string;
+	spotifyAccessToken?: string;
+	spotifyRefreshToken?: string;
 }
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
@@ -63,7 +65,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			user: null,
 			githubProjects: [],
 			organizationProjects: [],
-			allGithubProjects: []
+			allGithubProjects: [],
+			isSpotifyAuthenticated: false
 		};
 	}
 
@@ -79,7 +82,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				user: session.user,
 				githubProjects: [],
 				organizationProjects: [],
-				allGithubProjects: []
+				allGithubProjects: [],
+				isSpotifyAuthenticated: !!session.spotifyAccessToken
 			};
 		}
 
@@ -285,6 +289,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		user: session?.user || null,
 		githubProjects: [],
 		organizationProjects: [],
-		allGithubProjects: []
+		allGithubProjects: [],
+		isSpotifyAuthenticated: !!session?.spotifyAccessToken
 	};
 };

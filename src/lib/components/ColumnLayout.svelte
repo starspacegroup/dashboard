@@ -193,6 +193,8 @@
 									<svelte:component this={widgetComponents.OrganizationProjectsWidget} organizationProjects={data.organizationProjects || []} />
 								{:else if widget.type === 'github-projects'}
 									<svelte:component this={widgetComponents.GithubProjectsWidget} projects={data.allGithubProjects || []} isLoggedIn={!!data.user} />
+								{:else if widget.type === 'spotify'}
+									<svelte:component this={widgetComponents.SpotifyWidget} isAuthenticated={data.isSpotifyAuthenticated || false} />
 								{/if}
 							</Widget>
 						</div>
