@@ -11,12 +11,16 @@ Pages.
 - 🌤️ **Weather Widget**: Displays current weather information
 - 🚗 **Traffic Widget**: Shows traffic conditions for common routes
 - 📅 **Calendar Widget**: Displays upcoming events and appointments
+- 🎵 **Spotify Widget**: Shows your current player state and playlists when
+  connected
 - 🐙 **GitHub Personal Repositories**: Shows your personal GitHub repositories
   when logged in
 - 🏢 **Organization Projects**: Shows projects from all your GitHub
   organizations in tile format
 - 🔐 **GitHub OAuth**: Sign-in to view your GitHub projects and organization
   repositories
+- 🎶 **Spotify OAuth**: Connect your Spotify account to see your current player
+  and playlists
 
 ## Screenshots
 
@@ -64,13 +68,22 @@ cp .env.example .env
    - The app will request the following scopes: `read:user`, `user:email`,
      `read:org`, `repo`
 
-5. Start the development server:
+5. (Optional) Configure Spotify OAuth:
+   - Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/applications)
+   - Create a new App
+   - Set the Redirect URI to: `http://localhost:5173/auth/callback/spotify`
+   - Add your Client ID and Client Secret to the `.env` file
+   - The app will request the following scopes: `user-read-email`, `user-read-private`,
+     `user-read-playback-state`, `user-read-currently-playing`, `user-read-recently-played`,
+     `playlist-read-private`, `playlist-read-collaborative`
+
+6. Start the development server:
 
 ```bash
 npm run dev
 ```
 
-6. Open [http://localhost:5173](http://localhost:5173) in your browser
+7. Open [http://localhost:5173](http://localhost:5173) in your browser
 
 ### Build
 
@@ -98,6 +111,8 @@ This app is configured to deploy to Cloudflare Pages:
 4. Add your environment variables in Cloudflare Pages settings:
    - `GITHUB_ID`
    - `GITHUB_SECRET`
+   - `SPOTIFY_CLIENT_ID`
+   - `SPOTIFY_CLIENT_SECRET`
    - `AUTH_SECRET`
    - `AUTH_TRUST_HOST=true`
 
