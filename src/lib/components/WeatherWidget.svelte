@@ -111,14 +111,6 @@
 		}
 	}
 
-	// Convert temperature based on unit preference
-	function convertTemp(temp: number): number {
-		if (isCelsius) {
-			return Math.round((temp - 32) * 5 / 9);
-		}
-		return temp;
-	}
-
 	// Reactive temperature display - explicitly depends on both temperature and isCelsius
 	$: displayTemp = isCelsius ? Math.round((temperature - 32) * 5 / 9) : temperature;
 
@@ -1139,7 +1131,7 @@
 				</tr>
 				<tr>
 					<td>Temperature</td>
-					<td>{displayTemp}°{isCelsius ? 'C' : 'F'} ({temperature}°F)</td>
+					<td>{temperature}°F</td>
 				</tr>
 				<tr>
 					<td>Humidity</td>
@@ -1147,7 +1139,7 @@
 				</tr>
 				<tr>
 					<td>Dew Point</td>
-					<td>{convertTemp(dewPoint)}°{isCelsius ? 'C' : 'F'} ({dewPoint}°F)</td>
+					<td>{dewPoint}°F</td>
 				</tr>
 				{#if hourlyData.length > 0}
 				<tr>
