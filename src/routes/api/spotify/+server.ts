@@ -32,10 +32,12 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 		let playerState = null;
 		if (playerResponse.ok) {
-			// Only parse JSON if there's content
-			const contentLength = playerResponse.headers.get('content-length');
-			if (contentLength && parseInt(contentLength) > 0) {
-				playerState = await playerResponse.json();
+			// Spotify returns 204 No Content when nothing is playing
+			if (playerResponse.status !== 204) {
+				const text = await playerResponse.text();
+				if (text) {
+					playerState = JSON.parse(text);
+				}
 			}
 		}
 

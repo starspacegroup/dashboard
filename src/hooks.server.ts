@@ -58,9 +58,15 @@ export const { handle } = SvelteKitAuth({
 			if (session.user && token) {
 				// Add GitHub username and access token to session
 				(session.user as ExtendedUser).login = token.login as string;
-				(session as ExtendedSession).accessToken = token.accessToken as string;
-				(session as ExtendedSession).spotifyAccessToken = token.spotifyAccessToken as string;
-				(session as ExtendedSession).spotifyRefreshToken = token.spotifyRefreshToken as string;
+				if (token.accessToken) {
+					(session as ExtendedSession).accessToken = token.accessToken as string;
+				}
+				if (token.spotifyAccessToken) {
+					(session as ExtendedSession).spotifyAccessToken = token.spotifyAccessToken as string;
+				}
+				if (token.spotifyRefreshToken) {
+					(session as ExtendedSession).spotifyRefreshToken = token.spotifyRefreshToken as string;
+				}
 			}
 			return session;
 		},

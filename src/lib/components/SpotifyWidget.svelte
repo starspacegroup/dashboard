@@ -56,7 +56,7 @@
 			if (!response.ok) {
 				if (response.status === 401) {
 					error = 'Please connect your Spotify account';
-					isAuthenticated = false;
+					// Don't modify the prop directly - just show error
 				} else {
 					throw new Error('Failed to fetch Spotify data');
 				}
