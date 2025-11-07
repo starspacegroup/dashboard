@@ -41,6 +41,14 @@ const defaultWidgets: Widget[] = [
 		size: { width: 300, height: 200 }
 	},
 	{
+		id: 'spotify-1',
+		type: 'spotify',
+		title: 'Spotify',
+		section: 1,
+		order: 2,
+		size: { width: 300, height: 400 }
+	},
+	{
 		id: 'github-projects-1',
 		type: 'github-projects',
 		title: 'GitHub Projects',
