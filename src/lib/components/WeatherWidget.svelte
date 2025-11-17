@@ -544,8 +544,8 @@
 		const sunRadius = earthSize * 0.09375; // Proportional to earth size (30/320 = 0.09375)
 		
 		// Calculate the angle based on time
-		// The sun should be behind the Earth (bottom) from sunset to sunrise
-		// And visible (rising to top to setting) from sunrise to sunset
+		// In screen coordinates: 0°=right, 90°=down, 180°=left, 270°=up
+		// We want: sunrise=left(180°), noon=up(270°), sunset=right(0°), midnight=down(90°)
 		let angle;
 		let orbitRadius;
 		
@@ -553,79 +553,43 @@
 			// Sun is visible - daylight hours
 			// Calculate solar noon as the midpoint between sunrise and sunset
 			const solarNoonTime = (sunriseTime + sunsetTime) / 2;
+			const dayDuration = sunsetTime - sunriseTime;
+			const dayProgress = (secondsSinceMidnight - sunriseTime) / dayDuration;
 			
-			// Split into two phases: sunrise → noon, and noon → sunset
-			if (secondsSinceMidnight <= solarNoonTime) {
-				// Morning: sunrise to solar noon
-				// Map from left (270° = -90°) to top (0° = -90° + 90° = 0° adjusted)
-				const morningDuration = solarNoonTime - sunriseTime;
-				const morningProgress = (secondsSinceMidnight - sunriseTime) / morningDuration;
-				// Progress from 270° to 360° (or -90° to 0° in radians)
-				angle = -Math.PI/2 + (morningProgress * Math.PI/2); // -90° to 0°
-				
-				// Orbit expands from minimum to maximum
-				const expansionProgress = Math.sin(morningProgress * Math.PI/2); // 0 → 1
-				const minOrbitRadius = earthRadius + (sunRadius * 0.1); // 166px
-				const maxOrbitRadius = earthRadius + sunRadius; // 190px
-				orbitRadius = minOrbitRadius + (expansionProgress * (maxOrbitRadius - minOrbitRadius));
-			} else {
-				// Afternoon: solar noon to sunset
-				// Map from top (0°) to right (90°)
-				const afternoonDuration = sunsetTime - solarNoonTime;
-				const afternoonProgress = (secondsSinceMidnight - solarNoonTime) / afternoonDuration;
-				angle = 0 + (afternoonProgress * Math.PI/2); // 0° to 90°
-				
-				// Orbit contracts from maximum to minimum
-				const contractionProgress = Math.cos(afternoonProgress * Math.PI/2); // 1 → 0
-				const minOrbitRadius = earthRadius + (sunRadius * 0.1); // 166px
-				const maxOrbitRadius = earthRadius + sunRadius; // 190px
-				orbitRadius = minOrbitRadius + (contractionProgress * (maxOrbitRadius - minOrbitRadius));
-			}
+			// Progress from sunrise (180°) → noon (270°) → sunset (360°/0°)
+			// That's 180° total arc
+			angle = Math.PI + (dayProgress * Math.PI); // 180° to 360°
+			
+			// Orbit radius varies: smaller at horizon, larger at peak
+			// Use sine curve for smooth expansion/contraction
+			const elevationProgress = Math.sin(dayProgress * Math.PI); // 0 → 1 → 0
+			const minOrbitRadius = earthRadius + (sunRadius * 0.1);
+			const maxOrbitRadius = earthRadius + sunRadius;
+			orbitRadius = minOrbitRadius + (elevationProgress * (maxOrbitRadius - minOrbitRadius));
 		} else {
-			// Sun is hidden - nighttime hours (sunset to sunrise on the opposite side)
-			// Calculate solar midnight as the midpoint between sunset and next sunrise
-			const solarMidnightTime = (sunsetTime + sunriseTime + 86400) / 2; // Add 86400 to get next sunrise
+			// Sun is hidden - nighttime hours
+			// Use smaller orbit radius to keep sun behind Earth
+			const nightOrbitRadius = earthRadius - (sunRadius * 1.5);
+			orbitRadius = nightOrbitRadius;
 			
-			// Use smaller orbit radius to keep sun completely hidden behind Earth during night
-			const nightOrbitRadius = earthRadius - (sunRadius * 1.5); // Sun stays well behind Earth
+			// Calculate total night duration
+			const nightDuration = (86400 - sunsetTime) + sunriseTime;
 			
-			// Split night into two phases: sunset → midnight, and midnight → sunrise
-			if (secondsSinceMidnight <= sunriseTime) {
-				// Early morning before sunrise (after midnight)
-				// Calculate night duration and progress
-				const nightDuration = (86400 - sunsetTime) + sunriseTime; // Total night duration
-				const effectiveMidnight = solarMidnightTime > 86400 ? solarMidnightTime - 86400 : solarMidnightTime;
-				
-				// From midnight to sunrise
-				const preSunriseDuration = sunriseTime - effectiveMidnight;
-				const preSunriseProgress = (secondsSinceMidnight - effectiveMidnight) / preSunriseDuration;
-				
-				// Progress from bottom (180°) to left (270°)
-				angle = Math.PI + (preSunriseProgress * Math.PI/2); // 180° to 270°
-				
-				// Keep orbit small and constant during night
-				orbitRadius = nightOrbitRadius;
+			if (secondsSinceMidnight > sunsetTime) {
+				// Evening after sunset
+				// Progress from sunset (0°) to midnight to sunrise (180°)
+				const timeSinceSunset = secondsSinceMidnight - sunsetTime;
+				const nightProgress = timeSinceSunset / nightDuration;
+				angle = 0 + (nightProgress * Math.PI); // 0° to 180°
 			} else {
-				// Evening after sunset (before midnight)
-				const nightDuration = (86400 - sunsetTime) + sunriseTime;
-				const effectiveMidnight = solarMidnightTime > 86400 ? solarMidnightTime - 86400 : solarMidnightTime;
-				
-				// From sunset to midnight
-				const postSunsetDuration = (effectiveMidnight + (solarMidnightTime > 86400 ? 86400 : 0)) - sunsetTime;
-				const postSunsetProgress = (secondsSinceMidnight - sunsetTime) / postSunsetDuration;
-				
-				// Progress from right (90°) to bottom (180°)
-				angle = Math.PI/2 + (postSunsetProgress * Math.PI/2); // 90° to 180°
-				
-				// Keep orbit small and constant during night
-				orbitRadius = nightOrbitRadius;
+				// Early morning before sunrise
+				// Continue from midnight through to sunrise
+				// We're in the second half of the night arc
+				const timeBeforeSunrise = sunriseTime - secondsSinceMidnight;
+				const nightProgress = 1 - (timeBeforeSunrise / nightDuration);
+				angle = 0 + (nightProgress * Math.PI); // Continue 0° to 180°
 			}
 		}
-		
-		// Rotate all angles by -90° to align 0° with top instead of right
-		// In standard math: 0° = right, 90° = top, 180° = left, 270° = bottom
-		// We want: 0° = top, 90° = right, 180° = bottom, 270° = left
-		angle = angle - Math.PI/2; // Subtract 90° to rotate coordinate system
 		
 		// Calculate position in pixels from Earth's center (including padding offset)
 		const x = padding + (earthSize / 2) + Math.cos(angle) * orbitRadius;
