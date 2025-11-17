@@ -23,6 +23,7 @@
 		sunset?: number;
 		moonrise?: number;
 		moonset?: number;
+		moonPhase?: number;
 		timezone?: string;
 		timezoneOffset?: number;
 	}
@@ -62,10 +63,22 @@
 	let moonPhase = 0; // 0 = new moon, 0.5 = full moon, 1 = new moon again
 	let moonScale = 1; // Scale factor for moon size (1.0 to 1.9)
 	let currentTimestamp = Date.now(); // Track current time for reactive updates
+	let moonShadowPath = ''; // SVG path for accurate moon shadow
 	
-	// Responsive earth size (updated based on window size)
+	// Responsive earth size (updated based on container size)
 	let earthSize = 320;
-	let padding = 90; // Increased to prevent sun/moon clipping (was 40)
+	let padding = 90; // Padding to prevent sun/moon clipping
+	let containerElement: HTMLDivElement;
+	
+	// Calculate scale factors for text based on earth size
+	// Base size is 320px, minimum is 200px
+	$: textScale = earthSize / 320;
+	$: timeSize = Math.max(1.2, 1.75 * textScale); // 1.75rem base, min 1.2rem
+	$: dateSize = Math.max(0.625, 0.75 * textScale); // 0.75rem base, min 0.625rem
+	$: locationSize = Math.max(0.8, 1 * textScale); // 1rem base, min 0.8rem
+	$: topSpacing = Math.max(0.5, 0.9 * textScale); // 0.9rem base, min 0.5rem
+	$: dateMargin = Math.max(0.15, 0.25 * textScale); // 0.25rem base, min 0.15rem
+	$: locationMargin = Math.max(0.25, 0.5 * textScale); // 0.5rem base, min 0.25rem
 	
 	// Coordinates (if available)
 	let latitude: number | null = null;
@@ -291,6 +304,9 @@
 		sunset = data.sunset || 0;
 		moonrise = data.moonrise || 0;
 		moonset = data.moonset || 0;
+		if (data.moonPhase !== undefined) {
+			moonPhase = data.moonPhase;
+		}
 		timezone = data.timezone || '';
 		timezoneOffset = data.timezoneOffset || 0;
 		lastUpdate = data.timestamp || Date.now();
@@ -337,14 +353,14 @@
 		return `M ${points.join(' L ')}`;
 	}
 
-	// Generate SVG path for temperature graph
+	// Generate SVG path for temperature graph (scales with earth size)
 	$: temperaturePath = hourlyData.length > 0
-		? generateGraphPath(hourlyData.map(h => h.temperature), 320, 80)
+		? generateGraphPath(hourlyData.map(h => h.temperature), earthSize, 80)
 		: '';
 
-	// Generate SVG path for dew point graph
+	// Generate SVG path for dew point graph (scales with earth size)
 	$: dewPointPath = hourlyData.length > 0 && hourlyData.some(h => h.dewPoint !== undefined && h.dewPoint !== 0)
-		? generateGraphPath(hourlyData.map(h => h.dewPoint || 0), 320, 60)
+		? generateGraphPath(hourlyData.map(h => h.dewPoint || 0), earthSize, 60)
 		: '';
 
 	function formatHour(timestamp: number): string {
@@ -390,23 +406,45 @@
 		return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 	}
 
-	// Update earth size based on window width
+	// Update earth size based on available container width
 	function updateEarthSize() {
-		if (browser && window.innerWidth <= 768) {
-			earthSize = 280;
-			padding = 80; // Increased to prevent sun/moon clipping (was 40)
-		} else {
-			earthSize = 320;
-			padding = 90; // Increased to prevent sun/moon clipping (was 40)
-		}
+		if (!browser || !containerElement) return;
+		
+		// Get the available width of the parent container
+		const availableWidth = containerElement.clientWidth;
+		
+		// Calculate optimal earth size
+		// We want: earthSize + 2*padding = availableWidth
+		// padding should be approximately 28% of earthSize for proper sun/moon visibility
+		// So: earthSize + 2*(0.28*earthSize) = availableWidth
+		// earthSize * 1.56 = availableWidth
+		// earthSize = availableWidth / 1.56
+		
+		const calculatedEarthSize = Math.floor(availableWidth / 1.56);
+		
+		// Set minimum and maximum earth sizes for usability
+		const minEarthSize = 200; // Minimum for readability
+		const maxEarthSize = 500; // Maximum for aesthetics
+		
+		earthSize = Math.max(minEarthSize, Math.min(maxEarthSize, calculatedEarthSize));
+		padding = Math.floor(earthSize * 0.28); // 28% padding
 	}
 
 	// Update time every second
 	onMount(() => {
-		// Set initial earth size
-		updateEarthSize();
+		// Set initial earth size after a brief delay to ensure container is rendered
+		setTimeout(updateEarthSize, 0);
 		
-		// Listen for window resize
+		// Use ResizeObserver to watch for container size changes
+		const resizeObserver = new ResizeObserver(() => {
+			updateEarthSize();
+		});
+		
+		if (containerElement) {
+			resizeObserver.observe(containerElement);
+		}
+		
+		// Listen for window resize as fallback
 		const handleResize = () => {
 			updateEarthSize();
 		};
@@ -465,6 +503,7 @@
 			clearInterval(interval);
 			clearInterval(weatherInterval);
 			window.removeEventListener('resize', handleResize);
+			resizeObserver.disconnect();
 		};
 	});
 
@@ -856,16 +895,106 @@
 	}
 
 	function getMoonPhaseName(phase: number): string {
-		// Phase is 0 to 1 where 0/1 = new moon, 0.5 = full moon
-		if (phase < 0.0625) return 'New Moon';
-		if (phase < 0.1875) return 'Waxing Crescent';
-		if (phase < 0.3125) return 'First Quarter';
-		if (phase < 0.4375) return 'Waxing Gibbous';
-		if (phase < 0.5625) return 'Full Moon';
-		if (phase < 0.6875) return 'Waning Gibbous';
-		if (phase < 0.8125) return 'Last Quarter';
-		if (phase < 0.9375) return 'Waning Crescent';
+		// Phase is 0 to 1:
+		// 0 and 1 = new moon
+		// 0.25 = first quarter moon
+		// 0.5 = full moon
+		// 0.75 = last quarter moon
+		// Periods in between are waxing crescent, waxing gibbous, waning gibbous, and waning crescent
+		if (phase === 0 || phase === 1) return 'New Moon';
+		if (phase < 0.25) return 'Waxing Crescent';
+		if (phase === 0.25) return 'First Quarter';
+		if (phase < 0.5) return 'Waxing Gibbous';
+		if (phase === 0.5) return 'Full Moon';
+		if (phase < 0.75) return 'Waning Gibbous';
+		if (phase === 0.75) return 'Last Quarter';
+		if (phase < 1) return 'Waning Crescent';
 		return 'New Moon';
+	}
+
+	function getMoonIllumination(phase: number): number {
+		// Calculate approximate illumination percentage
+		// 0 = 0% (new moon)
+		// 0.25 = 50% (first quarter)
+		// 0.5 = 100% (full moon)
+		// 0.75 = 50% (last quarter)
+		// 1 = 0% (new moon)
+		if (phase <= 0.5) {
+			// Waxing: 0 to 100%
+			return phase * 2 * 100;
+		} else {
+			// Waning: 100% to 0
+			return (1 - phase) * 2 * 100;
+		}
+	}
+
+	function calculateMoonShadowPath(phase: number): string {
+		// Create an accurate moon phase visualization using SVG path
+		// The terminator (day/night boundary) is an ellipse that shifts across the moon
+		const size = 100; // Use viewBox size of 100x100 for easy percentage calculations
+		const radius = 50;
+		const centerX = 50;
+		const centerY = 50;
+		
+		// Calculate illumination (0 to 1)
+		const illumination = getMoonIllumination(phase) / 100;
+		
+		// For waxing phases (0 to 0.5), light comes from the right
+		// For waning phases (0.5 to 1), light comes from the left
+		const isWaxing = phase < 0.5;
+		
+		// Calculate the x-offset of the terminator ellipse
+		// At 0% illumination: offset = -radius (fully left, showing nothing)
+		// At 50% illumination: offset = 0 (center, showing half)
+		// At 100% illumination: offset = radius (fully right, showing everything)
+		const offset = (illumination - 0.5) * 2 * radius;
+		
+		// Create the shadow path using an ellipse for the terminator
+		// The shadow covers everything from the dark side
+		let path: string;
+		
+		if (illumination < 0.01) {
+			// New moon - fully dark
+			path = `M ${centerX - radius},${centerY} 
+					A ${radius},${radius} 0 1,1 ${centerX - radius},${centerY + 0.01} Z`;
+		} else if (illumination > 0.99) {
+			// Full moon - no shadow
+			path = '';
+		} else {
+			// Calculate the ellipse semi-minor axis based on illumination
+			// This creates the curved terminator line
+			const ellipseWidth = Math.abs(offset);
+			
+			if (isWaxing) {
+				// Waxing: shadow on the left, light on the right
+				if (illumination < 0.5) {
+					// Less than half lit - shadow is convex
+					path = `M ${centerX},${centerY - radius}
+							A ${radius},${radius} 0 0,0 ${centerX},${centerY + radius}
+							A ${ellipseWidth},${radius} 0 0,1 ${centerX},${centerY - radius} Z`;
+				} else {
+					// More than half lit - shadow is concave
+					path = `M ${centerX},${centerY - radius}
+							A ${radius},${radius} 0 0,0 ${centerX},${centerY + radius}
+							A ${ellipseWidth},${radius} 0 0,0 ${centerX},${centerY - radius} Z`;
+				}
+			} else {
+				// Waning: shadow on the right, light on the left
+				if (illumination < 0.5) {
+					// Less than half lit - shadow is convex
+					path = `M ${centerX},${centerY - radius}
+							A ${radius},${radius} 0 0,1 ${centerX},${centerY + radius}
+							A ${ellipseWidth},${radius} 0 0,1 ${centerX},${centerY - radius} Z`;
+				} else {
+					// More than half lit - shadow is concave
+					path = `M ${centerX},${centerY - radius}
+							A ${radius},${radius} 0 0,1 ${centerX},${centerY + radius}
+							A ${ellipseWidth},${radius} 0 0,0 ${centerX},${centerY - radius} Z`;
+				}
+			}
+		}
+		
+		return path;
 	}
 
 	function toggleDataTable() {
@@ -897,6 +1026,7 @@
 		moonPosition = { x: moonData.x, y: moonData.y };
 		moonScale = moonData.scale;
 		moonPhase = calculateMoonPhase(testDate);
+		moonShadowPath = calculateMoonShadowPath(moonPhase);
 		
 		// For determining day/night, use the location's hour
 		let displayHour: number;
@@ -916,7 +1046,7 @@
 	}
 </script>
 
-<div class="weather-widget" class:loaded={hasLocationData}>
+<div class="weather-widget" class:loaded={hasLocationData} bind:this={containerElement}>
 	{#if hasLocationData}
 	<!-- Temperature Unit Toggle Switch -->
 	<div class="unit-switch-container">
@@ -953,18 +1083,18 @@
 				transform: translate(-50%, -50%) scale({moonScale});
 			"
 		>
-			<div class="moon-surface"></div>
-			<div 
-				class="moon-shadow" 
-				style="
-					transform: translateX({moonPhase < 0.5 ? (1 - moonPhase * 2) * 30 : (moonPhase - 0.5) * 2 * -30}px) scaleX({moonPhase < 0.5 ? 1 : -1});
-					opacity: {Math.abs(moonPhase - 0.5) * 2};
-				"
-			></div>
-			<div class="moon-crescent"></div>
+			<svg class="moon-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+				<!-- Moon surface (full circle) -->
+				<circle cx="50" cy="50" r="50" fill="#d4c5b0" />
+				
+				<!-- Moon shadow (accurate phase) -->
+				{#if moonShadowPath}
+					<path d={moonShadowPath} fill="rgba(20, 15, 25, 0.95)" />
+				{/if}
+			</svg>
 		</div>
 		
-		<div class="earth" style="background: {earthGradient}; --text-color: {textColor}">
+		<div class="earth" style="background: {earthGradient}; --text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --location-size: {locationSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin}; --location-margin: {locationMargin}">
 
 		<!-- Time and Date Section -->
 		<div class="time-date-section">
@@ -975,7 +1105,7 @@
 		
 		<!-- 24-Hour Temperature Graph (layered behind temperature) -->
 		{#if hourlyData.length > 0}
-			<svg class="temp-graph-svg" width="320" height="80" viewBox="0 0 320 80">
+			<svg class="temp-graph-svg" width="{earthSize}" height="80" viewBox="0 0 {earthSize} 80">
 				<!-- Define gradient for temperature colors -->
 				<defs>
 					<linearGradient id="tempGradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -1208,7 +1338,7 @@
 				{/if}
 				<tr>
 					<td>Moon Phase</td>
-					<td>{(moonPhase * 100).toFixed(1)}% ({getMoonPhaseName(moonPhase)})</td>
+					<td>{getMoonPhaseName(moonPhase)} - {getMoonIllumination(moonPhase).toFixed(0)}% illuminated</td>
 				</tr>
 				<tr>
 					<td>Moon Scale</td>
@@ -1339,44 +1469,13 @@
 	}
 
 	.moon {
-		background: radial-gradient(circle, #f5e6d3 0%, #d4c5b0 100%);
-		box-shadow: 0 0 20px rgba(245, 230, 211, 0.4);
-		overflow: hidden;
+		overflow: visible;
 	}
 
-	.moon-surface {
-		position: absolute;
-		top: 0;
-		left: 0;
+	.moon-svg {
 		width: 100%;
 		height: 100%;
-		border-radius: 50%;
-		background: radial-gradient(circle, #f5e6d3 0%, #d4c5b0 100%);
-		z-index: 1;
-	}
-
-	.moon-shadow {
-		position: absolute;
-		top: 0;
-		left: 0;
-		width: 100%;
-		height: 100%;
-		border-radius: 50%;
-		background: radial-gradient(circle, rgba(20, 15, 25, 0.95) 0%, rgba(40, 35, 45, 0.9) 100%);
-		z-index: 2;
-		transition: transform 0.3s ease, opacity 0.3s ease;
-	}
-
-	.moon-crescent {
-		position: absolute;
-		top: 5px;
-		right: 8px;
-		width: 30px;
-		height: 30px;
-		border-radius: 50%;
-		background: radial-gradient(circle, rgba(180, 150, 130, 0.3) 0%, rgba(140, 120, 100, 0.5) 100%);
-		box-shadow: inset -4px -2px 8px rgba(0, 0, 0, 0.2);
-		z-index: 3;
+		overflow: visible;
 	}
 
 	.unit-switch-container {
@@ -1415,7 +1514,7 @@
 	.time {
 		position: relative;
 		z-index: 3;
-		font-size: 1.75rem;
+		font-size: calc(var(--time-size, 1.75) * 1rem);
 		font-weight: 300;
 		color: var(--text-color, var(--text-primary));
 		letter-spacing: 0.5px;
@@ -1426,26 +1525,26 @@
 	.date {
 		position: relative;
 		z-index: 3;
-		font-size: 0.75rem;
+		font-size: calc(var(--date-size, 0.75) * 1rem);
 		color: var(--text-color, var(--text-secondary));
 		opacity: 0.7;
-		margin-top: 0.25rem;
+		margin-top: calc(var(--date-margin, 0.25) * 1rem);
 		text-shadow: 0 1px 2px var(--shadow);
 	}
 
 	.location {
 		position: relative;
 		z-index: 3;
-		font-size: 1rem;
+		font-size: calc(var(--location-size, 1) * 1rem);
 		color: var(--text-color, var(--text-primary));
 		opacity: 0.8;
-		margin-top: 0.5rem;
+		margin-top: 0;
 		text-shadow: 0 1px 2px var(--shadow);
 	}
 
 	.time-date-section {
 		position: absolute;
-		top: 0.9rem;
+		top: calc(var(--top-spacing, 0.9) * 1rem);
 		left: 50%;
 		transform: translateX(-50%);
 		z-index: 3;

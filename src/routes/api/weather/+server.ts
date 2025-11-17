@@ -93,6 +93,7 @@ export const GET: RequestHandler = async ({ url }) => {
       sunset: data.current.sunset,
       moonrise: data.daily?.[0]?.moonrise || 0,
       moonset: data.daily?.[0]?.moonset || 0,
+      moonPhase: data.daily?.[0]?.moon_phase,
       timezone: data.timezone,
       timezoneOffset: data.timezone_offset,
       timestamp: Date.now()
