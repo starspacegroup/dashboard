@@ -65,7 +65,7 @@
 	
 	// Responsive earth size (updated based on window size)
 	let earthSize = 320;
-	let padding = 40;
+	let padding = 90; // Increased to prevent sun/moon clipping (was 40)
 	
 	// Coordinates (if available)
 	let latitude: number | null = null;
@@ -394,10 +394,10 @@
 	function updateEarthSize() {
 		if (browser && window.innerWidth <= 768) {
 			earthSize = 280;
-			padding = 40;
+			padding = 80; // Increased to prevent sun/moon clipping (was 40)
 		} else {
 			earthSize = 320;
-			padding = 40;
+			padding = 90; // Increased to prevent sun/moon clipping (was 40)
 		}
 	}
 
@@ -937,7 +937,7 @@
 	</div>
 
 	<!-- Celestial System Container (centers everything together) -->
-	<div class="celestial-container" class:loaded={hasLocationData} style="--earth-size: {earthSize}px;">
+	<div class="celestial-container" class:loaded={hasLocationData} style="--earth-size: {earthSize}px; --padding: {padding}px;">
 		<!-- Sun (Behind Earth) -->
 		<div 
 			class="sun" 
@@ -1287,6 +1287,7 @@
 		padding: 2rem;
 		min-height: 400px;
 		position: relative;
+		overflow: visible;
 	}
 
 	.celestial-container {
@@ -1294,10 +1295,11 @@
 		width: var(--earth-size, 320px);
 		height: var(--earth-size, 320px);
 		flex-shrink: 0;
-		padding: 40px;
+		padding: var(--padding, 90px);
 		box-sizing: content-box;
 		opacity: 0;
 		transition: opacity 0.8s ease-in-out;
+		overflow: visible;
 	}
 
 	.celestial-container.loaded {
