@@ -247,5 +247,6 @@
 
 	.widget-content {
 		padding: 1rem;
+		overflow: visible;
 	}
 </style>
