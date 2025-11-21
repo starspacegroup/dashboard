@@ -193,6 +193,8 @@
 									<svelte:component this={widgetComponents.OrganizationProjectsWidget} organizationProjects={data.organizationProjects || []} />
 								{:else if widget.type === 'github-projects'}
 									<svelte:component this={widgetComponents.GithubProjectsWidget} projects={data.allGithubProjects || []} isLoggedIn={!!data.user} />
+								{:else if widget.type === 'github-pull-requests'}
+									<svelte:component this={widgetComponents.GithubPullRequestsWidget} assignedPRs={data.assignedPRs || []} mentionedPRs={data.mentionedPRs || []} isLoggedIn={!!data.user} />
 								{/if}
 							</Widget>
 						</div>

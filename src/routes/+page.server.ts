@@ -40,6 +40,27 @@ interface GitHubProject {
 	updatedAt: string;
 }
 
+interface GitHubPullRequest {
+	id: string;
+	number: number;
+	title: string;
+	url: string;
+	state: string;
+	createdAt: string;
+	updatedAt: string;
+	author?: {
+		login: string;
+		avatarUrl?: string;
+	};
+	repository: {
+		name: string;
+		owner: {
+			login: string;
+		};
+	};
+	isDraft: boolean;
+}
+
 interface ExtendedSession {
 	user?: {
 		name?: string | null;
@@ -63,7 +84,9 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			user: null,
 			githubProjects: [],
 			organizationProjects: [],
-			allGithubProjects: []
+			allGithubProjects: [],
+			assignedPRs: [],
+			mentionedPRs: []
 		};
 	}
 
@@ -79,7 +102,9 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				user: session.user,
 				githubProjects: [],
 				organizationProjects: [],
-				allGithubProjects: []
+				allGithubProjects: [],
+				assignedPRs: [],
+				mentionedPRs: []
 			};
 		}
 
@@ -271,11 +296,133 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			}
 		}
 
+		// Fetch Pull Requests using GraphQL API
+		const assignedPRs: GitHubPullRequest[] = [];
+		const mentionedPRs: GitHubPullRequest[] = [];
+
+		// GraphQL query to fetch assigned and mentioned PRs
+		const pullRequestsQuery = `
+			query {
+				viewer {
+					login
+					pullRequests(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
+						nodes {
+							id
+							number
+							title
+							url
+							state
+							createdAt
+							updatedAt
+							isDraft
+							author {
+								login
+								avatarUrl
+							}
+							repository {
+								name
+								owner {
+									login
+								}
+							}
+							assignees(first: 10) {
+								nodes {
+									login
+								}
+							}
+							participants(first: 100) {
+								nodes {
+									login
+								}
+							}
+						}
+					}
+				}
+			}
+		`;
+
+		try {
+			console.log('[DEBUG] Fetching Pull Requests via GraphQL...');
+
+			const prGraphqlResponse = await fetch('https://api.github.com/graphql', {
+				method: 'POST',
+				headers: {
+					'Authorization': `Bearer ${accessToken}`,
+					'Content-Type': 'application/json',
+					'User-Agent': 'Dashboard-App'
+				},
+				body: JSON.stringify({ query: pullRequestsQuery })
+			});
+
+			console.log('[DEBUG] PR GraphQL Response Status:', prGraphqlResponse.status);
+
+			if (prGraphqlResponse.ok) {
+				const result = await prGraphqlResponse.json();
+
+				if (result.errors) {
+					console.error('PR GraphQL Errors:', result.errors);
+				}
+
+				if (result.data?.viewer?.pullRequests?.nodes) {
+					const currentUserLogin = result.data.viewer.login;
+					const pullRequests = result.data.viewer.pullRequests.nodes;
+
+					for (const pr of pullRequests) {
+						const prData: GitHubPullRequest = {
+							id: pr.id,
+							number: pr.number,
+							title: pr.title,
+							url: pr.url,
+							state: pr.state,
+							createdAt: pr.createdAt,
+							updatedAt: pr.updatedAt,
+							author: pr.author ? {
+								login: pr.author.login,
+								avatarUrl: pr.author.avatarUrl
+							} : undefined,
+							repository: {
+								name: pr.repository.name,
+								owner: {
+									login: pr.repository.owner.login
+								}
+							},
+							isDraft: pr.isDraft
+						};
+
+						// Check if user is assigned
+						const isAssigned = pr.assignees?.nodes?.some((assignee: { login: string }) => assignee.login === currentUserLogin);
+						
+						// Check if user is mentioned (participant but not author)
+						const isMentioned = pr.participants?.nodes?.some((participant: { login: string }) => 
+							participant.login === currentUserLogin && participant.login !== pr.author?.login
+						);
+
+						if (isAssigned) {
+							assignedPRs.push(prData);
+						}
+						if (isMentioned) {
+							mentionedPRs.push(prData);
+						}
+					}
+
+					console.log('[DEBUG] Assigned PRs found:', assignedPRs.length);
+					console.log('[DEBUG] Mentioned PRs found:', mentionedPRs.length);
+				}
+			} else {
+				const errorText = await prGraphqlResponse.text();
+				console.error('[ERROR] PR GraphQL Response not OK:', prGraphqlResponse.status, errorText);
+			}
+		} catch (error) {
+			console.error('[ERROR] Failed to fetch Pull Requests:', error);
+		}
+
 		return {
 			user: session.user,
 			githubProjects,
 			organizationProjects,
-			allGithubProjects
+			allGithubProjects,
+			assignedPRs,
+			mentionedPRs
 		};
 	} catch (error) {
 		console.error('Failed to fetch GitHub data:', error);
@@ -285,6 +432,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		user: session?.user || null,
 		githubProjects: [],
 		organizationProjects: [],
-		allGithubProjects: []
+		allGithubProjects: [],
+		assignedPRs: [],
+		mentionedPRs: []
 	};
 };
