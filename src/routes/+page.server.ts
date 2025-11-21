@@ -81,7 +81,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			organizationProjects: [],
 			allGithubProjects: [],
 			assignedPRs: [],
-			mentionedPRs: []
+			createdPRs: [],
+			reviewRequestedPRs: []
 		};
 	}
 
@@ -97,7 +98,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				organizationProjects: [],
 				allGithubProjects: [],
 				assignedPRs: [],
-				mentionedPRs: []
+				createdPRs: [],
+				reviewRequestedPRs: []
 			};
 		}
 
@@ -278,115 +280,141 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			}
 		}
 
-		// Fetch Pull Requests using GraphQL API
+		// Fetch Pull Requests using GitHub Search API
 		const assignedPRs: GitHubPullRequest[] = [];
-		const mentionedPRs: GitHubPullRequest[] = [];
-
-		// GraphQL query to fetch assigned and mentioned PRs
-		const pullRequestsQuery = `
-			query {
-				viewer {
-					login
-					pullRequests(first: 100, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
-						nodes {
-							id
-							number
-							title
-							url
-							state
-							createdAt
-							updatedAt
-							isDraft
-							author {
-								login
-								avatarUrl
-							}
-							repository {
-								name
-								owner {
-									login
-								}
-							}
-							assignees(first: 10) {
-								nodes {
-									login
-								}
-							}
-							participants(first: 100) {
-								nodes {
-									login
-								}
-							}
-						}
-					}
-				}
-			}
-		`;
+		const createdPRs: GitHubPullRequest[] = [];
+		const reviewRequestedPRs: GitHubPullRequest[] = [];
 
 		try {
-			const prGraphqlResponse = await fetch('https://api.github.com/graphql', {
-				method: 'POST',
+			// Fetch assigned PRs
+			const assignedResponse = await fetch('https://api.github.com/search/issues?q=type:pr+state:open+assignee:@me&sort=updated&order=desc&per_page=100', {
 				headers: {
 					'Authorization': `Bearer ${accessToken}`,
-					'Content-Type': 'application/json',
+					'Accept': 'application/vnd.github.v3+json',
 					'User-Agent': 'Dashboard-App'
-				},
-				body: JSON.stringify({ query: pullRequestsQuery })
+				}
 			});
 
-			if (prGraphqlResponse.ok) {
-				const result = await prGraphqlResponse.json();
+			if (assignedResponse.ok) {
+				const assignedResult = await assignedResponse.json();
+				console.log('[DEBUG] Assigned PRs response:', assignedResult.total_count, 'found');
 
-				if (result.errors) {
-					console.error('PR GraphQL Errors:', result.errors);
-				}
-
-				if (result.data?.viewer?.pullRequests?.nodes) {
-					const currentUserLogin = result.data.viewer.login;
-					const pullRequests = result.data.viewer.pullRequests.nodes;
-
-					for (const pr of pullRequests) {
-						const prData: GitHubPullRequest = {
-							id: pr.id,
-							number: pr.number,
-							title: pr.title,
-							url: pr.url,
-							state: pr.state,
-							createdAt: pr.createdAt,
-							updatedAt: pr.updatedAt,
-							author: pr.author ? {
-								login: pr.author.login,
-								avatarUrl: pr.author.avatarUrl
+				for (const item of assignedResult.items || []) {
+					const repoMatch = item.repository_url?.match(/\/repos\/([^\/]+)\/([^\/]+)$/);
+					if (repoMatch) {
+						assignedPRs.push({
+							id: item.node_id,
+							number: item.number,
+							title: item.title,
+							url: item.html_url,
+							state: item.state.toUpperCase(),
+							createdAt: item.created_at,
+							updatedAt: item.updated_at,
+							author: item.user ? {
+								login: item.user.login,
+								avatarUrl: item.user.avatar_url
 							} : undefined,
 							repository: {
-								name: pr.repository.name,
+								name: repoMatch[2],
 								owner: {
-									login: pr.repository.owner.login
+									login: repoMatch[1]
 								}
 							},
-							isDraft: pr.isDraft
-						};
-
-						// Check if user is assigned
-						const isAssigned = pr.assignees?.nodes?.some((assignee: { login: string; }) => assignee.login === currentUserLogin);
-
-						// Check if user is mentioned (participant but not author)
-						const isMentioned = pr.participants?.nodes?.some((participant: { login: string; }) =>
-							participant.login === currentUserLogin && participant.login !== pr.author?.login
-						);
-
-						if (isAssigned) {
-							assignedPRs.push(prData);
-						}
-						if (isMentioned) {
-							mentionedPRs.push(prData);
-						}
+							isDraft: item.draft || false
+						});
 					}
 				}
 			} else {
-				const errorText = await prGraphqlResponse.text();
-				console.error('[ERROR] PR GraphQL Response not OK:', prGraphqlResponse.status, errorText);
+				console.error('[ERROR] Assigned PRs fetch failed:', assignedResponse.status);
 			}
+
+			// Fetch created PRs
+			const createdResponse = await fetch('https://api.github.com/search/issues?q=type:pr+state:open+author:@me&sort=updated&order=desc&per_page=100', {
+				headers: {
+					'Authorization': `Bearer ${accessToken}`,
+					'Accept': 'application/vnd.github.v3+json',
+					'User-Agent': 'Dashboard-App'
+				}
+			});
+
+			if (createdResponse.ok) {
+				const createdResult = await createdResponse.json();
+				console.log('[DEBUG] Created PRs response:', createdResult.total_count, 'found');
+
+				for (const item of createdResult.items || []) {
+					const repoMatch = item.repository_url?.match(/\/repos\/([^\/]+)\/([^\/]+)$/);
+					if (repoMatch) {
+						createdPRs.push({
+							id: item.node_id,
+							number: item.number,
+							title: item.title,
+							url: item.html_url,
+							state: item.state.toUpperCase(),
+							createdAt: item.created_at,
+							updatedAt: item.updated_at,
+							author: item.user ? {
+								login: item.user.login,
+								avatarUrl: item.user.avatar_url
+							} : undefined,
+							repository: {
+								name: repoMatch[2],
+								owner: {
+									login: repoMatch[1]
+								}
+							},
+							isDraft: item.draft || false
+						});
+					}
+				}
+			} else {
+				console.error('[ERROR] Created PRs fetch failed:', createdResponse.status);
+			}
+
+			// Fetch review-requested PRs
+			const reviewRequestedResponse = await fetch('https://api.github.com/search/issues?q=type:pr+state:open+review-requested:@me&sort=updated&order=desc&per_page=100', {
+				headers: {
+					'Authorization': `Bearer ${accessToken}`,
+					'Accept': 'application/vnd.github.v3+json',
+					'User-Agent': 'Dashboard-App'
+				}
+			});
+
+			if (reviewRequestedResponse.ok) {
+				const reviewRequestedResult = await reviewRequestedResponse.json();
+				console.log('[DEBUG] Review-requested PRs response:', reviewRequestedResult.total_count, 'found');
+
+				for (const item of reviewRequestedResult.items || []) {
+					const repoMatch = item.repository_url?.match(/\/repos\/([^\/]+)\/([^\/]+)$/);
+					if (repoMatch) {
+						reviewRequestedPRs.push({
+							id: item.node_id,
+							number: item.number,
+							title: item.title,
+							url: item.html_url,
+							state: item.state.toUpperCase(),
+							createdAt: item.created_at,
+							updatedAt: item.updated_at,
+							author: item.user ? {
+								login: item.user.login,
+								avatarUrl: item.user.avatar_url
+							} : undefined,
+							repository: {
+								name: repoMatch[2],
+								owner: {
+									login: repoMatch[1]
+								}
+							},
+							isDraft: item.draft || false
+						});
+					}
+				}
+			} else {
+				console.error('[ERROR] Review-requested PRs fetch failed:', reviewRequestedResponse.status);
+			}
+
+			console.log('[DEBUG] Final Assigned PRs count:', assignedPRs.length);
+			console.log('[DEBUG] Final Created PRs count:', createdPRs.length);
+			console.log('[DEBUG] Final Review-requested PRs count:', reviewRequestedPRs.length);
 		} catch (error) {
 			console.error('[ERROR] Failed to fetch Pull Requests:', error);
 		}
@@ -397,7 +425,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			organizationProjects,
 			allGithubProjects,
 			assignedPRs,
-			mentionedPRs
+			createdPRs,
+			reviewRequestedPRs
 		};
 	} catch (error) {
 		console.error('Failed to fetch GitHub data:', error);
@@ -409,6 +438,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		organizationProjects: [],
 		allGithubProjects: [],
 		assignedPRs: [],
-		mentionedPRs: []
+		createdPRs: [],
+		reviewRequestedPRs: []
 	};
 };

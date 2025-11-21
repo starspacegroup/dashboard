@@ -21,10 +21,13 @@
 	}
 
 	export let assignedPRs: GitHubPullRequest[] = [];
-	export let mentionedPRs: GitHubPullRequest[] = [];
+	export let createdPRs: GitHubPullRequest[] = [];
+	export let reviewRequestedPRs: GitHubPullRequest[] = [];
 	export let isLoggedIn: boolean = false;
 
-	let activeTab: 'assigned' | 'mentioned' = 'assigned';
+	let activeTab: 'assigned' | 'created' | 'review-requested' = 'assigned';
+	let currentPage = 1;
+	const itemsPerPage = 3;
 
 	function formatDate(dateString: string): string {
 		const date = new Date(dateString);
@@ -40,7 +43,30 @@
 		return date.toLocaleDateString();
 	}
 
-	$: activePRs = activeTab === 'assigned' ? assignedPRs : mentionedPRs;
+	$: activePRs = activeTab === 'assigned' ? assignedPRs : activeTab === 'created' ? createdPRs : reviewRequestedPRs;
+	$: totalPages = Math.ceil(activePRs.length / itemsPerPage);
+	$: paginatedPRs = activePRs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+	// Reset to page 1 when switching tabs
+	$: if (activeTab) {
+		currentPage = 1;
+	}
+
+	function nextPage() {
+		if (currentPage < totalPages) {
+			currentPage++;
+		}
+	}
+
+	function prevPage() {
+		if (currentPage > 1) {
+			currentPage--;
+		}
+	}
+
+	function goToPage(page: number) {
+		currentPage = page;
+	}
 </script>
 
 <div class="github-prs-widget">
@@ -61,10 +87,17 @@
 			</button>
 			<button
 				class="tab"
-				class:active={activeTab === 'mentioned'}
-				on:click={() => (activeTab = 'mentioned')}
+				class:active={activeTab === 'created'}
+				on:click={() => (activeTab = 'created')}
 			>
-				Mentioned ({mentionedPRs.length})
+				Created ({createdPRs.length})
+			</button>
+			<button
+				class="tab"
+				class:active={activeTab === 'review-requested'}
+				on:click={() => (activeTab = 'review-requested')}
+			>
+				Review Requests ({reviewRequestedPRs.length})
 			</button>
 		</div>
 
@@ -72,11 +105,11 @@
 			{#if activePRs.length === 0}
 				<div class="empty-state">
 					<div class="empty-icon">📋</div>
-					<p>No {activeTab} pull requests found</p>
-					<p class="empty-hint">PRs you're {activeTab === 'assigned' ? 'assigned to' : 'mentioned in'} will appear here</p>
+					<p>No {activeTab === 'review-requested' ? 'review request' : activeTab} pull requests found</p>
+					<p class="empty-hint">PRs you're {activeTab === 'assigned' ? 'assigned to' : activeTab === 'created' ? 'created' : 'requested to review'} will appear here</p>
 				</div>
 			{:else}
-				{#each activePRs as pr}
+				{#each paginatedPRs as pr}
 					<a href={pr.url} target="_blank" rel="noopener noreferrer" class="pr-card">
 						<div class="pr-header">
 							<div class="pr-meta">
@@ -106,6 +139,28 @@
 				{/each}
 			{/if}
 		</div>
+
+		{#if activePRs.length > itemsPerPage}
+			<div class="pagination">
+				<button class="pagination-btn" disabled={currentPage === 1} on:click={prevPage}>
+					←
+				</button>
+				<div class="pagination-info">
+					{#each Array(totalPages) as _, i}
+						<button
+							class="page-number"
+							class:active={currentPage === i + 1}
+							on:click={() => goToPage(i + 1)}
+						>
+							{i + 1}
+						</button>
+					{/each}
+				</div>
+				<button class="pagination-btn" disabled={currentPage === totalPages} on:click={nextPage}>
+					→
+				</button>
+			</div>
+		{/if}
 	{/if}
 </div>
 
@@ -325,5 +380,67 @@
 
 	.pr-list::-webkit-scrollbar-thumb:hover {
 		background: var(--text-secondary);
+	}
+
+	.pagination {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 1rem;
+		border-top: 1px solid var(--border);
+		background-color: var(--surface);
+	}
+
+	.pagination-btn {
+		padding: 0.5rem 0.75rem;
+		background-color: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 1rem;
+		color: var(--text-primary);
+		transition: all 0.2s ease;
+	}
+
+	.pagination-btn:hover:not(:disabled) {
+		background-color: var(--primary);
+		color: white;
+		border-color: var(--primary);
+	}
+
+	.pagination-btn:disabled {
+		opacity: 0.3;
+		cursor: not-allowed;
+	}
+
+	.pagination-info {
+		display: flex;
+		gap: 0.25rem;
+		align-items: center;
+	}
+
+	.page-number {
+		padding: 0.5rem 0.75rem;
+		background-color: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		color: var(--text-primary);
+		min-width: 2.5rem;
+		transition: all 0.2s ease;
+	}
+
+	.page-number:hover {
+		background-color: var(--surface-hover);
+		border-color: var(--primary);
+	}
+
+	.page-number.active {
+		background-color: var(--primary);
+		color: white;
+		border-color: var(--primary);
+		font-weight: 600;
 	}
 </style>
