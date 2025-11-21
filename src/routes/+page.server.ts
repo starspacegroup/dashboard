@@ -74,12 +74,7 @@ interface ExtendedSession {
 export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const session = await locals.getSession() as ExtendedSession | null;
 
-	console.log('[DEBUG] Session exists:', !!session);
-	console.log('[DEBUG] User exists:', !!session?.user);
-	console.log('[DEBUG] User login:', session?.user?.login);
-
 	if (!session?.user) {
-		console.log('[DEBUG] No user in session, returning empty');
 		return {
 			user: null,
 			githubProjects: [],
@@ -93,8 +88,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	try {
 		// Get the user's access token from the session
 		const accessToken = session.accessToken;
-		console.log('[DEBUG] Access token exists:', !!accessToken);
-		console.log('[DEBUG] Access token length:', accessToken?.length);
 
 		if (!accessToken) {
 			console.error('[ERROR] No access token in session!');
@@ -216,8 +209,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		`;
 
 		try {
-			console.log('[DEBUG] Fetching GitHub Projects via GraphQL...');
-
 			const graphqlResponse = await fetch('https://api.github.com/graphql', {
 				method: 'POST',
 				headers: {
@@ -228,13 +219,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				body: JSON.stringify({ query: projectsQuery })
 			});
 
-			console.log('[DEBUG] GraphQL Response Status:', graphqlResponse.status);
-			console.log('[DEBUG] GraphQL Response OK:', graphqlResponse.ok);
-
 			if (graphqlResponse.ok) {
 				const result = await graphqlResponse.json();
-
-				console.log('[DEBUG] GraphQL Response:', JSON.stringify(result, null, 2));
 
 				// Check for errors in the response
 				if (result.errors) {
@@ -256,7 +242,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 						ownerAvatarUrl: project.owner?.avatarUrl,
 						updatedAt: project.updatedAt
 					}));
-					console.log('User Projects:', userProjects);
 					allGithubProjects.push(...userProjects);
 				}
 
@@ -277,13 +262,10 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 								ownerAvatarUrl: project.owner?.avatarUrl,
 								updatedAt: project.updatedAt
 							}));
-							console.log(`Org (${org.login}) Projects:`, orgProjects);
 							allGithubProjects.push(...orgProjects);
 						}
 					}
 				}
-
-				console.log('[DEBUG] Total GitHub Projects found:', allGithubProjects.length);
 			} else {
 				const errorText = await graphqlResponse.text();
 				console.error('[ERROR] GraphQL Response not OK:', graphqlResponse.status, errorText);
@@ -342,8 +324,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		`;
 
 		try {
-			console.log('[DEBUG] Fetching Pull Requests via GraphQL...');
-
 			const prGraphqlResponse = await fetch('https://api.github.com/graphql', {
 				method: 'POST',
 				headers: {
@@ -353,8 +333,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				},
 				body: JSON.stringify({ query: pullRequestsQuery })
 			});
-
-			console.log('[DEBUG] PR GraphQL Response Status:', prGraphqlResponse.status);
 
 			if (prGraphqlResponse.ok) {
 				const result = await prGraphqlResponse.json();
@@ -390,10 +368,10 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 						};
 
 						// Check if user is assigned
-						const isAssigned = pr.assignees?.nodes?.some((assignee: { login: string }) => assignee.login === currentUserLogin);
-						
+						const isAssigned = pr.assignees?.nodes?.some((assignee: { login: string; }) => assignee.login === currentUserLogin);
+
 						// Check if user is mentioned (participant but not author)
-						const isMentioned = pr.participants?.nodes?.some((participant: { login: string }) => 
+						const isMentioned = pr.participants?.nodes?.some((participant: { login: string; }) =>
 							participant.login === currentUserLogin && participant.login !== pr.author?.login
 						);
 
@@ -404,9 +382,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 							mentionedPRs.push(prData);
 						}
 					}
-
-					console.log('[DEBUG] Assigned PRs found:', assignedPRs.length);
-					console.log('[DEBUG] Mentioned PRs found:', mentionedPRs.length);
 				}
 			} else {
 				const errorText = await prGraphqlResponse.text();

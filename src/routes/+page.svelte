@@ -27,12 +27,6 @@
 	onMount(() => {
 		widgets.load();
 		sections.load();
-		
-		// Debug: Check what data we have
-		console.log('GitHub Projects Data:', {
-			allGithubProjects: data.allGithubProjects,
-			count: data.allGithubProjects?.length
-		});
 	});
 </script>
 
