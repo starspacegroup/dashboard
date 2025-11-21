@@ -220,7 +220,7 @@
 					return;
 				}
 			} catch (e) {
-				console.log('Could not parse cached weather data');
+				// Could not parse cached weather data
 			}
 		}
 		

@@ -47,6 +47,14 @@ const defaultWidgets: Widget[] = [
 		section: 2,
 		order: 0,
 		size: { width: 0, height: 500 }
+	},
+	{
+		id: 'github-pull-requests-1',
+		type: 'github-pull-requests',
+		title: 'GitHub Pull Requests',
+		section: 2,
+		order: 1,
+		size: { width: 0, height: 500 }
 	}
 ];
 

@@ -193,7 +193,9 @@
 									<svelte:component this={widgetComponents.OrganizationProjectsWidget} organizationProjects={data.organizationProjects || []} />
 								{:else if widget.type === 'github-projects'}
 									<svelte:component this={widgetComponents.GithubProjectsWidget} projects={data.allGithubProjects || []} isLoggedIn={!!data.user} />
-								{/if}
+							{:else if widget.type === 'github-pull-requests'}
+								<svelte:component this={widgetComponents.GithubPullRequestsWidget} assignedPRs={data.assignedPRs || []} createdPRs={data.createdPRs || []} reviewRequestedPRs={data.reviewRequestedPRs || []} isLoggedIn={!!data.user} />
+							{/if}
 							</Widget>
 						</div>
 					{/each}

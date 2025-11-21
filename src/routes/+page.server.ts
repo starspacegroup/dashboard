@@ -40,6 +40,27 @@ interface GitHubProject {
 	updatedAt: string;
 }
 
+interface GitHubPullRequest {
+	id: string;
+	number: number;
+	title: string;
+	url: string;
+	state: string;
+	createdAt: string;
+	updatedAt: string;
+	author?: {
+		login: string;
+		avatarUrl?: string;
+	};
+	repository: {
+		name: string;
+		owner: {
+			login: string;
+		};
+	};
+	isDraft: boolean;
+}
+
 interface ExtendedSession {
 	user?: {
 		name?: string | null;
@@ -53,25 +74,21 @@ interface ExtendedSession {
 export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const session = await locals.getSession() as ExtendedSession | null;
 
-	console.log('[DEBUG] Session exists:', !!session);
-	console.log('[DEBUG] User exists:', !!session?.user);
-	console.log('[DEBUG] User login:', session?.user?.login);
-
 	if (!session?.user) {
-		console.log('[DEBUG] No user in session, returning empty');
 		return {
 			user: null,
 			githubProjects: [],
 			organizationProjects: [],
-			allGithubProjects: []
+			allGithubProjects: [],
+			assignedPRs: [],
+			createdPRs: [],
+			reviewRequestedPRs: []
 		};
 	}
 
 	try {
 		// Get the user's access token from the session
 		const accessToken = session.accessToken;
-		console.log('[DEBUG] Access token exists:', !!accessToken);
-		console.log('[DEBUG] Access token length:', accessToken?.length);
 
 		if (!accessToken) {
 			console.error('[ERROR] No access token in session!');
@@ -79,7 +96,10 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				user: session.user,
 				githubProjects: [],
 				organizationProjects: [],
-				allGithubProjects: []
+				allGithubProjects: [],
+				assignedPRs: [],
+				createdPRs: [],
+				reviewRequestedPRs: []
 			};
 		}
 
@@ -191,8 +211,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		`;
 
 		try {
-			console.log('[DEBUG] Fetching GitHub Projects via GraphQL...');
-
 			const graphqlResponse = await fetch('https://api.github.com/graphql', {
 				method: 'POST',
 				headers: {
@@ -203,13 +221,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				body: JSON.stringify({ query: projectsQuery })
 			});
 
-			console.log('[DEBUG] GraphQL Response Status:', graphqlResponse.status);
-			console.log('[DEBUG] GraphQL Response OK:', graphqlResponse.ok);
-
 			if (graphqlResponse.ok) {
 				const result = await graphqlResponse.json();
-
-				console.log('[DEBUG] GraphQL Response:', JSON.stringify(result, null, 2));
 
 				// Check for errors in the response
 				if (result.errors) {
@@ -231,7 +244,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 						ownerAvatarUrl: project.owner?.avatarUrl,
 						updatedAt: project.updatedAt
 					}));
-					console.log('User Projects:', userProjects);
 					allGithubProjects.push(...userProjects);
 				}
 
@@ -252,13 +264,10 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 								ownerAvatarUrl: project.owner?.avatarUrl,
 								updatedAt: project.updatedAt
 							}));
-							console.log(`Org (${org.login}) Projects:`, orgProjects);
 							allGithubProjects.push(...orgProjects);
 						}
 					}
 				}
-
-				console.log('[DEBUG] Total GitHub Projects found:', allGithubProjects.length);
 			} else {
 				const errorText = await graphqlResponse.text();
 				console.error('[ERROR] GraphQL Response not OK:', graphqlResponse.status, errorText);
@@ -271,11 +280,153 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			}
 		}
 
+		// Fetch Pull Requests using GitHub Search API
+		const assignedPRs: GitHubPullRequest[] = [];
+		const createdPRs: GitHubPullRequest[] = [];
+		const reviewRequestedPRs: GitHubPullRequest[] = [];
+
+		try {
+			// Fetch assigned PRs
+			const assignedResponse = await fetch('https://api.github.com/search/issues?q=type:pr+state:open+assignee:@me&sort=updated&order=desc&per_page=100', {
+				headers: {
+					'Authorization': `Bearer ${accessToken}`,
+					'Accept': 'application/vnd.github.v3+json',
+					'User-Agent': 'Dashboard-App'
+				}
+			});
+
+			if (assignedResponse.ok) {
+				const assignedResult = await assignedResponse.json();
+				console.log('[DEBUG] Assigned PRs response:', assignedResult.total_count, 'found');
+
+				for (const item of assignedResult.items || []) {
+					const repoMatch = item.repository_url?.match(/\/repos\/([^\/]+)\/([^\/]+)$/);
+					if (repoMatch) {
+						assignedPRs.push({
+							id: item.node_id,
+							number: item.number,
+							title: item.title,
+							url: item.html_url,
+							state: item.state.toUpperCase(),
+							createdAt: item.created_at,
+							updatedAt: item.updated_at,
+							author: item.user ? {
+								login: item.user.login,
+								avatarUrl: item.user.avatar_url
+							} : undefined,
+							repository: {
+								name: repoMatch[2],
+								owner: {
+									login: repoMatch[1]
+								}
+							},
+							isDraft: item.draft || false
+						});
+					}
+				}
+			} else {
+				console.error('[ERROR] Assigned PRs fetch failed:', assignedResponse.status);
+			}
+
+			// Fetch created PRs
+			const createdResponse = await fetch('https://api.github.com/search/issues?q=type:pr+state:open+author:@me&sort=updated&order=desc&per_page=100', {
+				headers: {
+					'Authorization': `Bearer ${accessToken}`,
+					'Accept': 'application/vnd.github.v3+json',
+					'User-Agent': 'Dashboard-App'
+				}
+			});
+
+			if (createdResponse.ok) {
+				const createdResult = await createdResponse.json();
+				console.log('[DEBUG] Created PRs response:', createdResult.total_count, 'found');
+
+				for (const item of createdResult.items || []) {
+					const repoMatch = item.repository_url?.match(/\/repos\/([^\/]+)\/([^\/]+)$/);
+					if (repoMatch) {
+						createdPRs.push({
+							id: item.node_id,
+							number: item.number,
+							title: item.title,
+							url: item.html_url,
+							state: item.state.toUpperCase(),
+							createdAt: item.created_at,
+							updatedAt: item.updated_at,
+							author: item.user ? {
+								login: item.user.login,
+								avatarUrl: item.user.avatar_url
+							} : undefined,
+							repository: {
+								name: repoMatch[2],
+								owner: {
+									login: repoMatch[1]
+								}
+							},
+							isDraft: item.draft || false
+						});
+					}
+				}
+			} else {
+				console.error('[ERROR] Created PRs fetch failed:', createdResponse.status);
+			}
+
+			// Fetch review-requested PRs
+			const reviewRequestedResponse = await fetch('https://api.github.com/search/issues?q=type:pr+state:open+review-requested:@me&sort=updated&order=desc&per_page=100', {
+				headers: {
+					'Authorization': `Bearer ${accessToken}`,
+					'Accept': 'application/vnd.github.v3+json',
+					'User-Agent': 'Dashboard-App'
+				}
+			});
+
+			if (reviewRequestedResponse.ok) {
+				const reviewRequestedResult = await reviewRequestedResponse.json();
+				console.log('[DEBUG] Review-requested PRs response:', reviewRequestedResult.total_count, 'found');
+
+				for (const item of reviewRequestedResult.items || []) {
+					const repoMatch = item.repository_url?.match(/\/repos\/([^\/]+)\/([^\/]+)$/);
+					if (repoMatch) {
+						reviewRequestedPRs.push({
+							id: item.node_id,
+							number: item.number,
+							title: item.title,
+							url: item.html_url,
+							state: item.state.toUpperCase(),
+							createdAt: item.created_at,
+							updatedAt: item.updated_at,
+							author: item.user ? {
+								login: item.user.login,
+								avatarUrl: item.user.avatar_url
+							} : undefined,
+							repository: {
+								name: repoMatch[2],
+								owner: {
+									login: repoMatch[1]
+								}
+							},
+							isDraft: item.draft || false
+						});
+					}
+				}
+			} else {
+				console.error('[ERROR] Review-requested PRs fetch failed:', reviewRequestedResponse.status);
+			}
+
+			console.log('[DEBUG] Final Assigned PRs count:', assignedPRs.length);
+			console.log('[DEBUG] Final Created PRs count:', createdPRs.length);
+			console.log('[DEBUG] Final Review-requested PRs count:', reviewRequestedPRs.length);
+		} catch (error) {
+			console.error('[ERROR] Failed to fetch Pull Requests:', error);
+		}
+
 		return {
 			user: session.user,
 			githubProjects,
 			organizationProjects,
-			allGithubProjects
+			allGithubProjects,
+			assignedPRs,
+			createdPRs,
+			reviewRequestedPRs
 		};
 	} catch (error) {
 		console.error('Failed to fetch GitHub data:', error);
@@ -285,6 +436,9 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		user: session?.user || null,
 		githubProjects: [],
 		organizationProjects: [],
-		allGithubProjects: []
+		allGithubProjects: [],
+		assignedPRs: [],
+		createdPRs: [],
+		reviewRequestedPRs: []
 	};
 };

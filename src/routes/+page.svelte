@@ -5,6 +5,7 @@
 	import GithubWidget from '$lib/components/GithubWidget.svelte';
 	import OrganizationProjectsWidget from '$lib/components/OrganizationProjectsWidget.svelte';
 	import GithubProjectsWidget from '$lib/components/GithubProjectsWidget.svelte';
+	import GithubPullRequestsWidget from '$lib/components/GithubPullRequestsWidget.svelte';
 	import ColumnLayout from '$lib/components/ColumnLayout.svelte';
 	import { widgets, sections } from '$lib/stores/widgets';
 	import { onMount } from 'svelte';
@@ -18,19 +19,14 @@
 		CalendarWidget,
 		GithubWidget,
 		OrganizationProjectsWidget,
-		GithubProjectsWidget
+		GithubProjectsWidget,
+		GithubPullRequestsWidget
 	};
 
 	// Load data on mount
 	onMount(() => {
 		widgets.load();
 		sections.load();
-		
-		// Debug: Check what data we have
-		console.log('GitHub Projects Data:', {
-			allGithubProjects: data.allGithubProjects,
-			count: data.allGithubProjects?.length
-		});
 	});
 </script>
 

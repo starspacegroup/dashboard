@@ -161,14 +161,12 @@
 					},
 					async (error) => {
 						// Geolocation failed or denied - don't load any weather data
-						console.log('Geolocation denied or failed:', error.message);
 						isLoading = false;
 						// Don't set hasLocationData = true
 					}
 				);
 			} else {
 				// Geolocation not supported - don't load any weather data
-				console.log('Geolocation not supported');
 				isLoading = false;
 			}
 		} catch (error) {
@@ -183,11 +181,7 @@
 				? `/api/weather?lat=${lat}&lon=${lon}`
 				: '/api/weather';
 			
-			console.log('Fetching weather from:', url);
-			
 			const response = await fetch(url);
-			
-			console.log('Weather API response status:', response.status);
 			
 			if (!response.ok) {
 				const errorText = await response.text();
@@ -196,8 +190,6 @@
 			}
 
 			const data: WeatherData = await response.json();
-			
-			console.log('Weather data received:', data);
 			
 			// Save coordinates if provided
 			if (lat && lon) {
@@ -221,11 +213,7 @@
 		try {
 			const url = `/api/weather?zip=${zipCode}`;
 			
-			console.log('Fetching weather by zip code:', url);
-			
 			const response = await fetch(url);
-			
-			console.log('Weather API response status:', response.status);
 			
 			if (!response.ok) {
 				const errorText = await response.text();
@@ -234,8 +222,6 @@
 			}
 
 			const data: WeatherData = await response.json();
-			
-			console.log('Weather data received:', data);
 			
 			// Save to localStorage
 			localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(data));

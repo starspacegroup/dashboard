@@ -9,9 +9,6 @@ export const GET: RequestHandler = async ({ url }) => {
   const lon = url.searchParams.get('lon');
   const zip = url.searchParams.get('zip');
 
-  console.log('Weather API called with:', { lat, lon, zip });
-  console.log('API Key configured:', !!OPENWEATHER_API_KEY.trim());
-
   if (!OPENWEATHER_API_KEY.trim()) {
     console.error('OPENWEATHER_API_KEY is not set!');
     return json(
@@ -27,7 +24,6 @@ export const GET: RequestHandler = async ({ url }) => {
 
     if (zip) {
       // Convert zip code to coordinates using geocoding API
-      console.log('Converting zip code to coordinates:', zip);
       const coords = await getCoordinatesFromZip(zip);
       if (!coords) {
         return json(
@@ -46,14 +42,11 @@ export const GET: RequestHandler = async ({ url }) => {
       longitude = '-70.2148';
     }
 
-    console.log('Using coordinates:', { latitude, longitude });
-
     // Use One Call API 3.0
     // Note: This API requires a subscription (free tier available)
     // Include hourly data and daily data (for moon data) for the next 48 hours (we'll use 24)
     const weatherUrl = `https://api.openweathermap.org/data/3.0/onecall?lat=${latitude}&lon=${longitude}&units=imperial&exclude=minutely,alerts&appid=${OPENWEATHER_API_KEY.trim()}`;
 
-    console.log('Fetching from One Call API 3.0...');
     const response = await fetch(weatherUrl);
 
     if (!response.ok) {
@@ -61,12 +54,10 @@ export const GET: RequestHandler = async ({ url }) => {
       console.error('OpenWeather API error:', errorData);
 
       // If One Call 3.0 fails (e.g., subscription issue), fallback to geocoding + current weather
-      console.log('Falling back to Current Weather API...');
       return await fallbackToCurrentWeather(latitude, longitude);
     }
 
     const data = await response.json();
-    console.log('One Call API 3.0 response received successfully');
 
     // Get next 24 hours of hourly data
     const hourlyForecast = data.hourly.slice(0, 24).map((hour: any) => ({
@@ -99,7 +90,6 @@ export const GET: RequestHandler = async ({ url }) => {
       timestamp: Date.now()
     };
 
-    console.log('Returning weather data:', weatherData);
     return json(weatherData);
   } catch (error) {
     console.error('Error fetching weather:', error);
@@ -113,7 +103,6 @@ export const GET: RequestHandler = async ({ url }) => {
 // Fallback to Current Weather API (2.5) if One Call 3.0 fails
 async function fallbackToCurrentWeather(lat: string, lon: string) {
   try {
-    console.log('Using Current Weather API 2.5 fallback...');
     const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=imperial&appid=${OPENWEATHER_API_KEY.trim()}`;
     const response = await fetch(weatherUrl);
 
@@ -124,7 +113,6 @@ async function fallbackToCurrentWeather(lat: string, lon: string) {
     }
 
     const data = await response.json();
-    console.log('Current Weather API 2.5 response received successfully');
 
     const weatherData = {
       temperature: Math.round(data.main.temp),
@@ -138,7 +126,6 @@ async function fallbackToCurrentWeather(lat: string, lon: string) {
       timestamp: Date.now()
     };
 
-    console.log('Returning fallback weather data:', weatherData);
     return json(weatherData);
   } catch (error) {
     console.error('Fallback API error:', error);
@@ -154,12 +141,10 @@ async function getCoordinatesFromZip(zip: string): Promise<{ lat: string; lon: s
   try {
     // OpenWeather geocoding API for zip codes (US only by default)
     const geoUrl = `https://api.openweathermap.org/geo/1.0/zip?zip=${zip},US&appid=${OPENWEATHER_API_KEY.trim()}`;
-    console.log('Geocoding zip code...');
     const response = await fetch(geoUrl);
 
     if (response.ok) {
       const data = await response.json();
-      console.log('Geocoding successful:', data);
       return {
         lat: data.lat.toString(),
         lon: data.lon.toString()
