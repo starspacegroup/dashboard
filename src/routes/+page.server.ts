@@ -305,7 +305,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			query {
 				viewer {
 					login
-					pullRequests(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
+					pullRequests(first: 100, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
 						nodes {
 							id
 							number
