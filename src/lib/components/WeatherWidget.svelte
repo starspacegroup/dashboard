@@ -98,14 +98,7 @@
 	let isSettingsOpen = false;
 	
 	// Time test mode
-	let timeTestMode = false;
 	let testDateOffset = 0; // Minutes offset from current time (negative = past)
-
-	// Check for timeTest URL parameter
-	if (browser) {
-		const urlParams = new URLSearchParams(window.location.search);
-		timeTestMode = urlParams.get('timeTest') === 'true';
-	}
 
 	// Load temperature unit preference (widget-specific or global)
 	if (browser) {
@@ -465,24 +458,16 @@
 			const now = new Date();
 			currentTimestamp = now.getTime(); // Update timestamp to trigger reactive statements
 			
-			// Calculate the display date based on timezone offset
+			// Calculate the display date based on timezone offset and time travel offset
 			let displayDate: Date;
-			if (timeTestMode) {
-				// In time test mode, start from location's time and apply offset
-				if (timezoneOffset !== 0) {
-					const utcTime = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
-					const locationTime = utcTime + (timezoneOffset * 1000);
-					displayDate = new Date(locationTime + testDateOffset * 60 * 1000);
-				} else {
-					displayDate = new Date(now.getTime() + testDateOffset * 60 * 1000);
-				}
-			} else if (timezoneOffset !== 0) {
-				// Apply location's timezone offset
-				// Get UTC time, then add the location's offset
+			if (timezoneOffset !== 0) {
+				// Apply both location's timezone offset and time travel offset
 				const utcTime = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
-				displayDate = new Date(utcTime + (timezoneOffset * 1000));
+				const locationTime = utcTime + (timezoneOffset * 1000);
+				displayDate = new Date(locationTime + testDateOffset * 60 * 1000);
 			} else {
-				displayDate = now;
+				// Apply time travel offset to local time
+				displayDate = new Date(now.getTime() + testDateOffset * 60 * 1000);
 			}
 				
 			currentTime = displayDate.toLocaleTimeString('en-US', { 
@@ -981,15 +966,8 @@
 		
 		// For sun/moon positions, we need to work with the actual moment in time
 		// The sunrise/sunset/moonrise/moonset are Unix timestamps (absolute moments)
-		let testDate: Date;
-		if (timeTestMode) {
-			// In time test mode, just apply the offset to current time
-			// Don't convert to location timezone - that's only for display
-			testDate = new Date(now.getTime() + testDateOffset * 60 * 1000);
-		} else {
-			// Use current time - sun/moon calculations use Unix timestamps which are absolute
-			testDate = now;
-		}
+		// Apply time offset for time travel
+		const testDate = new Date(now.getTime() + testDateOffset * 60 * 1000);
 		
 		sunPosition = getSunPosition(testDate);
 		const moonData = getMoonPosition(testDate);
@@ -1016,39 +994,119 @@
 	}
 </script>
 
-<div class="weather-widget" bind:this={containerElement}>
-	<!-- Time Test Slider (only shown when ?timeTest=true) -->
-	{#if timeTestMode}
-		<div class="time-test-slider">
-			<a href="/" class="close-time-test" data-sveltekit-reload title="Disable Time Travel Mode">
-				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<line x1="18" y1="6" x2="6" y2="18"/>
-					<line x1="6" y1="6" x2="18" y2="18"/>
-				</svg>
-			</a>
-			<label for="time-offset">
-				Time: {testDateOffset === 0 ? 'Now' : `${Math.abs(testDateOffset)} mins ago`}
-			</label>
-			<input 
-				id="time-offset"
-				type="range" 
-				min="-1440" 
-				max="0" 
-				step="10"
-				bind:value={testDateOffset}
-			/>
-			<div class="slider-labels">
-				<span>24h ago</span>
-				<span>12h ago</span>
-				<span>Now</span>
-			</div>
-			<div class="time-test-info">
-				ℹ️ Time travel currently changes the time but not  the weather data (YET!)
+<div class="weather-widget" class:loaded={hasLocationData} bind:this={containerElement}>
+	{#if hasLocationData}
+	<!-- Temperature Unit Toggle Switch -->
+	<!-- Celestial System Container (centers everything together) -->
+	<div class="celestial-container" class:loaded={hasLocationData} style="--earth-size: {earthSize}px; --padding: {padding}px;">
+		<!-- Sun (Behind Earth) -->
+		<div
+			class="sun"
+			style="left: {sunPosition.x}px; top: {sunPosition.y}px"
+		></div>
+
+		<!-- Moon (Behind Earth) -->
+		<div
+			class="moon"
+			style="
+				left: {moonPosition.x}px;
+				top: {moonPosition.y}px;
+				transform: translate(-50%, -50%) scale({moonScale});
+			"
+		>
+			<svg class="moon-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+				<!-- Moon surface (full circle) -->
+				<circle cx="50" cy="50" r="50" fill="#d4c5b0" />
+
+				<!-- Moon shadow (accurate phase) -->
+				{#if moonShadowPath}
+					<path d={moonShadowPath} fill="rgba(20, 15, 25, 0.95)" />
+				{/if}
+			</svg>
+		</div>
+
+		<div class="earth" style="background: {earthGradient}; --text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --location-size: {locationSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin}; --location-margin: {locationMargin}">
+		<!-- Time and Date Section -->
+		<div class="time-date-section">
+			<div class="time">{currentTime}</div>
+			<div class="date">{currentDate}</div>
+			<div class="location">{location}</div>
+		</div>
+
+		<!-- 24-Hour Temperature Graph (layered behind temperature) -->
+		{#if hourlyData.length > 0}
+			<svg class="temp-graph-svg" width="{earthSize}" height="80" viewBox="0 0 {earthSize} 80">
+				<!-- Define gradient for temperature colors -->
+				<defs>
+					<linearGradient id="tempGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+						{#each hourlyData.slice(0, 24) as hour, index}
+							{@const offset = (index / 23) * 100}
+							{@const color = getTemperatureColor(hour.temperature)}
+							<stop offset="{offset}%" stop-color={color} />
+						{/each}
+					</linearGradient>
+				</defs>
+
+				<!-- Temperature line with gradient -->
+				<path
+					d={temperaturePath}
+					fill="none"
+					stroke="url(#tempGradient)"
+					stroke-width="8"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				/>
+			</svg>
+		{/if}
+
+		<!-- Temperature - Dead Center -->
+		<div class="temperature">
+			<span class="temp-number">{displayTemp}</span><span class="degree-symbol">°{isCelsius ? 'C' : 'F'}</span>
+		</div>
+
+		<!-- Humidity - Below Temperature -->
+		<div class="humidity-center">
+			<span class="humidity-value">{humidity}</span>
+			<span class="humidity-symbols">
+				<span class="symbol-phi">φ</span>
+				<span class="symbol-percent">%</span>
+				<span class="symbol-drop">💧</span>
+			</span>
+		</div>
+
+			<!-- Humidity Wave (at bottom) -->
+			<div class="humidity">
+				<div class="humidity-wave"></div>
 			</div>
 		</div>
+	</div>
+
+	<!-- Time Test Slider (always shown) -->
+	<div class="time-test-slider">
+		<label for="time-offset">
+			Time: {testDateOffset === 0 ? 'Now' : `${Math.abs(testDateOffset)} mins ago`}
+		</label>
+		<input 
+			id="time-offset"
+			type="range" 
+			min="-1440" 
+			max="0" 
+			step="10"
+			bind:value={testDateOffset}
+		/>
+		<div class="slider-labels">
+			<span>24h ago</span>
+			<span>12h ago</span>
+			<span>Now</span>
+		</div>
+		<div class="time-test-info">
+			ℹ️ Time travel currently changes the time but not the weather data (YET!)
+		</div>
+	</div>
 	{:else}
-		<div class="time-test-link-container">
-			<a href="/?timeTest=true" class="time-test-link" data-sveltekit-reload>Enable Time Travel Mode</a>
+		<!-- No Location Message -->
+		<div class="no-location-message">
+			<p>Set location in Settings to view weather</p>
 		</div>
 	{/if}
 </div>
@@ -1074,6 +1132,213 @@
 		overflow: visible;
 	}
 
+	.celestial-container {
+		position: relative;
+		width: var(--earth-size, 320px);
+		height: var(--earth-size, 320px);
+		flex-shrink: 0;
+		padding: var(--padding, 90px);
+		box-sizing: content-box;
+		opacity: 0;
+		transition: opacity 0.8s ease-in-out;
+		overflow: visible;
+	}
+
+	.celestial-container.loaded {
+		opacity: 1;
+	}
+
+	.earth {
+		position: relative;
+		width: var(--earth-size, 320px);
+		height: var(--earth-size, 320px);
+		border-radius: 50%;
+		box-shadow: 0 8px 32px var(--shadow);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		transition: background 1s ease, color 1s ease;
+		overflow: hidden;
+		flex-shrink: 0;
+		aspect-ratio: 1 / 1;
+	}
+
+	.sun,
+	.moon {
+		position: absolute;
+		width: calc(var(--earth-size, 320px) * 0.1875); /* 60px / 320px = 0.1875 */
+		height: calc(var(--earth-size, 320px) * 0.1875);
+		border-radius: 50%;
+		transition: all 0.3s ease;
+		z-index: 0;
+	}
+
+	.sun {
+		transform: translate(-50%, -50%); /* Center the celestial body on its position */
+		background: radial-gradient(circle, #ff9d5c 0%, #e8754a 100%);
+		box-shadow: 0 0 30px rgba(255, 157, 92, 0.6);
+	}
+
+	.moon {
+		overflow: visible;
+	}
+
+	.moon-svg {
+		width: 100%;
+		height: 100%;
+		overflow: visible;
+	}
+
+	.time {
+		position: relative;
+		z-index: 3;
+		font-size: calc(var(--time-size, 1.75) * 1rem);
+		font-weight: 300;
+		color: var(--text-color, var(--text-primary));
+		letter-spacing: 0.5px;
+		text-shadow: 0 2px 4px var(--shadow);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.date {
+		position: relative;
+		z-index: 3;
+		font-size: calc(var(--date-size, 0.75) * 1rem);
+		color: var(--text-color, var(--text-secondary));
+		opacity: 0.7;
+		margin-top: calc(var(--date-margin, 0.25) * 1rem);
+		text-shadow: 0 1px 2px var(--shadow);
+	}
+
+	.location {
+		position: relative;
+		z-index: 3;
+		font-size: calc(var(--location-size, 1) * 1rem);
+		color: var(--text-color, var(--text-primary));
+		opacity: 0.8;
+		margin-top: 0;
+		text-shadow: 0 1px 2px var(--shadow);
+	}
+
+	.time-date-section {
+		position: absolute;
+		top: calc(var(--top-spacing, 0.9) * 1rem);
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 3;
+		text-align: center;
+		width: 100%;
+	}
+
+	.temperature {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		z-index: 2;
+		font-size: 5rem;
+		font-weight: 600;
+		color: var(--text-color, var(--text-primary));
+		line-height: 1;
+		text-shadow:
+			0 2px 4px var(--shadow),
+			0 4px 8px var(--shadow),
+			0 0 20px var(--shadow);
+		display: flex;
+		align-items: flex-start;
+		justify-content: center;
+	}
+
+	.degree-symbol {
+		font-size: 2.5rem;
+		margin-left: 0.25rem;
+		margin-top: 0.5rem;
+	}
+
+	.humidity-center {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translateX(-50%);
+		margin-top: 3rem;
+		z-index: 2;
+		font-size: 1.5rem;
+		font-weight: 300;
+		color: var(--text-color, var(--text-primary));
+		text-shadow: 0 2px 4px var(--shadow);
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+
+	.humidity-value {
+		font-weight: 600;
+		font-size: 1.5rem;
+	}
+
+	.humidity-symbols {
+		display: grid;
+		grid-template-columns: auto auto;
+		grid-template-rows: auto auto;
+		gap: 0.1rem;
+		font-size: 0.7rem;
+		opacity: 0.8;
+		align-items: center;
+		justify-items: center;
+	}
+
+	.symbol-phi {
+		grid-column: 1 / 3;
+		grid-row: 1;
+		font-size: 0.7rem;
+	}
+
+	.symbol-percent {
+		grid-column: 1;
+		grid-row: 2;
+		font-size: 0.7rem;
+	}
+
+	.symbol-drop {
+		grid-column: 2;
+		grid-row: 2;
+		font-size: 0.7rem;
+	}
+
+	.temp-graph-svg {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		z-index: 1;
+		opacity: 0.7;
+	}
+
+	.humidity {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		width: 100%;
+		height: 60px;
+		z-index: 0;
+	}
+
+	.humidity-wave {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		height: 40px;
+		background: linear-gradient(180deg,
+			rgba(100, 150, 200, 0.3) 0%,
+			rgba(80, 130, 180, 0.4) 50%,
+			rgba(60, 110, 160, 0.5) 100%
+		);
+		border-radius: 0 0 160px 160px;
+		clip-path: ellipse(160px 40px at 50% 100%);
+	}
+
 	/* Time Test Slider */
 	.time-test-slider {
 		width: 100%;
@@ -1085,28 +1350,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
-		position: relative;
-	}
-
-	.close-time-test {
-		position: absolute;
-		top: 0.5rem;
-		right: 0.5rem;
-		color: var(--text-secondary);
-		cursor: pointer;
-		transition: all 0.2s ease;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 24px;
-		height: 24px;
-		border-radius: 4px;
-		text-decoration: none;
-	}
-
-	.close-time-test:hover {
-		color: var(--text-primary);
-		background: var(--surface-container-high);
 	}
 
 	.time-test-info {
@@ -1165,27 +1408,32 @@
 		font-size: 0.75rem;
 	}
 
-	/* Time Test Link */
-	.time-test-link-container {
-		width: 100%;
-		max-width: 320px;
+	/* No Location Message */
+	.no-location-message {
 		display: flex;
+		flex-direction: column;
+		align-items: center;
 		justify-content: center;
-		margin-top: 0.5rem;
+		gap: 1rem;
+		min-height: 400px;
+		width: 100%;
 	}
 
-	.time-test-link {
-		font-size: 0.8125rem;
+	.no-location-message p {
+		font-size: 1.125rem;
 		color: var(--text-secondary);
-		text-decoration: none;
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		transition: all 0.2s ease;
+		text-align: center;
+		margin: 0;
 	}
 
-	.time-test-link:hover {
-		color: var(--text-primary);
-		background: var(--surface-variant);
-	}
+	/* Responsive adjustments */
+	@media (max-width: 768px) {
+		.time {
+			font-size: 1.5rem;
+		}
 
+		.temperature {
+			font-size: 4rem;
+		}
+	}
 </style>
