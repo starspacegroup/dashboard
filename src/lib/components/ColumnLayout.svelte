@@ -165,6 +165,7 @@
 	{#each sortedSections as section (section.id)}
 		<div 
 			class="section"
+			class:dragging={$isDraggingAny}
 			style="grid-column: {section.gridColumn} / span {section.gridColumnSpan}; grid-row: {section.gridRow};"
 			role="region"
 			aria-label="Section {section.id}"
@@ -268,14 +269,19 @@
 		position: relative;
 		z-index: 2;
 		overflow: visible;
-		border: 3px dashed var(--border);
+		border: 3px dashed transparent;
 		border-radius: 0;
-		padding: 1rem;
+		padding: 0;
 		background: transparent;
-		transition: border-color var(--transition-fast) var(--ease-out);
+		transition: border-color var(--transition-fast) var(--ease-out), padding var(--transition-fast) var(--ease-out);
 	}
 
-	.section:hover {
+	.section.dragging {
+		border-color: var(--border);
+		padding: 1rem;
+	}
+
+	.section.dragging:hover {
 		border-color: var(--primary-color);
 	}
 	
@@ -305,6 +311,9 @@
 		.section {
 			grid-column: auto / span 1 !important;
 			grid-row: auto !important;
+		}
+
+		.section.dragging {
 			padding: 0.875rem;
 		}
 
@@ -325,8 +334,11 @@
 		.section {
 			grid-column: 1 / span 1 !important;
 			grid-row: auto !important;
-			padding: 0.75rem;
 			border-radius: 0.625rem;
+		}
+
+		.section.dragging {
+			padding: 0.75rem;
 		}
 		
 		.section-content {
@@ -347,7 +359,7 @@
 			gap: 0.75rem;
 		}
 
-		.section {
+		.section.dragging {
 			padding: 0.625rem;
 			border-width: 2px;
 		}
