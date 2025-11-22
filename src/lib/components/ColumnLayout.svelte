@@ -1,14 +1,48 @@
 <script lang="ts">
 	import { widgets, sections, isDraggingAny } from '$lib/stores/widgets';
 	import Widget from '$lib/components/Widget.svelte';
+	import WidgetPicker from '$lib/components/WidgetPicker.svelte';
+	import LayoutPicker from '$lib/components/LayoutPicker.svelte';
 	import type { Widget as WidgetType } from '$lib/types/widget';
 	
 	export let widgetComponents: Record<string, any>;
 	export let data: any;
+	export let isWidgetPickerOpen = false;
+	export let isLayoutPickerOpen = false;
+	export let onWidgetPickerClose: () => void;
+	export let onLayoutPickerClose: () => void;
+	
+	let internalWidgetPickerOpen = false;
+	
+	// Use internal or external state
+	$: effectiveWidgetPickerOpen = isWidgetPickerOpen || internalWidgetPickerOpen;
+	
+	function openWidgetPicker() {
+		internalWidgetPickerOpen = true;
+	}
+	
+	function closeWidgetPicker() {
+		internalWidgetPickerOpen = false;
+		onWidgetPickerClose();
+	}
+
+	function closeLayoutPicker() {
+		onLayoutPickerClose();
+	}
 	
 	let containerRef: HTMLDivElement;
 	let draggedSectionId: number | null = null;
 	let isDraggingFromHandle = false;
+	
+	// Store weather widget component references
+	let weatherWidgetRefs: Record<string, any> = {};
+	
+	function openWeatherSettings(widgetId: string) {
+		const ref = weatherWidgetRefs[widgetId];
+		if (ref && ref.openSettings) {
+			ref.openSettings();
+		}
+	}
 	
 	// Organize widgets by section
 	$: widgetsBySection = $widgets.reduce((acc, widget) => {
@@ -71,8 +105,8 @@
 	function handleSectionDrop(targetColumn: number, event: DragEvent) {
 		event.preventDefault();
 		if (draggedSectionId !== null) {
-			// Clamp to valid column range (1-3)
-			const validColumn = Math.max(1, Math.min(3, targetColumn));
+			// Clamp to valid column range (1-4)
+			const validColumn = Math.max(1, Math.min(4, targetColumn));
 			sections.moveSection(draggedSectionId, validColumn);
 		}
 		draggedSectionId = null;
@@ -107,9 +141,12 @@
 	}
 </script>
 
+<WidgetPicker isOpen={effectiveWidgetPickerOpen} onClose={closeWidgetPicker} />
+<LayoutPicker isOpen={isLayoutPickerOpen} onClose={closeLayoutPicker} />
+
 <div class="dashboard-layout" bind:this={containerRef}>
 	<!-- Drop zones for each column -->
-	{#each [1, 2, 3] as columnNum}
+	{#each [1, 2, 3, 4] as columnNum}
 		<div 
 			class="drop-zone" 
 			class:active={draggedSectionId !== null}
@@ -128,61 +165,17 @@
 	{#each sortedSections as section (section.id)}
 		<div 
 			class="section"
-			class:dragging={draggedSectionId === section.id}
 			style="grid-column: {section.gridColumn} / span {section.gridColumnSpan}; grid-row: {section.gridRow};"
-			draggable="true"
-			on:dragstart={(e) => handleSectionDragStart(section.id, e)}
-			on:dragend={handleSectionDragEnd}
 			role="region"
 			aria-label="Section {section.id}"
 		>
-			<!-- Section Controls -->
-			<div class="section-controls">
-				<button 
-					class="control-btn drag-handle"
-					title="Drag to move section"
-					aria-label="Drag to move section"
-					on:mousedown={handleDragHandleMouseDown}
-					on:mouseup={handleDragHandleMouseUp}
-				>
-					<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-						<path d="M10 3a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm0 5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm0 5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/>
-					</svg>
-				</button>
-				<div class="resize-controls">
-					<button 
-						class="control-btn"
-						on:click={() => decreaseSpan(section.id)}
-						disabled={section.gridColumnSpan <= 1}
-						title="Decrease width"
-						aria-label="Decrease section width"
-					>
-						<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-							<path d="M4 8a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7A.5.5 0 0 1 4 8z"/>
-						</svg>
-					</button>
-					<span class="span-indicator">{section.gridColumnSpan}col</span>
-					<button 
-						class="control-btn"
-						on:click={() => increaseSpan(section.id)}
-						disabled={section.gridColumn + section.gridColumnSpan > 3}
-						title="Increase width"
-						aria-label="Increase section width"
-					>
-						<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-							<path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/>
-						</svg>
-					</button>
-				</div>
-			</div>
-			
 			<div class="section-content">
 				{#if widgetsBySection[section.id]}
 					{#each widgetsBySection[section.id] as widget (widget.id)}
 						<div class="widget-container">
-							<Widget {widget} on:widgetDrop={handleWidgetDrop}>
+							<Widget {widget} on:widgetDrop={handleWidgetDrop} onSettingsClick={widget.type === 'weather' ? () => openWeatherSettings(widget.id) : undefined}>
 								{#if widget.type === 'weather'}
-									<svelte:component this={widgetComponents.WeatherWidget} />
+									<svelte:component this={widgetComponents.WeatherWidget} {widget} bind:this={weatherWidgetRefs[widget.id]} />
 								{:else if widget.type === 'traffic'}
 									<svelte:component this={widgetComponents.TrafficWidget} />
 								{:else if widget.type === 'calendar'}
@@ -193,9 +186,11 @@
 									<svelte:component this={widgetComponents.OrganizationProjectsWidget} organizationProjects={data.organizationProjects || []} />
 								{:else if widget.type === 'github-projects'}
 									<svelte:component this={widgetComponents.GithubProjectsWidget} projects={data.allGithubProjects || []} isLoggedIn={!!data.user} />
-							{:else if widget.type === 'github-pull-requests'}
-								<svelte:component this={widgetComponents.GithubPullRequestsWidget} assignedPRs={data.assignedPRs || []} createdPRs={data.createdPRs || []} reviewRequestedPRs={data.reviewRequestedPRs || []} isLoggedIn={!!data.user} />
-							{/if}
+								{:else if widget.type === 'github-pull-requests'}
+									<svelte:component this={widgetComponents.GithubPullRequestsWidget} assignedPRs={data.assignedPRs || []} createdPRs={data.createdPRs || []} reviewRequestedPRs={data.reviewRequestedPRs || []} isLoggedIn={!!data.user} />
+								{:else if widget.type === 'data-table'}
+									<svelte:component this={widgetComponents.DataTableWidget} />
+								{/if}
 							</Widget>
 						</div>
 					{/each}
@@ -208,14 +203,17 @@
 <style>
 	.dashboard-layout {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 1rem;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 1.5rem;
 		width: 100%;
+		max-width: 100vw;
 		height: 100%;
-		padding: 1rem;
+		padding: 1.5rem;
 		overflow-y: auto;
+		overflow-x: hidden;
 		position: relative;
 		grid-auto-rows: minmax(min-content, max-content);
+		box-sizing: border-box;
 	}
 	
 	.drop-zone {
@@ -224,162 +222,138 @@
 		bottom: 0;
 		pointer-events: none;
 		opacity: 0;
-		transition: opacity 0.2s;
+		transition: all var(--transition-normal) var(--ease-out);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background-color: var(--primary-container);
-		border: 2px dashed var(--primary);
-		border-radius: 8px;
+		background: linear-gradient(135deg, var(--primary-color-light), transparent);
+		border: 2px dashed var(--primary-color);
+		border-radius: 1rem;
 		z-index: 1;
+		backdrop-filter: blur(4px);
 	}
 	
 	.drop-zone.active {
 		pointer-events: all;
 		opacity: 1;
+		animation: pulseDropZone 1.5s ease-in-out infinite;
+	}
+
+	@keyframes pulseDropZone {
+		0%, 100% {
+			border-color: var(--primary-color);
+			background: linear-gradient(135deg, var(--primary-color-light), transparent);
+		}
+		50% {
+			border-color: var(--primary-color-hover);
+			background: linear-gradient(135deg, rgba(0, 122, 204, 0.15), transparent);
+		}
 	}
 	
 	.drop-zone-label {
 		font-size: 0.875rem;
-		font-weight: 600;
-		color: var(--primary);
+		font-weight: 700;
+		color: var(--primary-color);
 		text-transform: uppercase;
-		letter-spacing: 1px;
+		letter-spacing: 0.1em;
+		text-shadow: 0 2px 4px var(--shadow);
 	}
 	
 	.section {
 		display: flex;
 		flex-direction: column;
-		background-color: var(--surface);
-		border-radius: 8px;
-		border: 2px solid var(--border);
-		overflow: hidden;
 		min-height: fit-content;
 		height: fit-content;
+		min-width: 0;
 		position: relative;
 		z-index: 2;
-		transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
-		cursor: move;
+		overflow: visible;
+		border: 3px dashed var(--border);
+		border-radius: 0;
+		padding: 1rem;
+		background: transparent;
+		transition: border-color var(--transition-fast) var(--ease-out);
 	}
-	
+
 	.section:hover {
-		border-color: var(--primary);
-		box-shadow: 0 2px 8px var(--shadow);
-	}
-	
-	.section.dragging {
-		opacity: 0.5;
-		transform: scale(0.98);
-	}
-	
-	.section-controls {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.5rem 0.75rem;
-		background-color: var(--surface-variant);
-		border-bottom: 1px solid var(--border);
-		gap: 0.5rem;
-	}
-	
-	.drag-handle {
-		cursor: grab;
-		color: var(--text-secondary);
-	}
-	
-	.drag-handle:active {
-		cursor: grabbing;
-	}
-	
-	.resize-controls {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-	}
-	
-	.control-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 28px;
-		height: 28px;
-		padding: 0;
-		background-color: transparent;
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		cursor: pointer;
-		color: var(--text-primary);
-		transition: background-color 0.2s, border-color 0.2s;
-	}
-	
-	.control-btn:hover:not(:disabled) {
-		background-color: var(--surface-hover);
-		border-color: var(--primary);
-	}
-	
-	.control-btn:active:not(:disabled) {
-		background-color: var(--surface-variant);
-	}
-	
-	.control-btn:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
-	
-	.span-indicator {
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: var(--text-secondary);
-		padding: 0 0.25rem;
-		min-width: 35px;
-		text-align: center;
+		border-color: var(--primary-color);
 	}
 	
 	.section-content {
-		padding: 1rem;
+		padding: 0.5rem;
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
-		cursor: default;
+		position: relative;
 	}
 	
 	.widget-container {
 		width: 100%;
+		min-width: 0;
+		overflow: visible;
 	}
 	
 	/* Tablet responsive - 2 columns */
 	@media (max-width: 1024px) {
 		.dashboard-layout {
 			grid-template-columns: repeat(2, 1fr);
-			grid-auto-flow: row; /* Ensure sections flow in rows */
+			gap: 1.25rem;
+			padding: 1.25rem;
+			grid-auto-flow: row;
 		}
 		
 		.section {
 			grid-column: auto / span 1 !important;
-			grid-row: auto !important; /* Let grid auto-place sections to prevent overlap */
+			grid-row: auto !important;
+			padding: 0.875rem;
+		}
+
+		.section-content {
+			gap: 0.875rem;
 		}
 	}
-	
+
 	/* Mobile responsive - 1 column */
 	@media (max-width: 768px) {
 		.dashboard-layout {
 			grid-template-columns: 1fr;
-			padding: 0.5rem;
-			gap: 0.75rem;
-			grid-auto-flow: row; /* Ensure sections flow in rows */
+			padding: 1rem;
+			gap: 1rem;
+			grid-auto-flow: row;
 		}
 		
 		.section {
 			grid-column: 1 / span 1 !important;
-			grid-row: auto !important; /* Let grid auto-place sections to prevent overlap */
+			grid-row: auto !important;
+			padding: 0.75rem;
+			border-radius: 0.625rem;
 		}
 		
 		.section-content {
-			padding: 0.75rem;
+			padding: 0.5rem;
+			gap: 0.75rem;
 		}
 		
 		.drop-zone {
 			display: none;
+		}
+
+	}
+
+	/* Small mobile */
+	@media (max-width: 480px) {
+		.dashboard-layout {
+			padding: 0.75rem;
+			gap: 0.75rem;
+		}
+
+		.section {
+			padding: 0.625rem;
+			border-width: 2px;
+		}
+
+		.section-content {
+			padding: 0.25rem;
 		}
 	}
 </style>

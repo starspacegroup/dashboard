@@ -3,15 +3,89 @@ import type { Widget, Section } from '$lib/types/widget';
 
 const WIDGETS_STORAGE_KEY = 'dashboard-widgets';
 const SECTIONS_STORAGE_KEY = 'dashboard-sections';
+const LAYOUT_WIDGETS_STORAGE_KEY = 'dashboard-layout-widgets';
+const CURRENT_LAYOUT_KEY = 'dashboard-current-layout';
 
 // Global drag state
 export const isDraggingAny = writable(false);
 
-// Default sections - grid-based layout
+// Generate a unique fingerprint for a layout configuration
+function getLayoutFingerprint(sections: Section[]): string {
+	const sorted = [...sections].sort((a, b) => {
+		if (a.gridRow !== b.gridRow) return a.gridRow - b.gridRow;
+		return a.gridColumn - b.gridColumn;
+	});
+	return sorted.map(s => `${s.gridColumn}-${s.gridColumnSpan}-${s.gridRow}`).join('|');
+}
+
+// Load per-layout widget positions
+function loadLayoutWidgets(): Record<string, Widget[]> {
+	if (typeof window === 'undefined') return {};
+	try {
+		const stored = localStorage.getItem(LAYOUT_WIDGETS_STORAGE_KEY);
+		return stored ? JSON.parse(stored) : {};
+	} catch (error) {
+		console.warn('Failed to load layout widgets:', error);
+		return {};
+	}
+}
+
+// Save per-layout widget positions
+function saveLayoutWidgets(layoutWidgets: Record<string, Widget[]>) {
+	if (typeof window === 'undefined') return;
+	try {
+		localStorage.setItem(LAYOUT_WIDGETS_STORAGE_KEY, JSON.stringify(layoutWidgets));
+	} catch (error) {
+		console.warn('Failed to save layout widgets:', error);
+	}
+}
+
+// Get current layout fingerprint
+function getCurrentLayout(): string | null {
+	if (typeof window === 'undefined') return null;
+	try {
+		return localStorage.getItem(CURRENT_LAYOUT_KEY);
+	} catch (error) {
+		return null;
+	}
+}
+
+// Save current layout fingerprint
+function saveCurrentLayout(fingerprint: string) {
+	if (typeof window === 'undefined') return;
+	try {
+		localStorage.setItem(CURRENT_LAYOUT_KEY, fingerprint);
+	} catch (error) {
+		console.warn('Failed to save current layout:', error);
+	}
+}
+
+// Generate sane default widget positions for a new layout
+function generateDefaultWidgetPositions(widgets: Widget[], sections: Section[]): Widget[] {
+	if (sections.length === 0) return widgets;
+
+	// Distribute widgets evenly across sections
+	const widgetsPerSection = Math.ceil(widgets.length / sections.length);
+
+	return widgets.map((widget, index) => {
+		const sectionIndex = Math.floor(index / widgetsPerSection);
+		const section = sections[Math.min(sectionIndex, sections.length - 1)];
+		const orderInSection = index % widgetsPerSection;
+
+		return {
+			...widget,
+			section: section.id,
+			order: orderInSection
+		};
+	});
+}
+
+// Default sections - 4 column grid-based layout
 const defaultSections: Section[] = [
 	{ id: 0, gridColumn: 1, gridColumnSpan: 1, gridRow: 1 },
 	{ id: 1, gridColumn: 2, gridColumnSpan: 1, gridRow: 1 },
-	{ id: 2, gridColumn: 3, gridColumnSpan: 1, gridRow: 1 }
+	{ id: 2, gridColumn: 3, gridColumnSpan: 1, gridRow: 1 },
+	{ id: 3, gridColumn: 4, gridColumnSpan: 1, gridRow: 1 }
 ];
 
 
@@ -64,13 +138,30 @@ function loadWidgets(): Widget[] {
 		return defaultWidgets;
 	}
 
+	// First try to load from layout-specific storage
+	const currentSections = loadSections();
+	const layoutFingerprint = getLayoutFingerprint(currentSections);
+	const layoutWidgets = loadLayoutWidgets();
+
+	if (layoutWidgets[layoutFingerprint]) {
+		const parsedWidgets = layoutWidgets[layoutFingerprint];
+		if (Array.isArray(parsedWidgets) && parsedWidgets.every(w =>
+			w.id && w.type && typeof w.section === 'number' && typeof w.order === 'number' && w.size)) {
+			return parsedWidgets;
+		}
+	}
+
+	// Fall back to legacy storage for migration
 	try {
 		const stored = localStorage.getItem(WIDGETS_STORAGE_KEY);
 		if (stored) {
 			const parsedWidgets = JSON.parse(stored);
-			// Validate that stored widgets have required properties
 			if (Array.isArray(parsedWidgets) && parsedWidgets.every(w =>
 				w.id && w.type && typeof w.section === 'number' && typeof w.order === 'number' && w.size)) {
+				// Migrate to new storage format
+				layoutWidgets[layoutFingerprint] = parsedWidgets;
+				saveLayoutWidgets(layoutWidgets);
+				saveCurrentLayout(layoutFingerprint);
 				return parsedWidgets;
 			}
 		}
@@ -109,13 +200,22 @@ function loadSections(): Section[] {
 	return defaultSections;
 }
 
-// Save widgets to localStorage
-function saveWidgets(widgets: Widget[]) {
+// Save widgets to localStorage with layout context
+function saveWidgets(widgets: Widget[], sections?: Section[]) {
 	if (typeof window === 'undefined') {
 		return;
 	}
 
 	try {
+		// Save to layout-specific storage
+		const currentSections = sections || loadSections();
+		const layoutFingerprint = getLayoutFingerprint(currentSections);
+		const layoutWidgets = loadLayoutWidgets();
+		layoutWidgets[layoutFingerprint] = widgets;
+		saveLayoutWidgets(layoutWidgets);
+		saveCurrentLayout(layoutFingerprint);
+
+		// Also save to legacy storage for backwards compatibility
 		localStorage.setItem(WIDGETS_STORAGE_KEY, JSON.stringify(widgets));
 	} catch (error) {
 		console.warn('Failed to save widgets to localStorage:', error);
@@ -268,6 +368,15 @@ function createWidgetStore() {
 				return updatedWidgets;
 			});
 		},
+		updateWidgetConfig: (id: string, config: any) => {
+			update((widgets) => {
+				const updatedWidgets = widgets.map((widget) =>
+					widget.id === id ? { ...widget, config } : widget
+				);
+				saveWidgets(updatedWidgets);
+				return updatedWidgets;
+			});
+		},
 		reset: () => {
 			set(defaultWidgets);
 			saveWidgets(defaultWidgets);
@@ -347,6 +456,54 @@ function createSectionStore() {
 				const recalculatedSections = calculateSectionRows(updatedSections);
 				saveSections(recalculatedSections);
 				return recalculatedSections;
+			});
+		},
+		applyLayout: (layoutSections: Omit<Section, 'id'>[]) => {
+			let newSections: Section[];
+
+			update(() => {
+				// Create new sections with sequential IDs
+				newSections = layoutSections.map((section, index) => ({
+					id: index,
+					gridColumn: section.gridColumn,
+					gridColumnSpan: section.gridColumnSpan,
+					gridRow: section.gridRow,
+					title: section.title
+				}));
+				saveSections(newSections);
+				return newSections;
+			});
+
+			// Check if we have saved widget positions for this layout
+			widgets.update((currentWidgets) => {
+				const layoutFingerprint = getLayoutFingerprint(newSections);
+				const layoutWidgets = loadLayoutWidgets();
+
+				// If we have saved positions for this layout, use them
+				if (layoutWidgets[layoutFingerprint]) {
+					const savedWidgets = layoutWidgets[layoutFingerprint];
+
+					// Ensure all current widgets are present (in case new widgets were added)
+					const savedWidgetIds = new Set(savedWidgets.map(w => w.id));
+					const newWidgets = currentWidgets.filter(w => !savedWidgetIds.has(w.id));
+
+					if (newWidgets.length > 0) {
+						// Distribute new widgets using sane defaults
+						const distributedNewWidgets = generateDefaultWidgetPositions(newWidgets, newSections);
+						const combined = [...savedWidgets, ...distributedNewWidgets];
+						saveWidgets(combined, newSections);
+						return combined;
+					}
+
+					// All widgets accounted for, use saved positions
+					saveCurrentLayout(layoutFingerprint);
+					return savedWidgets;
+				}
+
+				// No saved positions for this layout, generate sane defaults
+				const updatedWidgets = generateDefaultWidgetPositions(currentWidgets, newSections);
+				saveWidgets(updatedWidgets, newSections);
+				return updatedWidgets;
 			});
 		},
 		reset: () => {

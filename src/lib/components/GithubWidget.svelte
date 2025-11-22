@@ -84,7 +84,7 @@
 	.project-card {
 		display: block;
 		padding: 1rem;
-		background-color: rgba(0, 0, 0, 0.2);
+		background-color: var(--surface-overlay-medium);
 		border-radius: 0.375rem;
 		border: 1px solid var(--border);
 		text-decoration: none;
@@ -93,7 +93,7 @@
 	}
 
 	.project-card:hover {
-		background-color: rgba(0, 0, 0, 0.3);
+		background-color: var(--surface-overlay-strong);
 		border-color: var(--primary-color);
 		transform: translateY(-2px);
 	}

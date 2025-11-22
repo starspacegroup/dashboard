@@ -194,39 +194,40 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background-color: rgba(0, 0, 0, 0.5);
-		backdrop-filter: blur(4px);
+		background-color: var(--overlay);
 		z-index: 9999;
 		display: flex;
 		justify-content: center;
-		padding-top: 20vh;
+		align-items: flex-start;
+		padding: 15vh 1rem 1rem;
 	}
 
 	.command-palette {
 		background-color: var(--surface);
-		border-radius: 12px;
-		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+		border-radius: 0;
+		box-shadow: 8px 8px 0 var(--shadow-strong);
 		width: 100%;
-		max-width: 600px;
-		max-height: 60vh;
+		max-width: 640px;
+		max-height: 70vh;
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		border: 1px solid var(--border);
+		border: 4px solid var(--primary-color);
 	}
 
 	.search-container {
 		display: flex;
 		align-items: center;
-		padding: 1rem;
-		border-bottom: 1px solid var(--border);
-		gap: 0.75rem;
+		padding: 1.25rem 1.5rem;
+		border-bottom: 3px solid var(--primary-color);
+		gap: 1rem;
+		position: relative;
+		background-color: var(--surface);
 	}
 
 	.search-icon {
-		font-size: 1.25rem;
-		color: var(--text-secondary);
-		opacity: 0.5;
+		font-size: 1.5rem;
+		color: var(--primary-color);
 	}
 
 	.search-input {
@@ -234,33 +235,42 @@
 		background: transparent;
 		border: none;
 		outline: none;
-		font-size: 1rem;
+		font-size: 1.05rem;
 		color: var(--text-primary);
 		font-family: inherit;
 	}
 
 	.search-input::placeholder {
 		color: var(--text-secondary);
-		opacity: 0.6;
+		opacity: 0.7;
 	}
 
 	.escape-hint {
-		font-size: 0.75rem;
+		font-size: 0.7rem;
 		color: var(--text-secondary);
-		padding: 0.25rem 0.5rem;
+		padding: 0.375rem 0.625rem;
 		background-color: var(--surface-variant);
-		border-radius: 4px;
-		font-weight: 500;
+		border-radius: 0.375rem;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		border: 1px solid var(--border);
+		transition: all var(--transition-fast) var(--ease-out);
+	}
+
+	.escape-hint:hover {
+		background-color: var(--primary-color-light);
+		border-color: var(--primary-color);
+		color: var(--primary-color);
 	}
 
 	.commands-list {
 		flex: 1;
 		overflow-y: auto;
-		padding: 0.5rem;
+		padding: 0.75rem;
 	}
 
 	.commands-list::-webkit-scrollbar {
-		width: 8px;
+		width: 10px;
 	}
 
 	.commands-list::-webkit-scrollbar-track {
@@ -269,7 +279,8 @@
 
 	.commands-list::-webkit-scrollbar-thumb {
 		background: var(--surface-variant);
-		border-radius: 4px;
+		border-radius: 0.5rem;
+		border: 2px solid var(--surface);
 	}
 
 	.commands-list::-webkit-scrollbar-thumb:hover {
@@ -281,19 +292,24 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0.75rem 1rem;
-		border: none;
+		padding: 0.875rem 1.25rem;
+		border: 2px solid transparent;
+		border-radius: 0;
 		background: transparent;
 		cursor: pointer;
-		border-radius: 6px;
-		transition: background-color 0.15s ease;
+		transition: all 100ms cubic-bezier(0.4, 0, 0.2, 1);
 		text-align: left;
 		gap: 1rem;
+		position: relative;
 	}
 
 	.command-item:hover,
 	.command-item.selected {
-		background-color: var(--surface-variant);
+		background-color: var(--primary-color);
+		color: var(--surface);
+		border-color: var(--primary-color);
+		box-shadow: 4px 4px 0 var(--shadow-hover);
+		transform: translate(-2px, -2px);
 	}
 
 	.command-main {
@@ -302,10 +318,16 @@
 	}
 
 	.command-name {
-		font-size: 0.9rem;
+		font-size: 0.95rem;
 		color: var(--text-primary);
-		font-weight: 500;
-		margin-bottom: 0.15rem;
+		font-weight: 600;
+		margin-bottom: 0.25rem;
+		transition: color var(--transition-fast) var(--ease-out);
+	}
+
+	.command-item:hover .command-name,
+	.command-item.selected .command-name {
+		color: var(--surface);
 	}
 
 	.command-description {
@@ -319,11 +341,20 @@
 	.command-shortcut {
 		font-size: 0.75rem;
 		color: var(--text-secondary);
-		padding: 0.25rem 0.5rem;
-		background-color: var(--surface-container-high);
-		border-radius: 4px;
+		padding: 0.375rem 0.625rem;
+		background-color: var(--surface-variant);
+		border-radius: 0;
 		font-family: monospace;
 		font-weight: 600;
+		border: 2px solid var(--border);
+		transition: all 100ms cubic-bezier(0.4, 0, 0.2, 1);
+	}
+
+	.command-item:hover .command-shortcut,
+	.command-item.selected .command-shortcut {
+		background-color: var(--surface);
+		border-color: var(--surface);
+		color: var(--primary-color);
 	}
 
 	.no-results {
@@ -331,42 +362,125 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 3rem 1rem;
+		padding: 4rem 1rem;
 		color: var(--text-secondary);
 	}
 
 	.no-results-icon {
-		font-size: 3rem;
+		font-size: 3.5rem;
 		margin-bottom: 1rem;
-		opacity: 0.5;
+		opacity: 0.4;
+		animation: float 3s ease-in-out infinite;
+	}
+
+	@keyframes float {
+		0%, 100% {
+			transform: translateY(0);
+		}
+		50% {
+			transform: translateY(-10px);
+		}
 	}
 
 	.no-results-text {
-		font-size: 0.9rem;
+		font-size: 0.95rem;
+		font-weight: 500;
 	}
 
 	.footer {
 		border-top: 1px solid var(--border);
-		padding: 0.75rem 1rem;
-		background-color: var(--surface-variant);
+		padding: 1rem 1.5rem;
+		background: linear-gradient(to bottom, transparent, var(--surface-variant));
 	}
 
 	.footer-hint {
 		display: flex;
-		gap: 1rem;
-		font-size: 0.75rem;
+		gap: 1.25rem;
+		font-size: 0.8rem;
 		color: var(--text-secondary);
 		align-items: center;
+		flex-wrap: wrap;
 	}
 
 	kbd {
 		background-color: var(--surface-container-high);
-		padding: 0.15rem 0.4rem;
-		border-radius: 3px;
+		padding: 0.25rem 0.5rem;
+		border-radius: 0.375rem;
 		font-family: monospace;
 		font-size: 0.7rem;
 		font-weight: 600;
 		border: 1px solid var(--border);
-		margin-right: 0.25rem;
+		margin-right: 0.375rem;
+		box-shadow: 0 2px 0 var(--border);
+		transition: all var(--transition-fast) var(--ease-out);
+	}
+
+	kbd:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 3px 0 var(--border);
+	}
+
+	/* Mobile optimizations */
+	@media (max-width: 768px) {
+		.command-palette-backdrop {
+			padding: 10vh 0.75rem 0.75rem;
+		}
+
+		.command-palette {
+			max-height: 75vh;
+			border-radius: 0.875rem;
+		}
+
+		.search-container {
+			padding: 1rem 1.25rem;
+		}
+
+		.search-input {
+			font-size: 1rem;
+		}
+
+		.search-input::placeholder {
+			font-size: 0.9rem;
+		}
+
+		.command-item {
+			padding: 1rem 1rem;
+		}
+
+		.footer-hint {
+			gap: 0.75rem;
+			font-size: 0.75rem;
+		}
+
+		kbd {
+			padding: 0.2rem 0.4rem;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.command-palette-backdrop {
+			padding: 5vh 0.5rem 0.5rem;
+		}
+
+		.search-container {
+			padding: 0.875rem 1rem;
+			gap: 0.75rem;
+		}
+
+		.escape-hint {
+			display: none;
+		}
+
+		.command-item {
+			padding: 0.875rem 0.875rem;
+		}
+
+		.command-description {
+			display: none;
+		}
+
+		.footer {
+			padding: 0.75rem 1rem;
+		}
 	}
 </style>

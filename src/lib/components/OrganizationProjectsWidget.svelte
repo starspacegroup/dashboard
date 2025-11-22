@@ -128,7 +128,7 @@
 		border: 1px solid var(--border);
 		border-radius: 0.5rem;
 		padding: 1rem;
-		background-color: rgba(0, 0, 0, 0.1);
+		background-color: var(--surface-overlay);
 	}
 
 	.organization-header {
@@ -174,19 +174,19 @@
 	.project-tile {
 		display: block;
 		padding: 0.875rem;
-		background-color: rgba(255, 255, 255, 0.05);
+		background-color: var(--surface-overlay);
 		border-radius: 0.375rem;
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		border: 1px solid var(--border-subtle);
 		text-decoration: none;
 		color: inherit;
 		transition: all 0.2s;
 	}
 
 	.project-tile:hover {
-		background-color: rgba(255, 255, 255, 0.1);
+		background-color: var(--surface-overlay-medium);
 		border-color: var(--primary-color);
 		transform: translateY(-1px);
-		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+		box-shadow: 0 4px 8px var(--shadow);
 	}
 
 	.project-header {
@@ -243,7 +243,7 @@
 		text-align: center;
 		margin-top: 0.75rem;
 		padding-top: 0.75rem;
-		border-top: 1px solid rgba(255, 255, 255, 0.1);
+		border-top: 1px solid var(--border-subtle);
 		color: var(--text-secondary);
 		font-size: 0.875rem;
 	}

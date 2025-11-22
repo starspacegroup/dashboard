@@ -4,20 +4,34 @@ import { browser } from '$app/environment';
 export type Theme = 'light' | 'dark' | 'auto';
 
 const THEME_STORAGE_KEY = 'dashboard-theme';
+const THEME_SET_KEY = 'dashboard-theme-user-set';
 
 function getInitialTheme(): Theme {
-  if (!browser) return 'auto';
+  if (!browser) return 'dark';
 
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === 'light' || stored === 'dark' || stored === 'auto') {
+    const userHasSet = localStorage.getItem(THEME_SET_KEY);
+
+    // If user has explicitly set a preference, use it
+    if (userHasSet === 'true' && (stored === 'light' || stored === 'dark')) {
       return stored;
+    }
+
+    // First time user - check for system preference, otherwise use dark
+    if (!userHasSet) {
+      const hasSystemPreference = window.matchMedia('(prefers-color-scheme: dark)').matches ||
+        window.matchMedia('(prefers-color-scheme: light)').matches;
+      if (hasSystemPreference) {
+        return 'auto';
+      }
+      return 'dark';
     }
   } catch (error) {
     console.warn('Failed to load theme from localStorage:', error);
   }
 
-  return 'auto';
+  return 'dark';
 }
 
 function getSystemTheme(): 'light' | 'dark' {
@@ -36,6 +50,37 @@ function createThemeStore() {
         localStorage.setItem(THEME_STORAGE_KEY, theme);
         applyTheme(theme);
       }
+    },
+    // For signed-in users with three-way switch (keeps auto option)
+    setThemeWithAuto: (theme: Theme) => {
+      set(theme);
+      if (browser) {
+        localStorage.setItem(THEME_STORAGE_KEY, theme);
+        localStorage.setItem(THEME_SET_KEY, 'true');
+        applyTheme(theme);
+      }
+    },
+    // For non-signed-in users toggle (removes auto, user has made a choice)
+    toggleTheme: () => {
+      update(current => {
+        if (browser) {
+          const currentResolved = current === 'auto' ? getSystemTheme() : current;
+          const newTheme = currentResolved === 'light' ? 'dark' : 'light';
+
+          localStorage.setItem(THEME_STORAGE_KEY, newTheme);
+          localStorage.setItem(THEME_SET_KEY, 'true');
+          applyTheme(newTheme);
+
+          return newTheme;
+        }
+        return current;
+      });
+    },
+    getCurrentResolvedTheme: (): 'light' | 'dark' => {
+      if (!browser) return 'dark';
+      let currentTheme: Theme = 'dark';
+      subscribe(t => currentTheme = t)();
+      return currentTheme === 'auto' ? getSystemTheme() : currentTheme;
     },
     initialize: () => {
       if (browser) {

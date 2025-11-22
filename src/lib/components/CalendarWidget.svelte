@@ -295,39 +295,43 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 32px;
-		height: 32px;
-		background: var(--surface-variant);
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		color: var(--text-secondary);
+		width: 36px;
+		height: 36px;
+		min-width: 36px;
+		background: var(--surface);
+		border: 2px solid var(--border);
+		border-radius: 0;
+		color: var(--text-primary);
 		cursor: pointer;
-		transition: all 0.2s ease;
+		transition: all var(--transition-fast) var(--ease-out);
 	}
 
 	.nav-button:hover {
-		background: var(--surface-container-high);
-		border-color: var(--outline-variant);
-		color: var(--text-primary);
+		background: var(--primary-color);
+		border-color: var(--primary-color);
+		color: var(--surface);
 	}
 
 	.header-title {
 		flex: 1;
 		padding: 0.5rem 1rem;
-		background: var(--surface-variant);
-		border: 1px solid var(--border);
-		border-radius: 6px;
+		min-width: 0;
+		background: var(--surface);
+		border: 2px solid var(--border);
+		border-radius: 0;
 		color: var(--text-primary);
-		font-size: 0.9375rem;
-		font-weight: 600;
+		font-size: 0.875rem;
+		font-weight: 700;
 		cursor: pointer;
-		transition: all 0.2s ease;
+		transition: all var(--transition-fast) var(--ease-out);
 		text-align: center;
+		text-transform: uppercase;
+		letter-spacing: 0.025em;
 	}
 
 	.header-title:hover {
-		background: var(--surface-container-high);
-		border-color: var(--outline-variant);
+		border-color: var(--primary-color);
+		color: var(--primary-color);
 	}
 
 	/* Today Button */
@@ -353,14 +357,17 @@
 	.calendar-grid {
 		display: grid;
 		grid-template-columns: repeat(7, 1fr);
-		gap: 2px;
+		gap: 3px;
+		width: 100%;
+		max-width: 100%;
+		overflow: hidden;
 	}
 
 	.day-header {
-		padding: 0.5rem;
+		padding: 0.5rem 0.25rem;
 		text-align: center;
-		font-size: 0.75rem;
-		font-weight: 600;
+		font-size: 0.7rem;
+		font-weight: 700;
 		color: var(--text-secondary);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -371,28 +378,33 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 0.5rem;
-		background: var(--surface-variant);
-		border-radius: 4px;
-		font-size: 0.875rem;
+		padding: 0.25rem;
+		background: var(--surface);
+		border: 2px solid var(--border);
+		border-radius: 0;
+		font-size: 0.8rem;
+		font-weight: 600;
 		color: var(--text-primary);
-		transition: all 0.2s ease;
+		transition: all var(--transition-fast) var(--ease-out);
 		cursor: pointer;
+		min-width: 0;
 	}
 
 	.calendar-day:hover {
-		background: var(--surface-container-high);
+		background: var(--surface-variant);
+		border-color: var(--primary-color);
 	}
 
 	.calendar-day.other-month {
-		color: color-mix(in srgb, var(--text-secondary) 50%, transparent);
-		background: color-mix(in srgb, var(--surface-variant) 30%, transparent);
+		color: var(--text-secondary);
+		background: var(--surface-variant);
+		opacity: 0.4;
 	}
 
 	.calendar-day.today {
-		background: color-mix(in srgb, var(--primary-color) 30%, transparent);
-		border: 2px solid color-mix(in srgb, var(--primary-color) 60%, transparent);
-		color: var(--text-primary);
+		background: var(--primary-color);
+		border-color: var(--primary-color);
+		color: var(--surface);
 		font-weight: 700;
 	}
 
@@ -400,52 +412,59 @@
 	.months-grid {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
-		gap: 0.5rem;
+		gap: 0.75rem;
+		width: 100%;
 	}
 
 	.month-item {
 		padding: 1rem;
-		background: var(--surface-variant);
-		border: 1px solid var(--border);
-		border-radius: 6px;
+		min-width: 0;
+		background: var(--surface);
+		border: 2px solid var(--border);
+		border-radius: 0;
 		color: var(--text-primary);
-		font-size: 0.875rem;
-		font-weight: 500;
+		font-size: 0.8rem;
+		font-weight: 700;
+		text-transform: uppercase;
 		cursor: pointer;
-		transition: all 0.2s ease;
+		transition: all var(--transition-fast) var(--ease-out);
 	}
 
 	.month-item:hover {
-		background: var(--surface-container-high);
-		border-color: var(--outline-variant);
+		background: var(--primary-color);
+		border-color: var(--primary-color);
+		color: var(--surface);
 	}
 
 	.month-item.current {
-		border-color: color-mix(in srgb, var(--primary-color) 40%, transparent);
+		border-color: var(--primary-color);
 	}
 
 	.month-item.selected {
-		background: color-mix(in srgb, var(--primary-color) 20%, transparent);
-		border-color: color-mix(in srgb, var(--primary-color) 50%, transparent);
+		background: var(--primary-color);
+		border-color: var(--primary-color);
+		color: var(--surface);
 	}
 
 	/* Years Grid */
 	.years-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 0.5rem;
+		gap: 0.75rem;
+		width: 100%;
 	}
 
 	.year-item {
 		padding: 1rem;
-		background: var(--surface-variant);
-		border: 1px solid var(--border);
-		border-radius: 6px;
+		min-width: 0;
+		background: var(--surface);
+		border: 2px solid var(--border);
+		border-radius: 0;
 		color: var(--text-primary);
 		font-size: 0.875rem;
-		font-weight: 500;
+		font-weight: 700;
 		cursor: pointer;
-		transition: all 0.2s ease;
+		transition: all var(--transition-fast) var(--ease-out);
 	}
 
 	.year-item:hover {
@@ -497,21 +516,67 @@
 
 	/* Responsive Design */
 	@media (max-width: 768px) {
+		.calendar-grid {
+			gap: 2px;
+		}
+
 		.calendar-day {
-			font-size: 0.75rem;
-			padding: 0.25rem;
+			font-size: 0.7rem;
+			padding: 0.2rem;
 		}
 
 		.day-header {
-			font-size: 0.625rem;
-			padding: 0.375rem;
+			font-size: 0.6rem;
+			padding: 0.3rem 0.1rem;
+		}
+
+		.nav-button {
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+		}
+
+		.header-title {
+			font-size: 0.75rem;
+			padding: 0.5rem;
 		}
 
 		.month-item,
 		.year-item,
 		.decade-item {
-			padding: 0.75rem;
-			font-size: 0.8125rem;
+			padding: 0.75rem 0.5rem;
+			font-size: 0.75rem;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.calendar-grid {
+			gap: 1px;
+		}
+
+		.calendar-day {
+			font-size: 0.65rem;
+			padding: 0.15rem;
+		}
+
+		.day-header {
+			font-size: 0.55rem;
+			padding: 0.25rem 0;
+		}
+
+		.header-title {
+			font-size: 0.7rem;
+		}
+
+		.months-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+
+		.month-item,
+		.year-item,
+		.decade-item {
+			padding: 0.625rem;
+			font-size: 0.7rem;
 		}
 	}
 </style>

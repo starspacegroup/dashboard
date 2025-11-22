@@ -20,8 +20,8 @@
 		pointer-events: none;
 		z-index: 999;
 		background-image: 
-			linear-gradient(to right, rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-			linear-gradient(to bottom, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+			linear-gradient(to right, var(--border-subtle) 1px, transparent 1px),
+			linear-gradient(to bottom, var(--border-subtle) 1px, transparent 1px);
 		background-size: var(--grid-size) var(--grid-size);
 		opacity: 0.6;
 		animation: fadeIn 0.2s ease-in-out;

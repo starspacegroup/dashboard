@@ -2,12 +2,16 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
+	import type { Widget } from '$lib/types/widget';
+	import { widgets } from '$lib/stores/widgets';
+	import WeatherWidgetSettings from './WeatherWidgetSettings.svelte';
+
+	export let widget: Widget;
 
 	const WEATHER_CACHE_KEY = 'dashboard-weather-data';
 	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
-	const UNIT_PREFERENCE_KEY = 'dashboard-temp-unit';
+	const GLOBAL_UNIT_PREFERENCE_KEY = 'dashboard-temp-unit-global';
 	const ZIP_CODE_KEY = 'dashboard-zip-code';
-	const DATA_TABLE_COLLAPSED_KEY = 'dashboard-data-table-collapsed';
 
 	interface WeatherData {
 		temperature: number;
@@ -59,7 +63,7 @@
 	let sunPosition = { x: -100, y: -100 };
 	let moonPosition = { x: -100, y: -100 };
 	let earthGradient = '';
-	let textColor = 'rgba(255, 255, 255, 0.95)';
+	let textColor = 'var(--text-primary)';
 	let moonPhase = 0; // 0 = new moon, 0.5 = full moon, 1 = new moon again
 	let moonScale = 1; // Scale factor for moon size (1.0 to 1.9)
 	let currentTimestamp = Date.now(); // Track current time for reactive updates
@@ -90,38 +94,41 @@
 	let savedZipCode = '';
 	let zipCodeInput = '';
 	
+	// Settings modal
+	let isSettingsOpen = false;
+	
 	// Time test mode
 	let timeTestMode = false;
 	let testDateOffset = 0; // Minutes offset from current time (negative = past)
-	
-	// Data table collapse state
-	let isDataTableCollapsed = true;
 
 	// Check for timeTest URL parameter
 	if (browser) {
 		const urlParams = new URLSearchParams(window.location.search);
 		timeTestMode = urlParams.get('timeTest') === 'true';
-		
-		// Load data table collapsed preference
-		const savedCollapsed = localStorage.getItem(DATA_TABLE_COLLAPSED_KEY);
-		if (savedCollapsed !== null) {
-			isDataTableCollapsed = savedCollapsed === 'true';
+	}
+
+	// Load temperature unit preference (widget-specific or global)
+	if (browser) {
+		if (widget.config?.temperatureUnit) {
+			// Use widget-specific setting
+			isCelsius = widget.config.temperatureUnit === 'celsius';
+		} else {
+			// Fall back to global setting
+			const savedUnit = localStorage.getItem(GLOBAL_UNIT_PREFERENCE_KEY);
+			if (savedUnit !== null) {
+				isCelsius = savedUnit === 'celsius';
+			}
 		}
 	}
 
-	// Load user's unit preference from localStorage
+	// Listen for global temperature unit changes
 	if (browser) {
-		const savedUnit = localStorage.getItem(UNIT_PREFERENCE_KEY);
-		if (savedUnit !== null) {
-			isCelsius = savedUnit === 'celsius';
-		}
-		
-		// Load saved zip code
-		const savedZip = localStorage.getItem(ZIP_CODE_KEY);
-		if (savedZip) {
-			savedZipCode = savedZip;
-			zipCodeInput = savedZip;
-		}
+		window.addEventListener('temperature-unit-changed', ((event: CustomEvent) => {
+			// Only update if this widget doesn't have a specific unit set
+			if (!widget.config?.temperatureUnit) {
+				isCelsius = event.detail.unit === 'celsius';
+			}
+		}) as EventListener);
 	}
 
 	// Reactive temperature display - explicitly depends on both temperature and isCelsius
@@ -130,8 +137,62 @@
 	// Save unit preference and toggle
 	function setUnit(useCelsius: boolean) {
 		isCelsius = useCelsius;
-		if (browser) {
-			localStorage.setItem(UNIT_PREFERENCE_KEY, useCelsius ? 'celsius' : 'fahrenheit');
+		// Note: This updates the visual display only
+		// To persist, user should use widget settings
+	}
+
+	// Settings handlers
+	export function openSettings() {
+		isSettingsOpen = true;
+	}
+
+	function closeSettings() {
+		isSettingsOpen = false;
+	}
+
+	function handleSettingsSave(location: any, temperatureUnit?: 'celsius' | 'fahrenheit') {
+		if (location) {
+			// Update widget config with the new location and temperature unit
+			widgets.updateWidgetConfig(widget.id, {
+				location: location,
+				temperatureUnit: temperatureUnit
+			});
+			
+			// Update temperature display
+			if (temperatureUnit) {
+				isCelsius = temperatureUnit === 'celsius';
+			}
+			
+			// Reload weather with new location
+			localStorage.removeItem(WEATHER_CACHE_KEY);
+			hasLocationData = false;
+			fetchWeatherFromAPI(location.lat, location.lon);
+		} else {
+			// Clear widget-specific location, update temperature unit
+			widgets.updateWidgetConfig(widget.id, {
+				temperatureUnit: temperatureUnit
+			});
+			
+			// Update temperature display
+			if (temperatureUnit) {
+				isCelsius = temperatureUnit === 'celsius';
+			} else {
+				// Fall back to global
+				const savedUnit = localStorage.getItem(GLOBAL_UNIT_PREFERENCE_KEY);
+				if (savedUnit !== null) {
+					isCelsius = savedUnit === 'celsius';
+				}
+			}
+			
+			// Clear widget-specific location, use global
+			widgets.updateWidgetConfig(widget.id, {
+				location: undefined
+			});
+			
+			// Reload weather with global location
+			localStorage.removeItem(WEATHER_CACHE_KEY);
+			hasLocationData = false;
+			loadWeatherData();
 		}
 	}
 
@@ -139,14 +200,25 @@
 	async function loadWeatherData() {
 		if (!browser) return;
 
-		// Check if there's a saved zip code override
-		if (savedZipCode) {
-			await fetchWeatherByZipCode(savedZipCode);
+		// Priority 1: Check widget-specific location
+		if (widget.config?.location) {
+			await fetchWeatherFromAPI(widget.config.location.lat, widget.config.location.lon);
 			return;
 		}
 
-		// Don't load cached data unless we have permission or a saved zip code
-		// We'll try to get browser location instead
+		// Priority 2: Check if there's a saved global location from settings
+		const savedLocationStr = localStorage.getItem('dashboard-location');
+		if (savedLocationStr) {
+			try {
+				const savedLocation = JSON.parse(savedLocationStr);
+				await fetchWeatherFromAPI(savedLocation.lat, savedLocation.lon);
+				return;
+			} catch (e) {
+				console.error('Failed to parse saved location:', e);
+			}
+		}
+
+		// Fall back to browser location
 		await fetchWeatherData();
 	}
 
@@ -209,73 +281,22 @@
 		}
 	}
 
-	async function fetchWeatherByZipCode(zipCode: string) {
-		try {
-			const url = `/api/weather?zip=${zipCode}`;
-			
-			const response = await fetch(url);
-			
-			if (!response.ok) {
-				const errorText = await response.text();
-				console.error('Weather API error:', errorText);
-				throw new Error(`Failed to fetch weather: ${response.status}`);
-			}
-
-			const data: WeatherData = await response.json();
-			
-			// Save to localStorage
-			localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(data));
-			
-			// Apply the data
-			applyWeatherData(data);
-			isLoading = false;
-		} catch (error) {
-			console.error('Error fetching weather by zip code:', error);
-			isLoading = false;
+	// Handle location changed event from settings
+	function handleLocationChanged(event: CustomEvent) {
+		const location = event.detail;
+		if (location && location.lat && location.lon) {
+			// Clear cache and reload with new location
+			localStorage.removeItem(WEATHER_CACHE_KEY);
+			hasLocationData = false;
+			fetchWeatherFromAPI(location.lat, location.lon);
 		}
 	}
 
-	function handleZipCodeSubmit() {
-		const trimmedZip = zipCodeInput.trim();
-		
-		// Validate zip code format (5 digits)
-		if (!trimmedZip || !/^\d{5}$/.test(trimmedZip)) {
-			alert('Please enter a valid 5-digit ZIP code');
-			return;
-		}
-		
-		// Save zip code to localStorage
-		savedZipCode = trimmedZip;
-		localStorage.setItem(ZIP_CODE_KEY, savedZipCode);
-		
-		// Clear cached weather data to force fresh fetch
+	// Handle location cleared event from settings
+	function handleLocationCleared() {
+		// Clear cache and use browser location
 		localStorage.removeItem(WEATHER_CACHE_KEY);
-		
-		// Reset location flag to trigger fade effect
 		hasLocationData = false;
-		
-		// Immediately fetch weather with new zip code
-		fetchWeatherByZipCode(savedZipCode);
-	}
-
-	function handleResetLocation() {
-		// Clear zip code
-		savedZipCode = '';
-		zipCodeInput = '';
-		localStorage.removeItem(ZIP_CODE_KEY);
-		
-		// Clear cached weather data
-		localStorage.removeItem(WEATHER_CACHE_KEY);
-		
-		// Reset location flag to trigger fade-out/in
-		hasLocationData = false;
-		
-		// Fetch weather data using browser location
-		fetchWeatherData();
-	}
-
-	function requestBrowserLocation() {
-		// Trigger browser location request
 		fetchWeatherData();
 	}
 
@@ -436,6 +457,10 @@
 		};
 		window.addEventListener('resize', handleResize);
 		
+		// Listen for location changes from settings
+		window.addEventListener('location-changed', handleLocationChanged as EventListener);
+		window.addEventListener('location-cleared', handleLocationCleared);
+		
 		const updateTime = () => {
 			const now = new Date();
 			currentTimestamp = now.getTime(); // Update timestamp to trigger reactive statements
@@ -489,6 +514,8 @@
 			clearInterval(interval);
 			clearInterval(weatherInterval);
 			window.removeEventListener('resize', handleResize);
+			window.removeEventListener('location-changed', handleLocationChanged as EventListener);
+			window.removeEventListener('location-cleared', handleLocationCleared);
 			resizeObserver.disconnect();
 		};
 	});
@@ -803,7 +830,7 @@
 		
 		const textColor = avgBrightness > 160 
 			? 'rgba(40, 40, 40, 0.95)' // Dark text for bright backgrounds
-			: 'rgba(255, 255, 255, 0.95)'; // Light text for dark backgrounds
+			: 'var(--text-primary)'; // Use theme text color
 		
 		return { gradient, textColor };
 	}
@@ -945,13 +972,6 @@
 		}
 		
 		return path;
-	}
-
-	function toggleDataTable() {
-		isDataTableCollapsed = !isDataTableCollapsed;
-		if (browser) {
-			localStorage.setItem(DATA_TABLE_COLLAPSED_KEY, isDataTableCollapsed.toString());
-		}
 	}
 
 	// Reactive calculations for sun/moon positions and night mode
@@ -1135,228 +1155,22 @@
 			<a href="/?timeTest=true" class="time-test-link" data-sveltekit-reload>Enable Time Travel Mode</a>
 		</div>
 	{/if}
-	
-	<!-- Data Table -->
-	<div class="data-table">
-		<button class="data-table-header" on:click={toggleDataTable}>
-			<h3>Lotsa Data</h3>
-			<svg 
-				class="collapse-icon" 
-				class:collapsed={isDataTableCollapsed}
-				xmlns="http://www.w3.org/2000/svg" 
-				width="20" 
-				height="20" 
-				viewBox="0 0 24 24" 
-				fill="none" 
-				stroke="currentColor" 
-				stroke-width="2" 
-				stroke-linecap="round" 
-				stroke-linejoin="round"
-			>
-				<polyline points="6 9 12 15 18 9"></polyline>
-			</svg>
-		</button>
-		{#if !isDataTableCollapsed}
-		<table>
-			<tbody>
-				<!-- Time Data -->
-				<tr class="section-header">
-					<td colspan="2">Time Information</td>
-				</tr>
-				<tr>
-					<td>Current Time</td>
-					<td>{currentTime}</td>
-				</tr>
-				<tr>
-					<td>Current Date</td>
-					<td>{currentDate}</td>
-				</tr>
-				<tr>
-					<td>Timezone</td>
-					<td>{timezone || 'N/A'}</td>
-				</tr>
-				<tr>
-					<td>UTC Offset</td>
-					<td>{timezoneOffset ? `${timezoneOffset > 0 ? '+' : ''}${Math.round(timezoneOffset / 3600)} hours` : 'N/A'}</td>
-				</tr>
-				{#if timeTestMode}
-				<tr>
-					<td>Time Travel Offset</td>
-					<td>{testDateOffset === 0 ? 'None (Now)' : `${Math.abs(testDateOffset)} minutes ago`}</td>
-				</tr>
-				{/if}
-				
-				<!-- Location Data -->
-				<tr class="section-header">
-					<td colspan="2">Location Information</td>
-				</tr>
-				<tr>
-					<td>Location</td>
-					<td>{location}</td>
-				</tr>
-				{#if latitude !== null && longitude !== null}
-				<tr>
-					<td>Coordinates</td>
-					<td>{latitude.toFixed(4)}°, {longitude.toFixed(4)}°</td>
-				</tr>
-				{/if}
-				<tr>
-					<td>Data Source</td>
-					<td>{savedZipCode ? `ZIP Code (${savedZipCode})` : 'Browser Location'}</td>
-				</tr>
-				
-				<!-- Weather Data -->
-				<tr class="section-header">
-					<td colspan="2">Weather Information</td>
-				</tr>
-				<tr>
-					<td>Temperature</td>
-					<td>{temperature}°F</td>
-				</tr>
-				<tr>
-					<td>Humidity</td>
-					<td>{humidity}%</td>
-				</tr>
-				<tr>
-					<td>Dew Point</td>
-					<td>{dewPoint}°F</td>
-				</tr>
-				{#if hourlyData.length > 0}
-				<tr>
-					<td colspan="2" style="padding: 0.75rem 0.5rem;">
-						<div style="display: flex; flex-direction: column; gap: 0.25rem;">
-							<span style="font-weight: 500; color: var(--text-secondary); font-size: 0.8125rem;">Dew Point (24h Trend)</span>
-							<svg width="320" height="60" viewBox="0 0 320 60" style="width: 100%; height: auto;">
-								<defs>
-									<linearGradient id="dewPointGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-										<stop offset="0%" stop-color="#60a5fa" />
-										<stop offset="50%" stop-color="#3b82f6" />
-										<stop offset="100%" stop-color="#2563eb" />
-									</linearGradient>
-								</defs>
-								<path
-									d={dewPointPath}
-									fill="none"
-									stroke="url(#dewPointGradient)"
-									stroke-width="3"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-								/>
-							</svg>
-						</div>
-					</td>
-				</tr>
-				{/if}
-				<tr>
-					<td>Condition</td>
-					<td>{condition.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</td>
-				</tr>
-				{#if description}
-				<tr>
-					<td>Description</td>
-					<td>{description}</td>
-				</tr>
-				{/if}
-				
-				<!-- Celestial Data -->
-				<tr class="section-header">
-					<td colspan="2">Celestial Information</td>
-				</tr>
-				{#if sunrise}
-				<tr>
-					<td>Sunrise</td>
-					<td>{new Date(sunrise * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</td>
-				</tr>
-				{/if}
-				{#if sunset}
-				<tr>
-					<td>Sunset</td>
-					<td>{new Date(sunset * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</td>
-				</tr>
-				{/if}
-				{#if moonrise}
-				<tr>
-					<td>Moonrise</td>
-					<td>{new Date(moonrise * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</td>
-				</tr>
-				{/if}
-				{#if moonset}
-				<tr>
-					<td>Moonset</td>
-					<td>{new Date(moonset * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</td>
-				</tr>
-				{/if}
-				<tr>
-					<td>Moon Phase</td>
-					<td>{getMoonPhaseName(moonPhase)} - {getMoonIllumination(moonPhase).toFixed(0)}% illuminated</td>
-				</tr>
-				<tr>
-					<td>Moon Scale</td>
-					<td>{moonScale.toFixed(2)}x</td>
-				</tr>
-				<tr>
-					<td>Sun Position</td>
-					<td>X: {sunPosition.x.toFixed(1)}px, Y: {sunPosition.y.toFixed(1)}px</td>
-				</tr>
-				<tr>
-					<td>Moon Position</td>
-					<td>X: {moonPosition.x.toFixed(1)}px, Y: {moonPosition.y.toFixed(1)}px</td>
-				</tr>
-				
-				<!-- System Data -->
-				<tr class="section-header">
-					<td colspan="2">System Information</td>
-				</tr>
-				<tr>
-					<td>Last Update</td>
-					<td>{new Date(lastUpdate).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}</td>
-				</tr>
-				<tr>
-					<td>Current Timestamp</td>
-					<td>{currentTimestamp}</td>
-				</tr>
-				<tr>
-					<td>Hourly Data Points</td>
-					<td>{hourlyData.length} hours</td>
-				</tr>
-			</tbody>
-		</table>
-		{/if}
-	</div>
 	{:else}
 		<!-- No Location Message -->
 		<div class="no-location-message">
-			<p>Set location for weather widget</p>
-			<button on:click={requestBrowserLocation} class="share-location-button">
-				Share location from device
-			</button>
+			<p>Set location in Settings to view weather</p>
 		</div>
 	{/if}
-	
-	<!-- Zip Code Entry Form (always visible) -->
-	<div class="location-controls">
-		<form on:submit|preventDefault={handleZipCodeSubmit} class="zip-form">
-			<input 
-				type="text" 
-				bind:value={zipCodeInput}
-				placeholder="Enter ZIP code"
-				inputmode="numeric"
-				maxlength="5"
-				class="zip-input"
-			/>
-			<button type="submit" class="zip-submit">
-				Set Location
-			</button>
-		</form>
-		{#if savedZipCode}
-			<button on:click={handleResetLocation} class="reset-button" title="Reset to Browser Location">
-				<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-					<path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
-				</svg>
-			</button>
-		{/if}
-	</div>
 </div>
+
+<!-- Widget Settings Modal -->
+<WeatherWidgetSettings
+	isOpen={isSettingsOpen}
+	onClose={closeSettings}
+	onSave={handleSettingsSave}
+	initialLocation={widget.config?.location}
+	initialTemperatureUnit={widget.config?.temperatureUnit}
+/>
 
 <style>
 	.weather-widget {
@@ -1742,208 +1556,6 @@
 		margin: 0;
 	}
 
-	.share-location-button {
-		padding: 0.75rem 1.5rem;
-		font-size: 0.9375rem;
-		font-weight: 600;
-		background: color-mix(in srgb, var(--primary-color) 20%, transparent);
-		border: 1px solid color-mix(in srgb, var(--primary-color) 40%, transparent);
-		border-radius: 8px;
-		color: var(--primary-color);
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.share-location-button:hover {
-		background: color-mix(in srgb, var(--primary-color) 30%, transparent);
-		border-color: color-mix(in srgb, var(--primary-color) 60%, transparent);
-		transform: translateY(-1px);
-	}
-
-	.share-location-button:active {
-		transform: translateY(0);
-	}
-
-	/* Location Controls */
-	.location-controls {
-		width: 100%;
-		max-width: 320px;
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		margin-top: 0.5rem;
-	}
-
-	.zip-form {
-		display: flex;
-		gap: 0.5rem;
-		width: 100%;
-	}
-
-	.zip-input {
-		flex: 1;
-		padding: 0.6rem 0.875rem;
-		font-size: 0.875rem;
-		background: var(--surface-variant);
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		color: var(--text-primary);
-		outline: none;
-		transition: all 0.2s ease;
-		font-family: inherit;
-	}
-
-	.zip-input::placeholder {
-		color: var(--text-secondary);
-	}
-
-	.zip-input:focus {
-		background: var(--surface-container-high);
-		border-color: var(--outline-variant);
-		box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 10%, transparent);
-	}
-
-	.zip-submit {
-		padding: 0.6rem 1.25rem;
-		font-size: 0.875rem;
-		font-weight: 600;
-		background: var(--surface-container-high);
-		border: 1px solid var(--outline-variant);
-		border-radius: 8px;
-		color: var(--text-primary);
-		cursor: pointer;
-		transition: all 0.2s ease;
-		white-space: nowrap;
-	}
-
-	.zip-submit:hover {
-		background: var(--surface-container-highest);
-		border-color: var(--outline-variant);
-	}
-
-	.zip-submit:active {
-		transform: scale(0.98);
-	}
-
-	.reset-button {
-		width: 100%;
-		padding: 0.6rem;
-		background: color-mix(in srgb, var(--primary-color) 15%, transparent);
-		border: 1px solid color-mix(in srgb, var(--primary-color) 30%, transparent);
-		border-radius: 8px;
-		color: var(--primary-color);
-		cursor: pointer;
-		transition: all 0.2s ease;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.reset-button:hover {
-		background: color-mix(in srgb, var(--primary-color) 25%, transparent);
-		border-color: color-mix(in srgb, var(--primary-color) 40%, transparent);
-	}
-
-	.reset-button:active {
-		transform: scale(0.98);
-	}
-
-	/* Data Table */
-	.data-table {
-		width: 100%;
-		max-width: 500px;
-		margin-top: 1.5rem;
-		background: var(--surface-variant);
-		border: 1px solid var(--border);
-		border-radius: 12px;
-		backdrop-filter: blur(10px);
-		overflow: hidden;
-	}
-
-	.data-table-header {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem;
-		background: transparent;
-		border: none;
-		cursor: pointer;
-		transition: background 0.2s ease;
-	}
-
-	.data-table-header:hover {
-		background: var(--surface-container-high);
-	}
-
-	.data-table-header h3 {
-		margin: 0;
-		font-size: 1rem;
-		font-weight: 600;
-		color: var(--text-primary);
-		text-align: left;
-	}
-
-	.collapse-icon {
-		color: var(--text-secondary);
-		transition: transform 0.3s ease;
-		flex-shrink: 0;
-	}
-
-	.collapse-icon.collapsed {
-		transform: rotate(-90deg);
-	}
-
-	.data-table table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 0.8125rem;
-		padding: 0 1rem 1rem;
-	}
-
-	.data-table tbody tr {
-		border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-	}
-
-	.data-table tbody tr:last-child {
-		border-bottom: none;
-	}
-
-	.data-table tbody tr.section-header {
-		border-bottom: 1px solid var(--border);
-	}
-
-	.data-table tbody tr.section-header td {
-		padding: 0.75rem 0.5rem 0.5rem;
-		font-weight: 600;
-		font-size: 0.75rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--text-secondary);
-		text-align: left;
-	}
-
-	.data-table tbody tr.section-header:first-child td {
-		padding-top: 0;
-	}
-
-	.data-table td {
-		padding: 0.5rem;
-		color: var(--on-surface);
-	}
-
-	.data-table td:first-child {
-		font-weight: 500;
-		color: var(--text-secondary);
-		width: 45%;
-	}
-
-	.data-table td:last-child {
-		text-align: right;
-		color: var(--text-primary);
-		font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
-	}
-
 	/* Responsive adjustments */
 	@media (max-width: 768px) {
 		.time {
@@ -1952,15 +1564,6 @@
 
 		.temperature {
 			font-size: 4rem;
-		}
-
-		.data-table {
-			max-width: 100%;
-			font-size: 0.75rem;
-		}
-
-		.data-table td {
-			padding: 0.4rem;
 		}
 	}
 </style>

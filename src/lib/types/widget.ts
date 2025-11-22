@@ -1,6 +1,6 @@
 export interface Widget {
 	id: string;
-	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests';
+	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table';
 	title: string;
 	section: number; // Which section this widget belongs to
 	order: number; // Order within the section
@@ -9,6 +9,19 @@ export interface Widget {
 		height: number;
 	};
 	collapsed?: boolean;
+	config?: WidgetConfig; // Widget-specific configuration
+}
+
+export interface WidgetConfig {
+	location?: {
+		name: string;
+		state: string;
+		country: string;
+		lat: number;
+		lon: number;
+		displayName: string;
+	};
+	temperatureUnit?: 'celsius' | 'fahrenheit';
 }
 
 export interface Section {

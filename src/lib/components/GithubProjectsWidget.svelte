@@ -110,7 +110,7 @@
 	.login-button {
 		margin-top: 1rem;
 		padding: 0.75rem 1.5rem;
-		background-color: var(--primary);
+		background-color: var(--primary-color);
 		color: white;
 		text-decoration: none;
 		border-radius: 6px;
@@ -120,7 +120,7 @@
 	}
 
 	.login-button:hover {
-		background-color: var(--primary-hover);
+		background-color: var(--primary-color-hover);
 		transform: translateY(-1px);
 		box-shadow: 0 4px 12px var(--shadow-hover);
 	}
@@ -145,7 +145,7 @@
 	}
 
 	.project-card:hover {
-		border-color: var(--primary);
+		border-color: var(--primary-color);
 		box-shadow: 0 2px 8px var(--shadow);
 		transform: translateY(-2px);
 	}
@@ -185,13 +185,13 @@
 	}
 
 	.status-badge.open {
-		background-color: rgba(34, 197, 94, 0.2);
-		color: #22c55e;
+		background-color: var(--success-bg);
+		color: var(--success);
 	}
 
 	.status-badge.closed {
-		background-color: rgba(156, 163, 175, 0.2);
-		color: #9ca3af;
+		background-color: var(--gray-bg);
+		color: var(--gray);
 	}
 
 	.project-title {
@@ -224,7 +224,7 @@
 
 	.project-number {
 		font-weight: 600;
-		color: var(--primary);
+		color: var(--primary-color);
 	}
 
 	.project-visibility {

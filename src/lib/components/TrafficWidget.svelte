@@ -378,7 +378,7 @@
 		min-height: 300px;
 		border-radius: 0.5rem;
 		overflow: hidden;
-		background-color: rgba(0, 0, 0, 0.2);
+		background-color: var(--surface-overlay-medium);
 	}
 
 	.placeholder {
@@ -389,9 +389,9 @@
 		width: 100%;
 		height: 100%;
 		min-height: 300px;
-		background-color: rgba(0, 0, 0, 0.2);
+		background-color: var(--surface-overlay-medium);
 		border-radius: 0.5rem;
-		border: 2px dashed rgba(255, 255, 255, 0.2);
+		border: 2px dashed var(--border-subtle);
 	}
 
 	.placeholder-text {

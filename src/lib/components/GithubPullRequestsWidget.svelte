@@ -201,7 +201,7 @@
 	.login-button {
 		margin-top: 1rem;
 		padding: 0.75rem 1.5rem;
-		background-color: var(--primary);
+		background-color: var(--primary-color);
 		color: white;
 		text-decoration: none;
 		border-radius: 6px;
@@ -211,7 +211,7 @@
 	}
 
 	.login-button:hover {
-		background-color: var(--primary-hover);
+		background-color: var(--primary-color-hover);
 		transform: translateY(-1px);
 		box-shadow: 0 4px 12px var(--shadow-hover);
 	}
@@ -242,9 +242,9 @@
 	}
 
 	.tab.active {
-		background-color: var(--primary);
+		background-color: var(--primary-color);
 		color: white;
-		border-color: var(--primary);
+		border-color: var(--primary-color);
 	}
 
 	.pr-list {
@@ -268,7 +268,7 @@
 	}
 
 	.pr-card:hover {
-		border-color: var(--primary);
+		border-color: var(--primary-color);
 		box-shadow: 0 2px 8px var(--shadow);
 		transform: translateY(-2px);
 	}
@@ -314,23 +314,23 @@
 	}
 
 	.badge.state.open {
-		background-color: rgba(34, 197, 94, 0.2);
-		color: #22c55e;
+		background-color: var(--success-bg);
+		color: var(--success);
 	}
 
 	.badge.state.closed {
-		background-color: rgba(239, 68, 68, 0.2);
-		color: #ef4444;
+		background-color: var(--error-bg);
+		color: var(--error);
 	}
 
 	.badge.state.merged {
-		background-color: rgba(168, 85, 247, 0.2);
-		color: #a855f7;
+		background-color: var(--purple-bg);
+		color: var(--purple);
 	}
 
 	.badge.draft {
-		background-color: rgba(156, 163, 175, 0.2);
-		color: #9ca3af;
+		background-color: var(--gray-bg);
+		color: var(--gray);
 	}
 
 	.pr-title {
@@ -404,9 +404,9 @@
 	}
 
 	.pagination-btn:hover:not(:disabled) {
-		background-color: var(--primary);
+		background-color: var(--primary-color);
 		color: white;
-		border-color: var(--primary);
+		border-color: var(--primary-color);
 	}
 
 	.pagination-btn:disabled {
@@ -434,13 +434,13 @@
 
 	.page-number:hover {
 		background-color: var(--surface-hover);
-		border-color: var(--primary);
+		border-color: var(--primary-color);
 	}
 
 	.page-number.active {
-		background-color: var(--primary);
+		background-color: var(--primary-color);
 		color: white;
-		border-color: var(--primary);
+		border-color: var(--primary-color);
 		font-weight: 600;
 	}
 </style>

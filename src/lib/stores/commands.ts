@@ -12,7 +12,7 @@ export interface Command {
 }
 
 function createCommandsStore() {
-  const { subscribe, set } = writable<Command[]>([]);
+  const { subscribe, set, update } = writable<Command[]>([]);
 
   const baseCommands: Command[] = [
     {
@@ -75,16 +75,16 @@ function createCommandsStore() {
   return {
     subscribe,
     addCommand: (command: Command) => {
-      subscribe(commands => {
-        set([...commands, command]);
-        return commands;
-      })();
+      update(commands => {
+        // Prevent duplicate commands
+        if (commands.some(cmd => cmd.id === command.id)) {
+          return commands;
+        }
+        return [...commands, command];
+      });
     },
     removeCommand: (id: string) => {
-      subscribe(commands => {
-        set(commands.filter(cmd => cmd.id !== id));
-        return commands;
-      })();
+      update(commands => commands.filter(cmd => cmd.id !== id));
     }
   };
 }
