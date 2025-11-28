@@ -589,6 +589,7 @@
 		justify-content: center;
 		min-width: 28px;
 		min-height: 28px;
+		user-select: none;
 	}
 
 	.drag-handle:hover {
