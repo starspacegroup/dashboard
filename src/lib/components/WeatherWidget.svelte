@@ -304,6 +304,12 @@
 		// Mark that we have location data
 		hasLocationData = true;
 		
+		// Update widget title to include city name
+		if (data.location) {
+			const cityName = data.location.split(',')[0].trim(); // Get just the city name
+			widgets.updateTitle(widget.id, `Weather - ${cityName}`);
+		}
+		
 		// Map OpenWeather conditions to our conditions
 		const weatherCondition = data.condition.toLowerCase();
 		if (weatherCondition.includes('clear')) {
