@@ -60,24 +60,77 @@ function saveCurrentLayout(fingerprint: string) {
 	}
 }
 
-// Generate sane default widget positions for a new layout
+/**
+ * Generate intelligent widget positions for a new layout.
+ * 
+ * This function distributes widgets across sections based on their visual size (column span).
+ * Larger sections receive proportionally more widgets than smaller ones, creating a balanced
+ * and sensible distribution. Widgets maintain their original order but are reassigned to
+ * sections that best accommodate them.
+ * 
+ * @param widgets - The current widgets to redistribute
+ * @param sections - The new layout sections
+ * @returns Widgets with updated section and order properties
+ */
 function generateDefaultWidgetPositions(widgets: Widget[], sections: Section[]): Widget[] {
 	if (sections.length === 0) return widgets;
+	if (widgets.length === 0) return widgets;
 
-	// Distribute widgets evenly across sections
-	const widgetsPerSection = Math.ceil(widgets.length / sections.length);
-
-	return widgets.map((widget, index) => {
-		const sectionIndex = Math.floor(index / widgetsPerSection);
-		const section = sections[Math.min(sectionIndex, sections.length - 1)];
-		const orderInSection = index % widgetsPerSection;
-
-		return {
-			...widget,
-			section: section.id,
-			order: orderInSection
-		};
+	// Sort sections by row, then column for predictable distribution
+	const sortedSections = [...sections].sort((a, b) => {
+		if (a.gridRow !== b.gridRow) return a.gridRow - b.gridRow;
+		return a.gridColumn - b.gridColumn;
 	});
+
+	// Calculate relative "capacity" for each section based on its visual size
+	// Larger sections (more column span) should get more widgets
+	const sectionCapacities = sortedSections.map(section => ({
+		section,
+		capacity: section.gridColumnSpan || 1,
+		widgets: [] as Widget[]
+	}));
+
+	const totalCapacity = sectionCapacities.reduce((sum, s) => sum + s.capacity, 0);
+
+	// Distribute widgets proportionally based on section capacity
+	let widgetIndex = 0;
+	for (const sectionData of sectionCapacities) {
+		// Calculate how many widgets this section should get
+		const targetCount = Math.max(1, Math.round((sectionData.capacity / totalCapacity) * widgets.length));
+
+		// Assign widgets to this section
+		for (let i = 0; i < targetCount && widgetIndex < widgets.length; i++) {
+			sectionData.widgets.push(widgets[widgetIndex]);
+			widgetIndex++;
+		}
+	}
+
+	// If there are leftover widgets (due to rounding), distribute them to the largest sections
+	while (widgetIndex < widgets.length) {
+		// Find the section with the most capacity that has the fewest widgets relative to capacity
+		const targetSection = sectionCapacities.reduce((best, current) => {
+			const currentRatio = current.widgets.length / current.capacity;
+			const bestRatio = best.widgets.length / best.capacity;
+			return currentRatio < bestRatio ? current : best;
+		});
+
+		targetSection.widgets.push(widgets[widgetIndex]);
+		widgetIndex++;
+	}
+
+	// Create the final widget array with updated section and order properties
+	const result: Widget[] = [];
+	for (const sectionData of sectionCapacities) {
+		sectionData.widgets.forEach((widget, order) => {
+			result.push({
+				...widget,
+				section: sectionData.section.id,
+				order
+			});
+		});
+	}
+
+	return result;
 }
 
 // Default sections - 4 column grid-based layout
