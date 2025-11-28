@@ -336,6 +336,13 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		transition: color var(--transition-fast) var(--ease-out);
+	}
+
+	.command-item:hover .command-description,
+	.command-item.selected .command-description {
+		color: var(--surface);
+		opacity: 0.9;
 	}
 
 	.command-shortcut {
