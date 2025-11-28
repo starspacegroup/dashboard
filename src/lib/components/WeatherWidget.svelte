@@ -4,7 +4,7 @@
 	import { page } from '$app/stores';
 	import type { Widget } from '$lib/types/widget';
 	import { widgets } from '$lib/stores/widgets';
-	import WeatherWidgetSettings from './WeatherWidgetSettings.svelte';
+	import { weatherSettings } from '$lib/stores/weatherSettings';
 
 	export let widget: Widget;
 
@@ -94,9 +94,6 @@
 	let savedZipCode = '';
 	let zipCodeInput = '';
 	
-	// Settings modal
-	let isSettingsOpen = false;
-	
 	// Time test mode
 	let testDateOffset = 0; // Minutes offset from current time (negative = past)
 
@@ -136,55 +133,48 @@
 
 	// Settings handlers
 	export function openSettings() {
-		isSettingsOpen = true;
-	}
-
-	function closeSettings() {
-		isSettingsOpen = false;
+		weatherSettings.open(
+			widget.id,
+			widget.config?.location || null,
+			widget.config?.temperatureUnit,
+			handleSettingsSave
+		);
 	}
 
 	function handleSettingsSave(location: any, temperatureUnit?: 'celsius' | 'fahrenheit') {
+		// Prepare config update
+		const configUpdate: any = {};
+		
 		if (location) {
-			// Update widget config with the new location and temperature unit
-			widgets.updateWidgetConfig(widget.id, {
-				location: location,
-				temperatureUnit: temperatureUnit
-			});
-			
-			// Update temperature display
-			if (temperatureUnit) {
-				isCelsius = temperatureUnit === 'celsius';
+			configUpdate.location = location;
+		} else {
+			// Explicitly clear location
+			configUpdate.location = undefined;
+		}
+		
+		// Update temperature unit (or clear it to use global)
+		configUpdate.temperatureUnit = temperatureUnit;
+		
+		// Apply config update
+		widgets.updateWidgetConfig(widget.id, configUpdate);
+		
+		// Update temperature display
+		if (temperatureUnit) {
+			isCelsius = temperatureUnit === 'celsius';
+		} else {
+			// Fall back to global
+			const savedUnit = localStorage.getItem(GLOBAL_UNIT_PREFERENCE_KEY);
+			if (savedUnit !== null) {
+				isCelsius = savedUnit === 'celsius';
 			}
-			
-			// Reload weather with new location
-			localStorage.removeItem(WEATHER_CACHE_KEY);
-			hasLocationData = false;
+		}
+		
+		// Reload weather with appropriate location
+		localStorage.removeItem(WEATHER_CACHE_KEY);
+		hasLocationData = false;
+		if (location) {
 			fetchWeatherFromAPI(location.lat, location.lon);
 		} else {
-			// Clear widget-specific location, update temperature unit
-			widgets.updateWidgetConfig(widget.id, {
-				temperatureUnit: temperatureUnit
-			});
-			
-			// Update temperature display
-			if (temperatureUnit) {
-				isCelsius = temperatureUnit === 'celsius';
-			} else {
-				// Fall back to global
-				const savedUnit = localStorage.getItem(GLOBAL_UNIT_PREFERENCE_KEY);
-				if (savedUnit !== null) {
-					isCelsius = savedUnit === 'celsius';
-				}
-			}
-			
-			// Clear widget-specific location, use global
-			widgets.updateWidgetConfig(widget.id, {
-				location: undefined
-			});
-			
-			// Reload weather with global location
-			localStorage.removeItem(WEATHER_CACHE_KEY);
-			hasLocationData = false;
 			loadWeatherData();
 		}
 	}
@@ -1110,15 +1100,6 @@
 		</div>
 	{/if}
 </div>
-
-<!-- Widget Settings Modal -->
-<WeatherWidgetSettings
-	isOpen={isSettingsOpen}
-	onClose={closeSettings}
-	onSave={handleSettingsSave}
-	initialLocation={widget.config?.location}
-	initialTemperatureUnit={widget.config?.temperatureUnit}
-/>
 
 <style>
 	.weather-widget {

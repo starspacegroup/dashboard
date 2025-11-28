@@ -371,7 +371,7 @@ function createWidgetStore() {
 		updateWidgetConfig: (id: string, config: any) => {
 			update((widgets) => {
 				const updatedWidgets = widgets.map((widget) =>
-					widget.id === id ? { ...widget, config } : widget
+					widget.id === id ? { ...widget, config: { ...widget.config, ...config } } : widget
 				);
 				saveWidgets(updatedWidgets);
 				return updatedWidgets;

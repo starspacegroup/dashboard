@@ -2,9 +2,11 @@
 	import '../app.css';
 	import { theme } from '$lib/stores/theme';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import WeatherWidgetSettings from '$lib/components/WeatherWidgetSettings.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import UserDropdown from '$lib/components/UserDropdown.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+	import { weatherSettings } from '$lib/stores/weatherSettings';
 	import { onMount } from 'svelte';
 	import type { Theme } from '$lib/stores/theme';
 
@@ -44,6 +46,18 @@
 </script>
 
 <CommandPalette isOpen={commandPaletteOpen} onClose={handleCommandPaletteClose} />
+
+<WeatherWidgetSettings
+	isOpen={$weatherSettings.isOpen}
+	onClose={() => weatherSettings.close()}
+	onSave={(location, temperatureUnit) => {
+		if ($weatherSettings.onSave) {
+			$weatherSettings.onSave(location, temperatureUnit);
+		}
+	}}
+	initialLocation={$weatherSettings.initialLocation}
+	initialTemperatureUnit={$weatherSettings.initialTemperatureUnit}
+/>
 
 <div class="app">
 	<header>

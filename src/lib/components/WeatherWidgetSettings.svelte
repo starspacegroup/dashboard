@@ -20,23 +20,39 @@
 
 	let selectedLocation: Location | null = null;
 	let selectedTemperatureUnit: 'celsius' | 'fahrenheit' | 'global' = 'global';
+	let globalTemperatureUnit: 'celsius' | 'fahrenheit' = 'fahrenheit';
 	let modalElement: HTMLDivElement;
 	let isDragging = false;
 	let startY = 0;
 	let currentY = 0;
 	let translateY = 0;
 
-	// Load initial location and temperature unit
+	// Load global temperature unit preference
 	onMount(() => {
-		if (initialLocation) {
-			selectedLocation = initialLocation;
-		}
-		if (initialTemperatureUnit) {
-			selectedTemperatureUnit = initialTemperatureUnit;
-		} else {
-			selectedTemperatureUnit = 'global';
+		if (browser) {
+			const savedUnit = localStorage.getItem('dashboard-temp-unit-global');
+			if (savedUnit === 'celsius' || savedUnit === 'fahrenheit') {
+				globalTemperatureUnit = savedUnit;
+			}
 		}
 	});
+	
+	// Update selected values when modal opens with new initial values
+	$: if (isOpen) {
+		selectedLocation = initialLocation;
+		selectedTemperatureUnit = initialTemperatureUnit || 'global';
+		
+		// Refresh global temperature unit when modal opens
+		if (browser) {
+			const savedUnit = localStorage.getItem('dashboard-temp-unit-global');
+			if (savedUnit === 'celsius' || savedUnit === 'fahrenheit') {
+				globalTemperatureUnit = savedUnit;
+			}
+		}
+	}
+	
+	// Compute the active temperature unit (for display purposes)
+	$: activeTemperatureUnit = selectedTemperatureUnit === 'global' ? globalTemperatureUnit : selectedTemperatureUnit;
 
 	// Handle location selection from picker - auto-save
 	function handleLocationSelect(location: Location | null) {
@@ -154,7 +170,7 @@
 				<div class="settings-section">
 					<h3 class="section-title">Temperature Unit</h3>
 					<p class="section-description">
-						Override the global temperature unit for this widget.
+						Override the global temperature unit for this widget. Currently showing: <strong>{activeTemperatureUnit === 'celsius' ? 'Celsius (°C)' : 'Fahrenheit (°F)'}</strong>
 					</p>
 
 					<div class="temperature-unit-selector">
@@ -162,13 +178,16 @@
 							class="unit-button" 
 							class:active={selectedTemperatureUnit === 'global'}
 							on:click={() => handleTemperatureUnitChange('global')}
+							title="Use global setting ({globalTemperatureUnit === 'celsius' ? '°C' : '°F'})"
 						>
-							Use Global
+							<span class="button-label">Use Global</span>
+							<span class="button-sublabel">({globalTemperatureUnit === 'celsius' ? '°C' : '°F'})</span>
 						</button>
 						<button 
 							class="unit-button" 
 							class:active={selectedTemperatureUnit === 'fahrenheit'}
 							on:click={() => handleTemperatureUnitChange('fahrenheit')}
+							title="Always use Fahrenheit for this widget"
 						>
 							°F
 						</button>
@@ -176,6 +195,7 @@
 							class="unit-button" 
 							class:active={selectedTemperatureUnit === 'celsius'}
 							on:click={() => handleTemperatureUnitChange('celsius')}
+							title="Always use Celsius for this widget"
 						>
 							°C
 						</button>
@@ -218,7 +238,7 @@
 		bottom: 0;
 		background: var(--overlay);
 		backdrop-filter: blur(4px);
-		z-index: 9999;
+		z-index: 10001;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -379,6 +399,10 @@
 		border: 2px solid var(--border);
 		cursor: pointer;
 		transition: all var(--transition-fast) var(--ease-out);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
 	}
 
 	.unit-button:hover {
@@ -390,6 +414,26 @@
 		background: var(--primary-color);
 		color: var(--background);
 		border-color: var(--primary-color);
+	}
+	
+	.button-label {
+		display: block;
+	}
+	
+	.button-sublabel {
+		display: block;
+		font-size: 0.75rem;
+		font-weight: 400;
+		opacity: 0.8;
+	}
+	
+	.unit-button.active .button-sublabel {
+		opacity: 1;
+	}
+	
+	.section-description strong {
+		color: var(--primary-color);
+		font-weight: 600;
 	}
 
 	@media (max-width: 768px) {
