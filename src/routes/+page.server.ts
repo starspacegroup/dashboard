@@ -61,6 +61,61 @@ interface GitHubPullRequest {
 	isDraft: boolean;
 }
 
+interface CopilotMetric {
+	date: string;
+	total_active_users: number;
+	total_engaged_users: number;
+	copilot_ide_code_completions?: {
+		total_engaged_users: number;
+		languages?: { name: string; total_engaged_users: number; }[];
+		editors?: {
+			name: string;
+			total_engaged_users: number;
+			models?: {
+				name: string;
+				is_custom_model: boolean;
+				total_engaged_users: number;
+				languages?: {
+					name: string;
+					total_engaged_users: number;
+					total_code_suggestions?: number;
+					total_code_acceptances?: number;
+					total_code_lines_suggested?: number;
+					total_code_lines_accepted?: number;
+				}[];
+			}[];
+		}[];
+	};
+	copilot_ide_chat?: {
+		total_engaged_users: number;
+		editors?: {
+			name: string;
+			total_engaged_users: number;
+			models?: {
+				name: string;
+				total_engaged_users: number;
+				total_chats: number;
+				total_chat_insertion_events: number;
+				total_chat_copy_events: number;
+			}[];
+		}[];
+	};
+	copilot_dotcom_chat?: {
+		total_engaged_users: number;
+		models?: {
+			name: string;
+			total_engaged_users: number;
+			total_chats: number;
+		}[];
+	};
+}
+
+interface OrganizationMetrics {
+	organization: string;
+	metrics: CopilotMetric[];
+	error?: string;
+}
+
 interface ExtendedSession {
 	user?: {
 		name?: string | null;
@@ -82,7 +137,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			allGithubProjects: [],
 			assignedPRs: [],
 			createdPRs: [],
-			reviewRequestedPRs: []
+			reviewRequestedPRs: [],
+			copilotMetrics: []
 		};
 	}
 
@@ -99,7 +155,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				allGithubProjects: [],
 				assignedPRs: [],
 				createdPRs: [],
-				reviewRequestedPRs: []
+				reviewRequestedPRs: [],
+				copilotMetrics: []
 			};
 		}
 
@@ -419,6 +476,69 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			console.error('[ERROR] Failed to fetch Pull Requests:', error);
 		}
 
+		// Fetch Copilot usage metrics for organizations
+		const copilotMetrics: OrganizationMetrics[] = [];
+
+		try {
+			// Get list of organizations the user belongs to
+			const orgsForCopilot = organizationProjects.map(op => op.organization.login);
+
+			// Fetch Copilot metrics for each organization
+			for (const orgName of orgsForCopilot) {
+				try {
+					// Calculate date 28 days ago for the since parameter
+					const sinceDate = new Date();
+					sinceDate.setDate(sinceDate.getDate() - 28);
+					const sinceDateStr = sinceDate.toISOString().split('T')[0];
+
+					const metricsResponse = await fetch(
+						`https://api.github.com/orgs/${orgName}/copilot/metrics?since=${sinceDateStr}`,
+						{
+							headers: {
+								'Authorization': `Bearer ${accessToken}`,
+								'Accept': 'application/vnd.github+json',
+								'X-GitHub-Api-Version': '2022-11-28',
+								'User-Agent': 'Dashboard-App'
+							}
+						}
+					);
+
+					if (metricsResponse.ok) {
+						const metrics: CopilotMetric[] = await metricsResponse.json();
+						copilotMetrics.push({
+							organization: orgName,
+							metrics
+						});
+						console.log(`[DEBUG] Copilot metrics for ${orgName}:`, metrics.length, 'days of data');
+					} else if (metricsResponse.status === 403) {
+						console.log(`[DEBUG] No Copilot access for org ${orgName} (403 Forbidden)`);
+						copilotMetrics.push({
+							organization: orgName,
+							metrics: [],
+							error: 'No permission to view Copilot metrics'
+						});
+					} else if (metricsResponse.status === 404) {
+						console.log(`[DEBUG] Copilot not enabled for org ${orgName} (404)`);
+					} else if (metricsResponse.status === 422) {
+						console.log(`[DEBUG] Copilot Metrics API disabled for org ${orgName} (422)`);
+						copilotMetrics.push({
+							organization: orgName,
+							metrics: [],
+							error: 'Copilot Metrics API is disabled for this organization'
+						});
+					} else {
+						console.error(`[ERROR] Copilot metrics fetch failed for ${orgName}:`, metricsResponse.status);
+					}
+				} catch (orgError) {
+					console.error(`[ERROR] Failed to fetch Copilot metrics for ${orgName}:`, orgError);
+				}
+			}
+
+			console.log('[DEBUG] Total organizations with Copilot metrics:', copilotMetrics.length);
+		} catch (error) {
+			console.error('[ERROR] Failed to fetch Copilot metrics:', error);
+		}
+
 		return {
 			user: session.user,
 			githubProjects,
@@ -426,7 +546,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			allGithubProjects,
 			assignedPRs,
 			createdPRs,
-			reviewRequestedPRs
+			reviewRequestedPRs,
+			copilotMetrics
 		};
 	} catch (error) {
 		console.error('Failed to fetch GitHub data:', error);
@@ -439,6 +560,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		allGithubProjects: [],
 		assignedPRs: [],
 		createdPRs: [],
-		reviewRequestedPRs: []
+		reviewRequestedPRs: [],
+		copilotMetrics: []
 	};
 };

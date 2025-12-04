@@ -62,6 +62,12 @@
 			title: 'Data Table',
 			description: 'Display detailed weather and system data',
 			icon: '📊'
+		},
+		{
+			type: 'copilot-usage',
+			title: 'GitHub Copilot Usage',
+			description: 'View Copilot usage metrics and analytics',
+			icon: '🤖'
 		}
 	];
 

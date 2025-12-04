@@ -32,7 +32,7 @@ export const { handle } = SvelteKitAuth({
 			clientSecret: githubSecret,
 			authorization: {
 				params: {
-					scope: 'read:user user:email read:org repo read:project'
+					scope: 'read:user user:email read:org repo read:project manage_billing:copilot'
 				}
 			}
 		})
