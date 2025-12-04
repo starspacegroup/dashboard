@@ -40,16 +40,6 @@ function saveLayoutWidgets(layoutWidgets: Record<string, Widget[]>) {
 	}
 }
 
-// Get current layout fingerprint
-function getCurrentLayout(): string | null {
-	if (typeof window === 'undefined') return null;
-	try {
-		return localStorage.getItem(CURRENT_LAYOUT_KEY);
-	} catch (error) {
-		return null;
-	}
-}
-
 // Save current layout fingerprint
 function saveCurrentLayout(fingerprint: string) {
 	if (typeof window === 'undefined') return;
@@ -67,6 +57,9 @@ function saveCurrentLayout(fingerprint: string) {
  * Larger sections receive proportionally more widgets than smaller ones, creating a balanced
  * and sensible distribution. Widgets maintain their original order but are reassigned to
  * sections that best accommodate them.
+ * 
+ * IMPORTANT: This function ensures ALL widgets are preserved when switching layouts.
+ * No widgets should ever be lost during layout transitions.
  * 
  * @param widgets - The current widgets to redistribute
  * @param sections - The new layout sections
@@ -92,29 +85,41 @@ function generateDefaultWidgetPositions(widgets: Widget[], sections: Section[]):
 
 	const totalCapacity = sectionCapacities.reduce((sum, s) => sum + s.capacity, 0);
 
-	// Distribute widgets proportionally based on section capacity
-	let widgetIndex = 0;
-	for (const sectionData of sectionCapacities) {
-		// Calculate how many widgets this section should get
-		const targetCount = Math.max(1, Math.round((sectionData.capacity / totalCapacity) * widgets.length));
+	// Calculate target widget counts using floor to avoid over-allocation
+	// This ensures we don't try to assign more widgets than we have
+	const targetCounts = sectionCapacities.map(sectionData => {
+		return Math.floor((sectionData.capacity / totalCapacity) * widgets.length);
+	});
 
-		// Assign widgets to this section
-		for (let i = 0; i < targetCount && widgetIndex < widgets.length; i++) {
-			sectionData.widgets.push(widgets[widgetIndex]);
+	// Calculate how many widgets are left after floor distribution
+	let remainingWidgets = widgets.length - targetCounts.reduce((sum, count) => sum + count, 0);
+
+	// Distribute the remaining widgets to sections with highest capacity first
+	// Sort indices by capacity (descending) to prioritize larger sections
+	const sortedIndices = sectionCapacities
+		.map((_, idx) => idx)
+		.sort((a, b) => sectionCapacities[b].capacity - sectionCapacities[a].capacity);
+
+	for (const idx of sortedIndices) {
+		if (remainingWidgets <= 0) break;
+		targetCounts[idx]++;
+		remainingWidgets--;
+	}
+
+	// Now distribute widgets according to calculated target counts
+	let widgetIndex = 0;
+	for (let i = 0; i < sectionCapacities.length; i++) {
+		const targetCount = targetCounts[i];
+		for (let j = 0; j < targetCount && widgetIndex < widgets.length; j++) {
+			sectionCapacities[i].widgets.push(widgets[widgetIndex]);
 			widgetIndex++;
 		}
 	}
 
-	// If there are leftover widgets (due to rounding), distribute them to the largest sections
+	// Safety check: if any widgets weren't assigned (shouldn't happen with fixed algorithm),
+	// assign them to the first section to ensure no widgets are lost
 	while (widgetIndex < widgets.length) {
-		// Find the section with the most capacity that has the fewest widgets relative to capacity
-		const targetSection = sectionCapacities.reduce((best, current) => {
-			const currentRatio = current.widgets.length / current.capacity;
-			const bestRatio = best.widgets.length / best.capacity;
-			return currentRatio < bestRatio ? current : best;
-		});
-
-		targetSection.widgets.push(widgets[widgetIndex]);
+		sectionCapacities[0].widgets.push(widgets[widgetIndex]);
 		widgetIndex++;
 	}
 
@@ -128,6 +133,17 @@ function generateDefaultWidgetPositions(widgets: Widget[], sections: Section[]):
 				order
 			});
 		});
+	}
+
+	// Final safety assertion: ensure we didn't lose any widgets
+	if (result.length !== widgets.length) {
+		console.error(`Widget count mismatch during layout transition: expected ${widgets.length}, got ${result.length}`);
+		// Return original widgets with reassigned sections as fallback
+		return widgets.map((widget, index) => ({
+			...widget,
+			section: sortedSections[0].id,
+			order: index
+		}));
 	}
 
 	return result;
@@ -430,6 +446,24 @@ function createWidgetStore() {
 				return updatedWidgets;
 			});
 		},
+		redistributeToLayout: (newSections: Section[]) => {
+			// IMPORTANT: All currently visible widgets MUST remain visible after layout change.
+			// Widgets should NEVER disappear unless explicitly removed by the user.
+			// We ALWAYS redistribute all current widgets to the new layout, ignoring any
+			// previously saved state for that layout. This ensures no widgets are ever lost.
+			update((currentWidgets) => {
+				const layoutFingerprint = getLayoutFingerprint(newSections);
+
+				// Always redistribute ALL current widgets to the new layout sections.
+				// This guarantees every widget that's currently visible stays visible.
+				const resultWidgets = generateDefaultWidgetPositions(currentWidgets, newSections);
+
+				// Save the new widget positions for this layout
+				saveWidgets(resultWidgets, newSections);
+				saveCurrentLayout(layoutFingerprint);
+				return resultWidgets;
+			});
+		},
 		reset: () => {
 			set(defaultWidgets);
 			saveWidgets(defaultWidgets);
@@ -512,52 +546,22 @@ function createSectionStore() {
 			});
 		},
 		applyLayout: (layoutSections: Omit<Section, 'id'>[]) => {
-			let newSections: Section[];
+			// Create new sections with sequential IDs
+			const newSections: Section[] = layoutSections.map((section, index) => ({
+				id: index,
+				gridColumn: section.gridColumn,
+				gridColumnSpan: section.gridColumnSpan,
+				gridRow: section.gridRow,
+				title: section.title
+			}));
 
 			update(() => {
-				// Create new sections with sequential IDs
-				newSections = layoutSections.map((section, index) => ({
-					id: index,
-					gridColumn: section.gridColumn,
-					gridColumnSpan: section.gridColumnSpan,
-					gridRow: section.gridRow,
-					title: section.title
-				}));
 				saveSections(newSections);
 				return newSections;
 			});
 
-			// Check if we have saved widget positions for this layout
-			widgets.update((currentWidgets) => {
-				const layoutFingerprint = getLayoutFingerprint(newSections);
-				const layoutWidgets = loadLayoutWidgets();
-
-				// If we have saved positions for this layout, use them
-				if (layoutWidgets[layoutFingerprint]) {
-					const savedWidgets = layoutWidgets[layoutFingerprint];
-
-					// Ensure all current widgets are present (in case new widgets were added)
-					const savedWidgetIds = new Set(savedWidgets.map(w => w.id));
-					const newWidgets = currentWidgets.filter(w => !savedWidgetIds.has(w.id));
-
-					if (newWidgets.length > 0) {
-						// Distribute new widgets using sane defaults
-						const distributedNewWidgets = generateDefaultWidgetPositions(newWidgets, newSections);
-						const combined = [...savedWidgets, ...distributedNewWidgets];
-						saveWidgets(combined, newSections);
-						return combined;
-					}
-
-					// All widgets accounted for, use saved positions
-					saveCurrentLayout(layoutFingerprint);
-					return savedWidgets;
-				}
-
-				// No saved positions for this layout, generate sane defaults
-				const updatedWidgets = generateDefaultWidgetPositions(currentWidgets, newSections);
-				saveWidgets(updatedWidgets, newSections);
-				return updatedWidgets;
-			});
+			// Redistribute all current widgets to the new layout
+			widgets.redistributeToLayout(newSections);
 		},
 		reset: () => {
 			set(defaultSections);
