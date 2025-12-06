@@ -97,6 +97,30 @@
 	// Time test mode
 	let testDateOffset = 0; // Minutes offset from current time (negative = past)
 
+	// Track if initial weather load has occurred (to avoid duplicate loads)
+	let hasInitiallyLoaded = false;
+	
+	// Track the current widget location config to detect changes during hydration
+	let lastWidgetLocationKey: string | null = null;
+	
+	// Helper to generate a unique key for the widget's location config
+	function getLocationKey(loc: { lat: number; lon: number } | undefined | null): string | null {
+		if (!loc) return null;
+		return `${loc.lat},${loc.lon}`;
+	}
+	
+	// Reactive statement to detect widget config changes (handles SSR -> client hydration)
+	$: if (browser && hasInitiallyLoaded) {
+		const currentLocationKey = getLocationKey(widget.config?.location);
+		if (currentLocationKey !== lastWidgetLocationKey) {
+			lastWidgetLocationKey = currentLocationKey;
+			// Widget config changed after initial load - reload weather data
+			if (widget.config?.location) {
+				fetchWeatherFromAPI(widget.config.location.lat, widget.config.location.lon);
+			}
+		}
+	}
+
 	// Load temperature unit preference (widget-specific or global)
 	if (browser) {
 		if (widget.config?.temperatureUnit) {
@@ -182,6 +206,10 @@
 	// Load weather data from cache or API
 	async function loadWeatherData() {
 		if (!browser) return;
+
+		// Track the location we're loading for (to detect hydration changes)
+		lastWidgetLocationKey = getLocationKey(widget.config?.location);
+		hasInitiallyLoaded = true;
 
 		// Priority 1: Check widget-specific location
 		if (widget.config?.location) {
