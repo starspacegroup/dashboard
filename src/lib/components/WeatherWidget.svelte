@@ -514,9 +514,9 @@
 		// Load weather data
 		loadWeatherData();
 		
-		// Refresh weather data every 5 minutes
+		// Refresh weather data every 5 minutes (use loadWeatherData to respect widget config)
 		const weatherInterval = setInterval(() => {
-			fetchWeatherData();
+			loadWeatherData();
 		}, CACHE_DURATION);
 		
 		return () => {
