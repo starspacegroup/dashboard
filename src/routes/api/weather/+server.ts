@@ -59,8 +59,8 @@ export const GET: RequestHandler = async ({ url }) => {
 
     const data = await response.json();
 
-    // Get next 24 hours of hourly data
-    const hourlyForecast = data.hourly.slice(0, 24).map((hour: any) => ({
+    // Get next 24 hours of hourly data (future forecast)
+    const futureHourly = data.hourly.slice(0, 24).map((hour: any) => ({
       time: hour.dt,
       temperature: Math.round(hour.temp),
       feelsLike: Math.round(hour.feels_like),
@@ -69,6 +69,23 @@ export const GET: RequestHandler = async ({ url }) => {
       condition: hour.weather[0].main.toLowerCase(),
       icon: hour.weather[0].icon
     }));
+
+    // Fetch historical data for the past 24 hours using Time Machine API
+    const historicalHourly = await fetchHistoricalData(latitude, longitude);
+
+    // Combine historical + current + future data, then interpolate to 30-min resolution
+    const allHourlyData = [...historicalHourly, ...futureHourly];
+
+    // Remove duplicates (based on timestamp) and sort by time
+    const uniqueHourly = allHourlyData.reduce((acc: any[], curr) => {
+      if (!acc.find(h => h.time === curr.time)) {
+        acc.push(curr);
+      }
+      return acc;
+    }, []).sort((a, b) => a.time - b.time);
+
+    // Interpolate to 30-minute resolution
+    const interpolatedHourly = interpolateToHalfHour(uniqueHourly);
 
     // Transform the One Call API 3.0 data to a simpler format
     const weatherData = {
@@ -79,7 +96,7 @@ export const GET: RequestHandler = async ({ url }) => {
       description: data.current.weather[0].description,
       location: await getLocationName(latitude, longitude),
       icon: data.current.weather[0].icon,
-      hourly: hourlyForecast,
+      hourly: interpolatedHourly,
       sunrise: data.current.sunrise,
       sunset: data.current.sunset,
       moonrise: data.daily?.[0]?.moonrise || 0,
@@ -99,6 +116,125 @@ export const GET: RequestHandler = async ({ url }) => {
     );
   }
 };
+
+// Fetch historical weather data for the past 24 hours
+async function fetchHistoricalData(lat: string, lon: string): Promise<any[]> {
+  const historicalData: any[] = [];
+  const now = Math.floor(Date.now() / 1000);
+
+  // We need to fetch data for distinct days that cover the past 24 hours
+  // The timemachine endpoint returns hourly data for a specific day
+  // We'll fetch yesterday's data and today's past hours
+
+  try {
+    // Fetch data for 24 hours ago (to get yesterday's hourly data)
+    const yesterday = now - 24 * 60 * 60;
+    const timeMachineUrl = `https://api.openweathermap.org/data/3.0/onecall/timemachine?lat=${lat}&lon=${lon}&dt=${yesterday}&units=imperial&appid=${OPENWEATHER_API_KEY.trim()}`;
+
+    const response = await fetch(timeMachineUrl);
+
+    if (response.ok) {
+      const data = await response.json();
+
+      // The timemachine API returns data for the requested timestamp
+      // It includes hourly data for that day
+      if (data.data && Array.isArray(data.data)) {
+        for (const hour of data.data) {
+          // Only include data points from the past 24 hours
+          if (hour.dt >= now - 24 * 60 * 60 && hour.dt <= now) {
+            historicalData.push({
+              time: hour.dt,
+              temperature: Math.round(hour.temp),
+              feelsLike: Math.round(hour.feels_like),
+              humidity: hour.humidity,
+              dewPoint: Math.round(hour.dew_point || 0),
+              condition: hour.weather?.[0]?.main?.toLowerCase() || 'clear',
+              icon: hour.weather?.[0]?.icon || '01d'
+            });
+          }
+        }
+      }
+    } else {
+      console.error('Time Machine API error:', await response.text());
+    }
+
+    // Also fetch today's historical data (for hours between midnight and now)
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+    const todayTimestamp = Math.floor(todayMidnight.getTime() / 1000);
+
+    // Only fetch if today is different from yesterday's request
+    if (todayTimestamp > yesterday) {
+      const todayUrl = `https://api.openweathermap.org/data/3.0/onecall/timemachine?lat=${lat}&lon=${lon}&dt=${todayTimestamp}&units=imperial&appid=${OPENWEATHER_API_KEY.trim()}`;
+
+      const todayResponse = await fetch(todayUrl);
+
+      if (todayResponse.ok) {
+        const todayData = await todayResponse.json();
+
+        if (todayData.data && Array.isArray(todayData.data)) {
+          for (const hour of todayData.data) {
+            // Only include past data points (before now)
+            if (hour.dt >= now - 24 * 60 * 60 && hour.dt <= now) {
+              // Check if we already have this timestamp
+              if (!historicalData.find(h => h.time === hour.dt)) {
+                historicalData.push({
+                  time: hour.dt,
+                  temperature: Math.round(hour.temp),
+                  feelsLike: Math.round(hour.feels_like),
+                  humidity: hour.humidity,
+                  dewPoint: Math.round(hour.dew_point || 0),
+                  condition: hour.weather?.[0]?.main?.toLowerCase() || 'clear',
+                  icon: hour.weather?.[0]?.icon || '01d'
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching historical data:', error);
+  }
+
+  return historicalData.sort((a, b) => a.time - b.time);
+}
+
+// Interpolate hourly data to 30-minute resolution
+function interpolateToHalfHour(hourlyData: any[]): any[] {
+  if (hourlyData.length < 2) return hourlyData;
+
+  const interpolated: any[] = [];
+
+  for (let i = 0; i < hourlyData.length; i++) {
+    const current = hourlyData[i];
+    interpolated.push(current);
+
+    // If there's a next hour, add an interpolated point at 30 minutes
+    if (i < hourlyData.length - 1) {
+      const next = hourlyData[i + 1];
+      const timeDiff = next.time - current.time;
+
+      // Only interpolate if the gap is roughly 1 hour (between 50-70 minutes)
+      if (timeDiff >= 3000 && timeDiff <= 4200) {
+        const midTime = current.time + Math.floor(timeDiff / 2);
+
+        interpolated.push({
+          time: midTime,
+          temperature: Math.round((current.temperature + next.temperature) / 2),
+          feelsLike: Math.round((current.feelsLike + next.feelsLike) / 2),
+          humidity: Math.round((current.humidity + next.humidity) / 2),
+          dewPoint: Math.round((current.dewPoint + next.dewPoint) / 2),
+          condition: current.condition, // Keep the earlier condition
+          icon: current.icon,
+          interpolated: true // Mark as interpolated
+        });
+      }
+    }
+  }
+
+  return interpolated;
+}
 
 // Fallback to Current Weather API (2.5) if One Call 3.0 fails
 async function fallbackToCurrentWeather(lat: string, lon: string) {

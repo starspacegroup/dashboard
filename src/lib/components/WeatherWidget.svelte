@@ -145,8 +145,45 @@
 		}) as EventListener);
 	}
 
-	// Reactive temperature display - explicitly depends on both temperature and isCelsius
-	$: displayTemp = isCelsius ? Math.round((temperature - 32) * 5 / 9) : temperature;
+	// Find the weather data for the current time offset from hourly data
+	// testDateOffset is in minutes (negative = past), hourly data has Unix timestamps
+	$: timeOffsetData = (() => {
+		if (!hourlyData || hourlyData.length === 0 || testDateOffset === 0) {
+			return { temperature, humidity, dewPoint, condition };
+		}
+		
+		// Calculate the target timestamp
+		const now = Date.now();
+		const targetTime = now + testDateOffset * 60 * 1000; // Convert minutes to milliseconds
+		const targetTimestamp = Math.floor(targetTime / 1000); // Convert to Unix timestamp (seconds)
+		
+		// Find the closest hourly data point
+		let closest = hourlyData[0];
+		let closestDiff = Math.abs(hourlyData[0].time - targetTimestamp);
+		
+		for (const hour of hourlyData) {
+			const diff = Math.abs(hour.time - targetTimestamp);
+			if (diff < closestDiff) {
+				closest = hour;
+				closestDiff = diff;
+			}
+		}
+		
+		return {
+			temperature: closest.temperature,
+			humidity: closest.humidity,
+			dewPoint: closest.dewPoint || dewPoint,
+			condition: closest.condition || condition
+		};
+	})();
+
+	// Reactive temperature display - uses time offset data when time traveling
+	$: displayTemp = isCelsius 
+		? Math.round((timeOffsetData.temperature - 32) * 5 / 9) 
+		: timeOffsetData.temperature;
+	
+	// Reactive humidity display - uses time offset data when time traveling
+	$: displayHumidity = timeOffsetData.humidity;
 
 	// Save unit preference and toggle
 	function setUnit(useCelsius: boolean) {
@@ -1090,7 +1127,7 @@
 
 		<!-- Humidity - Below Temperature -->
 		<div class="humidity-center">
-			<span class="humidity-value">{humidity}</span>
+			<span class="humidity-value">{displayHumidity}</span>
 			<span class="humidity-symbols">
 				<span class="symbol-phi">φ</span>
 				<span class="symbol-percent">%</span>
@@ -1105,17 +1142,17 @@
 		</div>
 	</div>
 
-	<!-- Time Test Slider (always shown) -->
+	<!-- Time Test Slider (hidden for now)
 	<div class="time-test-slider">
 		<label for="time-offset">
-			Time: {testDateOffset === 0 ? 'Now' : `${Math.abs(testDateOffset)} mins ago`}
+			Time: {testDateOffset === 0 ? 'Now' : testDateOffset > 0 ? `+${Math.floor(testDateOffset / 60)}h ${testDateOffset % 60}m` : `${Math.floor(Math.abs(testDateOffset) / 60)}h ${Math.abs(testDateOffset) % 60}m ago`}
 		</label>
 		<input 
 			id="time-offset"
 			type="range" 
 			min="-1440" 
 			max="0" 
-			step="10"
+			step="30"
 			bind:value={testDateOffset}
 		/>
 		<div class="slider-labels">
@@ -1123,10 +1160,8 @@
 			<span>12h ago</span>
 			<span>Now</span>
 		</div>
-		<div class="time-test-info">
-			ℹ️ Time travel currently changes the time but not the weather data (YET!)
-		</div>
 	</div>
+	-->
 	{:else}
 		<!-- No Location Message -->
 		<div class="no-location-message">
@@ -1365,17 +1400,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
-	}
-
-	.time-test-info {
-		padding: 0.625rem 0.75rem;
-		background: color-mix(in srgb, var(--primary-color) 10%, transparent);
-		border: 1px solid color-mix(in srgb, var(--primary-color) 20%, transparent);
-		border-radius: 6px;
-		color: var(--primary-color);
-		font-size: 0.75rem;
-		text-align: center;
-		margin-top: 0.25rem;
 	}
 
 	.time-test-slider label {
