@@ -1589,7 +1589,7 @@
 		</div>
 
 		<!-- Time and Date Section (above earth) -->
-		<div class="time-date-section" style="--text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --date-margin: {dateMargin}">
+		<div class="time-date-section" style="--time-size: {timeSize}; --date-size: {dateSize}; --date-margin: {dateMargin}">
 			<div class="time">{currentTime}</div>
 			<div class="date">{currentDate}</div>
 		</div>
@@ -1850,15 +1850,84 @@
 		{/if}
 	</div>
 
-		<!-- Humidity Section -->
+		<!-- Humidity Section - Glass of Water -->
 		<div class="humidity-section">
 			<div class="humidity-header">
-				<span class="humidity-icon">💧</span>
 				<span class="humidity-label">Humidity</span>
 			</div>
-			<div class="humidity-stats">
-				<span class="humidity-value-large">{displayHumidity}</span>
-				<span class="humidity-unit">%</span>
+			<div class="humidity-glass-container">
+				<svg class="humidity-glass" viewBox="0 0 40 60" xmlns="http://www.w3.org/2000/svg">
+					<!-- Glass outline with slightly tapered shape -->
+					<defs>
+						<clipPath id="glass-clip-{widget.id}">
+							<!-- Tapered glass interior shape -->
+							<path d="M 6 8 L 8 52 Q 8 56, 12 56 L 28 56 Q 32 56, 32 52 L 34 8 Z" />
+						</clipPath>
+						<linearGradient id="water-gradient-{widget.id}" x1="0%" y1="0%" x2="100%" y2="0%">
+							<stop offset="0%" style="stop-color: rgba(59, 130, 246, 0.6)" />
+							<stop offset="50%" style="stop-color: rgba(96, 165, 250, 0.7)" />
+							<stop offset="100%" style="stop-color: rgba(59, 130, 246, 0.6)" />
+						</linearGradient>
+						<linearGradient id="glass-shine-{widget.id}" x1="0%" y1="0%" x2="100%" y2="0%">
+							<stop offset="0%" style="stop-color: rgba(255, 255, 255, 0.15)" />
+							<stop offset="30%" style="stop-color: rgba(255, 255, 255, 0.05)" />
+							<stop offset="100%" style="stop-color: rgba(255, 255, 255, 0)" />
+						</linearGradient>
+					</defs>
+					
+					<!-- Water fill - height based on humidity -->
+					<g clip-path="url(#glass-clip-{widget.id})">
+						<!-- Water body -->
+						<rect 
+							x="6" 
+							y="{56 - (displayHumidity / 100) * 48}" 
+							width="28" 
+							height="{(displayHumidity / 100) * 48 + 4}" 
+							fill="url(#water-gradient-{widget.id})"
+							class="water-fill"
+						/>
+						<!-- Water surface wave effect -->
+						<path 
+							d="M 6 {56 - (displayHumidity / 100) * 48} 
+							   Q 13 {54 - (displayHumidity / 100) * 48}, 20 {56 - (displayHumidity / 100) * 48} 
+							   Q 27 {58 - (displayHumidity / 100) * 48}, 34 {56 - (displayHumidity / 100) * 48}"
+							fill="rgba(147, 197, 253, 0.5)"
+							class="water-surface"
+						/>
+					</g>
+					
+					<!-- Glass outline -->
+					<path 
+						d="M 5 6 Q 5 4, 7 4 L 33 4 Q 35 4, 35 6 L 33 52 Q 33 57, 28 57 L 12 57 Q 7 57, 7 52 Z" 
+						fill="none" 
+						stroke="var(--foreground)" 
+						stroke-width="1.5"
+						stroke-opacity="0.5"
+					/>
+					
+					<!-- Glass rim highlight -->
+					<path 
+						d="M 7 4 L 33 4" 
+						fill="none" 
+						stroke="var(--foreground)" 
+						stroke-width="2"
+						stroke-opacity="0.3"
+						stroke-linecap="round"
+					/>
+					
+					<!-- Glass shine/reflection -->
+					<path 
+						d="M 8 8 L 9 50 Q 9 54, 12 54" 
+						fill="none" 
+						stroke="url(#glass-shine-{widget.id})" 
+						stroke-width="3"
+						stroke-linecap="round"
+					/>
+				</svg>
+				<div class="humidity-value-overlay">
+					<span class="humidity-value-large">{displayHumidity}</span>
+					<span class="humidity-unit">%</span>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -2022,6 +2091,15 @@
 		width: 100%;
 	}
 
+	.time-date-section .time {
+		color: var(--foreground);
+	}
+
+	.time-date-section .date {
+		color: var(--foreground);
+		opacity: 0.7;
+	}
+
 	.location-section {
 		position: absolute;
 		top: 18%;
@@ -2072,10 +2150,6 @@
 		opacity: 0.8;
 	}
 
-	.humidity-icon {
-		font-size: 1.2rem;
-	}
-
 	.humidity-label {
 		font-size: 0.55rem;
 		text-transform: uppercase;
@@ -2083,19 +2157,49 @@
 		opacity: 0.7;
 	}
 
-	.humidity-stats {
+	.humidity-glass-container {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.humidity-glass {
+		width: 50px;
+		height: 75px;
+	}
+
+	.water-fill {
+		transition: y 0.5s ease-out, height 0.5s ease-out;
+	}
+
+	.water-surface {
+		animation: wave 2s ease-in-out infinite;
+	}
+
+	@keyframes wave {
+		0%, 100% {
+			transform: translateX(0);
+		}
+		50% {
+			transform: translateX(2px);
+		}
+	}
+
+	.humidity-value-overlay {
 		display: flex;
 		align-items: baseline;
-		gap: 0.25rem;
+		gap: 0.1rem;
+		margin-top: 0.25rem;
 	}
 
 	.humidity-value-large {
 		font-weight: 100;
-		font-size: 1.8rem;
+		font-size: 1.4rem;
 	}
 
 	.humidity-unit {
-		font-size: 0.8rem;
+		font-size: 0.7rem;
 		opacity: 0.7;
 	}
 
