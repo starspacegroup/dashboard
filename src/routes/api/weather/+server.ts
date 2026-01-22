@@ -250,6 +250,9 @@ async function fallbackToCurrentWeather(lat: string, lon: string) {
 
     const data = await response.json();
 
+    // Get IANA timezone from coordinates using a timezone lookup
+    const timezoneString = await getTimezoneFromCoords(lat, lon);
+
     const weatherData = {
       temperature: Math.round(data.main.temp),
       humidity: data.main.humidity,
@@ -259,6 +262,10 @@ async function fallbackToCurrentWeather(lat: string, lon: string) {
       location: `${data.name}, ${data.sys.country}`,
       icon: data.weather[0].icon,
       hourly: [], // Fallback API doesn't have hourly data
+      sunrise: data.sys.sunrise,
+      sunset: data.sys.sunset,
+      timezone: timezoneString,
+      timezoneOffset: data.timezone, // OpenWeather 2.5 API returns timezone offset in seconds
       timestamp: Date.now()
     };
 
@@ -270,6 +277,21 @@ async function fallbackToCurrentWeather(lat: string, lon: string) {
       { status: 500 }
     );
   }
+}
+
+// Get IANA timezone string from coordinates
+async function getTimezoneFromCoords(lat: string, lon: string): Promise<string> {
+  try {
+    // Use timeapi.io for IANA timezone lookup (free, no API key needed)
+    const response = await fetch(`https://timeapi.io/api/timezone/coordinate?latitude=${lat}&longitude=${lon}`);
+    if (response.ok) {
+      const data = await response.json();
+      return data.timeZone || '';
+    }
+  } catch (error) {
+    console.error('Error getting timezone:', error);
+  }
+  return '';
 }
 
 // Convert zip code to coordinates using geocoding API
@@ -295,6 +317,21 @@ async function getCoordinatesFromZip(zip: string): Promise<{ lat: string; lon: s
   return null;
 }
 
+// US state name to abbreviation mapping
+const US_STATE_ABBREVIATIONS: Record<string, string> = {
+  'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR', 'California': 'CA',
+  'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE', 'Florida': 'FL', 'Georgia': 'GA',
+  'Hawaii': 'HI', 'Idaho': 'ID', 'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA',
+  'Kansas': 'KS', 'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+  'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS', 'Missouri': 'MO',
+  'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ',
+  'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH',
+  'Oklahoma': 'OK', 'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+  'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT', 'Vermont': 'VT',
+  'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV', 'Wisconsin': 'WI', 'Wyoming': 'WY',
+  'District of Columbia': 'DC'
+};
+
 // Get location name from coordinates using reverse geocoding
 async function getLocationName(lat: string, lon: string): Promise<string> {
   try {
@@ -305,7 +342,24 @@ async function getLocationName(lat: string, lon: string): Promise<string> {
       const data = await response.json();
       if (data.length > 0) {
         const place = data[0];
-        return `${place.name}, ${place.state || place.country}`;
+        // Format: "City, ST USA" (e.g., "Chandler, AZ USA")
+        const city = place.name;
+        const stateFull = place.state || '';
+        const country = place.country || '';
+
+        // Convert full state name to abbreviation for US locations
+        const stateAbbr = US_STATE_ABBREVIATIONS[stateFull] || stateFull;
+        // Convert "US" to "USA"
+        const countryDisplay = country === 'US' ? 'USA' : country;
+
+        if (stateAbbr && countryDisplay) {
+          return `${city}, ${stateAbbr} ${countryDisplay}`;
+        } else if (stateAbbr) {
+          return `${city}, ${stateAbbr}`;
+        } else if (countryDisplay) {
+          return `${city}, ${countryDisplay}`;
+        }
+        return city;
       }
     }
   } catch (error) {

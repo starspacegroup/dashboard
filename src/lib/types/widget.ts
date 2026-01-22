@@ -20,6 +20,8 @@ export interface WidgetConfig {
 		lat: number;
 		lon: number;
 		displayName: string;
+		timezone?: string; // IANA timezone string (e.g., "America/New_York")
+		timezoneOffset?: number; // Offset from UTC in seconds
 	};
 	temperatureUnit?: 'celsius' | 'fahrenheit';
 }

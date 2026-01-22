@@ -8,7 +8,8 @@
 
 	export let widget: Widget;
 
-	const WEATHER_CACHE_KEY = 'dashboard-weather-data';
+	// Make cache key unique per widget instance
+	$: WEATHER_CACHE_KEY = `dashboard-weather-data-${widget.id}`;
 	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 	const GLOBAL_UNIT_PREFERENCE_KEY = 'dashboard-temp-unit-global';
 	const ZIP_CODE_KEY = 'dashboard-zip-code';
@@ -97,6 +98,24 @@
 	// Time test mode
 	let testDateOffset = 0; // Minutes offset from current time (negative = past)
 
+	// Loading animation state - uses astronomical data from Feb 22, 2042 at Giza Pyramids, Egypt
+	// Coordinates: 29.9792° N, 31.1342° E (Egypt Standard Time UTC+2)
+	let loadingAnimationTime = 0; // Seconds since midnight, accelerated
+	let loadingSunPosition = { x: -100, y: -100 };
+	let loadingMoonPosition = { x: -100, y: -100 };
+	let loadingMoonScale = 1;
+	let loadingEarthGradient = '';
+	let loadingIsNight = false;
+	
+	// Fixed astronomical data for loading animation (Feb 22, 2042 at Giza, Egypt)
+	// Sunrise: 06:23 AM, Sunset: 17:52 PM (5:52 PM)
+	// Moonrise: 05:12 AM, Moonset: 15:47 PM (waning crescent ~3% illuminated)
+	const LOADING_SUNRISE = 6 * 3600 + 23 * 60; // 6:23 AM in seconds
+	const LOADING_SUNSET = 17 * 3600 + 52 * 60; // 5:52 PM in seconds
+	const LOADING_MOONRISE = 5 * 3600 + 12 * 60; // 5:12 AM in seconds
+	const LOADING_MOONSET = 15 * 3600 + 47 * 60; // 3:47 PM in seconds
+	const LOADING_MOON_PHASE = 0.03; // Waning crescent, ~3% illuminated
+
 	// Track if initial weather load has occurred (to avoid duplicate loads)
 	let hasInitiallyLoaded = false;
 	
@@ -131,6 +150,20 @@
 			const savedUnit = localStorage.getItem(GLOBAL_UNIT_PREFERENCE_KEY);
 			if (savedUnit !== null) {
 				isCelsius = savedUnit === 'celsius';
+			}
+		}
+	}
+
+	// Reactively load timezone from widget config (for accurate time before weather loads)
+	// This ensures the time is correct immediately when the widget renders
+	$: if (browser && widget.config?.location) {
+		// Only update if we don't already have weather data (avoid overwriting API data)
+		if (!hasLocationData) {
+			if (widget.config.location.timezone) {
+				timezone = widget.config.location.timezone;
+			}
+			if (widget.config.location.timezoneOffset !== undefined) {
+				timezoneOffset = widget.config.location.timezoneOffset;
 			}
 		}
 	}
@@ -366,6 +399,16 @@
 		timezoneOffset = data.timezoneOffset || 0;
 		lastUpdate = data.timestamp || Date.now();
 		
+		// Save timezone to widget config for immediate time display on future loads
+		if (widget.config?.location && (data.timezone || data.timezoneOffset)) {
+			const updatedLocation = {
+				...widget.config.location,
+				timezone: data.timezone || widget.config.location.timezone,
+				timezoneOffset: data.timezoneOffset ?? widget.config.location.timezoneOffset
+			};
+			widgets.updateWidgetConfig(widget.id, { location: updatedLocation });
+		}
+		
 		// Mark that we have location data
 		hasLocationData = true;
 		
@@ -491,6 +534,212 @@
 		padding = Math.floor(earthSize * 0.28); // 28% padding
 	}
 
+	// Calculate loading animation positions using the same logic as real positions
+	function updateLoadingPositions() {
+		const secondsSinceMidnight = loadingAnimationTime;
+		
+		// Calculate sun position for loading animation
+		loadingSunPosition = getLoadingSunPosition(secondsSinceMidnight);
+		
+		// Calculate moon position for loading animation
+		const moonData = getLoadingMoonPosition(secondsSinceMidnight);
+		loadingMoonPosition = { x: moonData.x, y: moonData.y };
+		loadingMoonScale = moonData.scale;
+		
+		// Determine day/night for earth gradient
+		const displayHour = Math.floor(secondsSinceMidnight / 3600);
+		loadingIsNight = displayHour < 6 || displayHour >= 18;
+		
+		// Update earth gradient
+		const colorData = calculateEarthColor(displayHour, loadingIsNight ? 'night' : 'partly-cloudy');
+		loadingEarthGradient = colorData.gradient;
+	}
+
+	// Sun position calculation for loading animation (uses fixed Giza data)
+	function getLoadingSunPosition(secondsSinceMidnight: number) {
+		const sunriseTime = LOADING_SUNRISE;
+		const sunsetTime = LOADING_SUNSET;
+		
+		const earthRadius = earthSize / 2;
+		const sunRadius = earthSize * 0.09375;
+		
+		let angle;
+		let orbitRadius;
+		
+		if (secondsSinceMidnight >= sunriseTime && secondsSinceMidnight <= sunsetTime) {
+			// Sun is visible - daylight hours
+			const dayDuration = sunsetTime - sunriseTime;
+			const dayProgress = (secondsSinceMidnight - sunriseTime) / dayDuration;
+			
+			angle = Math.PI + (dayProgress * Math.PI);
+			
+			const elevationProgress = Math.sin(dayProgress * Math.PI);
+			const minOrbitRadius = earthRadius + (sunRadius * 0.1);
+			const maxOrbitRadius = earthRadius + sunRadius;
+			orbitRadius = minOrbitRadius + (elevationProgress * (maxOrbitRadius - minOrbitRadius));
+		} else {
+			// Sun is hidden - nighttime hours
+			const nightOrbitRadius = earthRadius - (sunRadius * 1.5);
+			orbitRadius = nightOrbitRadius;
+			
+			const nightDuration = (86400 - sunsetTime) + sunriseTime;
+			
+			if (secondsSinceMidnight > sunsetTime) {
+				const timeSinceSunset = secondsSinceMidnight - sunsetTime;
+				const nightProgress = timeSinceSunset / nightDuration;
+				angle = 0 + (nightProgress * Math.PI);
+			} else {
+				const timeBeforeSunrise = sunriseTime - secondsSinceMidnight;
+				const nightProgress = 1 - (timeBeforeSunrise / nightDuration);
+				angle = 0 + (nightProgress * Math.PI);
+			}
+		}
+		
+		const x = padding + (earthSize / 2) + Math.cos(angle) * orbitRadius;
+		const y = padding + (earthSize / 2) + Math.sin(angle) * orbitRadius;
+		
+		return { x, y };
+	}
+
+	// Moon position calculation for loading animation (uses fixed Giza data)
+	function getLoadingMoonPosition(secondsSinceMidnight: number): { x: number; y: number; scale: number } {
+		const moonriseTime = LOADING_MOONRISE;
+		const moonsetTime = LOADING_MOONSET;
+		
+		const earthRadius = earthSize / 2;
+		const moonRadius = earthSize * 0.09375;
+		
+		const visibleOrbitRadius = earthRadius + moonRadius;
+		const hiddenOrbitRadius = earthRadius + (moonRadius * 0.5);
+		
+		const horizonScaleDuration = 30 * 60;
+		const maxScale = 1.9;
+		const normalScale = 1.0;
+		const hiddenScale = 0.7;
+		let scale = normalScale;
+		
+		let angle;
+		let orbitRadius;
+		
+		// Moon rises before it sets (same day case for this data)
+		if (secondsSinceMidnight >= moonriseTime && secondsSinceMidnight <= moonsetTime) {
+			// Moon is visible
+			const visibleDuration = moonsetTime - moonriseTime;
+			const visibleProgress = (secondsSinceMidnight - moonriseTime) / visibleDuration;
+			
+			angle = -Math.PI/2 + (visibleProgress * Math.PI);
+			orbitRadius = visibleOrbitRadius;
+			
+			const timeSinceRise = secondsSinceMidnight - moonriseTime;
+			const timeBeforeSet = moonsetTime - secondsSinceMidnight;
+			
+			if (timeSinceRise <= horizonScaleDuration) {
+				const scaleProgress = timeSinceRise / horizonScaleDuration;
+				scale = maxScale - (scaleProgress * (maxScale - normalScale));
+			} else if (timeBeforeSet <= horizonScaleDuration) {
+				const scaleProgress = timeBeforeSet / horizonScaleDuration;
+				scale = maxScale - (scaleProgress * (maxScale - normalScale));
+			}
+		} else {
+			// Moon is hidden
+			const hiddenDuration = (86400 - moonsetTime) + moonriseTime;
+			let hiddenProgress;
+			if (secondsSinceMidnight > moonsetTime) {
+				hiddenProgress = (secondsSinceMidnight - moonsetTime) / hiddenDuration;
+			} else {
+				hiddenProgress = ((86400 - moonsetTime) + secondsSinceMidnight) / hiddenDuration;
+			}
+			
+			angle = Math.PI/2 + (hiddenProgress * Math.PI);
+			orbitRadius = hiddenOrbitRadius;
+			scale = hiddenScale;
+		}
+		
+		const x = padding + (earthSize / 2) + Math.cos(angle) * orbitRadius;
+		const y = padding + (earthSize / 2) + Math.sin(angle) * orbitRadius;
+		
+		return { x, y, scale };
+	}
+
+	// Function to compute current time based on widget's timezone
+	function computeCurrentTime() {
+		const now = new Date();
+		
+		// Apply time travel offset
+		const adjustedTime = new Date(now.getTime() + testDateOffset * 60 * 1000);
+		
+		// Use the location's IANA timezone if available, otherwise fall back to offset calculation
+		if (timezone) {
+			// Use Intl API with the location's timezone for accurate local time
+			try {
+				currentTime = adjustedTime.toLocaleTimeString('en-US', { 
+					hour: '2-digit', 
+					minute: '2-digit', 
+					second: '2-digit',
+					hour12: true,
+					timeZone: timezone
+				});
+				
+				// Format date with the location's timezone
+				const year = adjustedTime.toLocaleString('en-US', { year: 'numeric', timeZone: timezone });
+				const month = adjustedTime.toLocaleString('en-US', { month: 'long', timeZone: timezone });
+				const day = adjustedTime.toLocaleString('en-US', { day: 'numeric', timeZone: timezone });
+				const weekday = adjustedTime.toLocaleString('en-US', { weekday: 'long', timeZone: timezone });
+				currentDate = `${year} ${month} ${day} (${weekday})`;
+				return;
+			} catch (e) {
+				// Fall back to offset calculation if timezone string is invalid
+				console.warn('Invalid timezone string, falling back to offset:', timezone);
+			}
+		}
+		
+		// Fall back to manual offset calculation if timezone string not available
+		if (timezoneOffset !== 0 || hasLocationData) {
+			// Apply location's timezone offset
+			const utcTime = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
+			const locationTime = utcTime + (timezoneOffset * 1000) + (testDateOffset * 60 * 1000);
+			const displayDate = new Date(locationTime);
+			
+			currentTime = displayDate.toLocaleTimeString('en-US', { 
+				hour: '2-digit', 
+				minute: '2-digit', 
+				second: '2-digit',
+				hour12: true 
+			});
+			
+			const year = displayDate.getFullYear();
+			const month = displayDate.toLocaleString('en-US', { month: 'long' });
+			const day = displayDate.getDate();
+			const weekday = displayDate.toLocaleString('en-US', { weekday: 'long' });
+			currentDate = `${year} ${month} ${day} (${weekday})`;
+		} else {
+			// No location data yet - show local time
+			currentTime = adjustedTime.toLocaleTimeString('en-US', { 
+				hour: '2-digit', 
+				minute: '2-digit', 
+				second: '2-digit',
+				hour12: true 
+			});
+			
+			const year = adjustedTime.getFullYear();
+			const month = adjustedTime.toLocaleString('en-US', { month: 'long' });
+			const day = adjustedTime.getDate();
+			const weekday = adjustedTime.toLocaleString('en-US', { weekday: 'long' });
+			currentDate = `${year} ${month} ${day} (${weekday})`;
+		}
+	}
+
+	// Reactive statement to update time when dependencies change
+	$: if (browser) {
+		// This will re-run whenever currentTimestamp, timezone, timezoneOffset, hasLocationData, or testDateOffset changes
+		currentTimestamp; // Trigger on timestamp update
+		timezone; // Trigger when timezone changes
+		timezoneOffset; // Trigger when offset changes
+		hasLocationData; // Trigger when location data arrives
+		testDateOffset; // Trigger when time travel offset changes
+		computeCurrentTime();
+	}
+
 	// Update time every second
 	onMount(() => {
 		// Set initial earth size after a brief delay to ensure container is rendered
@@ -515,38 +764,27 @@
 		window.addEventListener('location-changed', handleLocationChanged as EventListener);
 		window.addEventListener('location-cleared', handleLocationCleared);
 		
-		const updateTime = () => {
-			const now = new Date();
-			currentTimestamp = now.getTime(); // Update timestamp to trigger reactive statements
-			
-			// Calculate the display date based on timezone offset and time travel offset
-			let displayDate: Date;
-			if (timezoneOffset !== 0) {
-				// Apply both location's timezone offset and time travel offset
-				const utcTime = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
-				const locationTime = utcTime + (timezoneOffset * 1000);
-				displayDate = new Date(locationTime + testDateOffset * 60 * 1000);
-			} else {
-				// Apply time travel offset to local time
-				displayDate = new Date(now.getTime() + testDateOffset * 60 * 1000);
+		// Update the timestamp every second to trigger the reactive time computation
+		const interval = setInterval(() => {
+			currentTimestamp = Date.now();
+		}, 1000);
+		
+		// Loading animation - accelerated day cycle (full day in ~40 seconds)
+		// Start at 05:23 AM as specified
+		loadingAnimationTime = 5 * 3600 + 23 * 60; // 05:23 AM in seconds
+		const loadingInterval = setInterval(() => {
+			if (!hasLocationData) {
+				// Advance time by ~36 minutes per frame at 60fps = full day in ~40 seconds
+				loadingAnimationTime = (loadingAnimationTime + 360) % 86400; // 360 seconds = 6 minutes real time per frame
+				updateLoadingPositions();
 			}
-				
-			currentTime = displayDate.toLocaleTimeString('en-US', { 
-				hour: '2-digit', 
-				minute: '2-digit', 
-				second: '2-digit',
-				hour12: true 
-			});
-			
-			// Format date as "2025 October 22 (Wednesday)"
-			const year = displayDate.getFullYear();
-			const month = displayDate.toLocaleString('en-US', { month: 'long' });
-			const day = displayDate.getDate();
-			const weekday = displayDate.toLocaleString('en-US', { weekday: 'long' });
-			currentDate = `${year} ${month} ${day} (${weekday})`;
-		};
-		updateTime();
-		const interval = setInterval(updateTime, 1000);
+		}, 50); // 20fps for smooth animation
+		
+		// Initial loading position calculation
+		updateLoadingPositions();
+		
+		// Initial time computation
+		computeCurrentTime();
 		
 		// Load weather data
 		loadWeatherData();
@@ -558,6 +796,7 @@
 		
 		return () => {
 			clearInterval(interval);
+			clearInterval(loadingInterval);
 			clearInterval(weatherInterval);
 			window.removeEventListener('resize', handleResize);
 			window.removeEventListener('location-changed', handleLocationChanged as EventListener);
@@ -580,23 +819,52 @@
 		}
 	}
 
+	// Helper to get seconds since midnight in the widget's location timezone
+	function getSecondsSinceMidnightInLocationTime(date: Date): number {
+		if (timezone) {
+			// Use Intl API with the location's timezone
+			try {
+				const hours = parseInt(date.toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: timezone }));
+				const minutes = parseInt(date.toLocaleString('en-US', { minute: 'numeric', timeZone: timezone }));
+				const seconds = parseInt(date.toLocaleString('en-US', { second: 'numeric', timeZone: timezone }));
+				return hours * 3600 + minutes * 60 + seconds;
+			} catch (e) {
+				// Fall through to offset calculation
+			}
+		}
+		
+		if (timezoneOffset !== 0 || hasLocationData) {
+			// Manual offset calculation
+			const utcTime = date.getTime() + (date.getTimezoneOffset() * 60 * 1000);
+			const locationTime = new Date(utcTime + (timezoneOffset * 1000));
+			return locationTime.getHours() * 3600 + locationTime.getMinutes() * 60 + locationTime.getSeconds();
+		}
+		
+		// Fall back to local time
+		return date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
+	}
+
+	// Helper to convert a Unix timestamp to seconds since midnight in the widget's location timezone
+	function unixToSecondsSinceMidnightInLocationTime(unixTimestamp: number): number {
+		const date = new Date(unixTimestamp * 1000);
+		return getSecondsSinceMidnightInLocationTime(date);
+	}
+
 	// Calculate sun position based on sunrise/sunset
 	function getSunPosition(testDate: Date) {
-		// Convert Unix timestamps to seconds since midnight (local time)
+		// Convert Unix timestamps to seconds since midnight in location's timezone
 		let sunriseTime = 6 * 3600; // Default 6am
 		let sunsetTime = 18 * 3600; // Default 6pm
 		
 		if (sunrise) {
-			const sunriseDate = new Date(sunrise * 1000);
-			sunriseTime = sunriseDate.getHours() * 3600 + sunriseDate.getMinutes() * 60 + sunriseDate.getSeconds();
+			sunriseTime = unixToSecondsSinceMidnightInLocationTime(sunrise);
 		}
 		if (sunset) {
-			const sunsetDate = new Date(sunset * 1000);
-			sunsetTime = sunsetDate.getHours() * 3600 + sunsetDate.getMinutes() * 60 + sunsetDate.getSeconds();
+			sunsetTime = unixToSecondsSinceMidnightInLocationTime(sunset);
 		}
 		
-		// Get current time in seconds since midnight
-		const secondsSinceMidnight = testDate.getHours() * 3600 + testDate.getMinutes() * 60 + testDate.getSeconds();
+		// Get current time in seconds since midnight (in location's timezone)
+		const secondsSinceMidnight = getSecondsSinceMidnightInLocationTime(testDate);
 		
 		// Constants for orbit calculation - use reactive values
 		const earthRadius = earthSize / 2;
@@ -659,19 +927,18 @@
 
 	// Calculate moon position based on moonrise/moonset
 	function getMoonPosition(testDate: Date): { x: number; y: number; scale: number } {
-		const secondsSinceMidnight = testDate.getHours() * 3600 + testDate.getMinutes() * 60 + testDate.getSeconds();
+		// Get current time in seconds since midnight (in location's timezone)
+		const secondsSinceMidnight = getSecondsSinceMidnightInLocationTime(testDate);
 		
-		// Convert Unix timestamps to seconds since midnight (local time)
+		// Convert Unix timestamps to seconds since midnight (in location's timezone)
 		let moonriseTime = 18 * 3600; // Default 6pm
 		let moonsetTime = 6 * 3600; // Default 6am
 		
 		if (moonrise) {
-			const moonriseDate = new Date(moonrise * 1000);
-			moonriseTime = moonriseDate.getHours() * 3600 + moonriseDate.getMinutes() * 60 + moonriseDate.getSeconds();
+			moonriseTime = unixToSecondsSinceMidnightInLocationTime(moonrise);
 		}
 		if (moonset) {
-			const moonsetDate = new Date(moonset * 1000);
-			moonsetTime = moonsetDate.getHours() * 3600 + moonsetDate.getMinutes() * 60 + moonsetDate.getSeconds();
+			moonsetTime = unixToSecondsSinceMidnightInLocationTime(moonset);
 		}
 		
 		// Constants for orbit calculation - use reactive values
@@ -1021,8 +1288,17 @@
 	}
 
 	// Reactive calculations for sun/moon positions and night mode
-	// Track testDateOffset and currentTimestamp to trigger recalculation
+	// Track testDateOffset, currentTimestamp, and timezone to trigger recalculation
 	$: if (currentTimestamp && testDateOffset !== undefined) {
+		// Reference timezone-related variables to ensure reactivity
+		timezone;
+		timezoneOffset;
+		hasLocationData;
+		sunrise;
+		sunset;
+		moonrise;
+		moonset;
+		
 		const now = new Date(currentTimestamp);
 		
 		// For sun/moon positions, we need to work with the actual moment in time
@@ -1037,15 +1313,9 @@
 		moonPhase = calculateMoonPhase(testDate);
 		moonShadowPath = calculateMoonShadowPath(moonPhase);
 		
-		// For determining day/night, use the location's hour
-		let displayHour: number;
-		if (timezoneOffset !== 0) {
-			const utcTime = testDate.getTime() + (testDate.getTimezoneOffset() * 60 * 1000);
-			const locationTime = new Date(utcTime + (timezoneOffset * 1000));
-			displayHour = locationTime.getHours();
-		} else {
-			displayHour = testDate.getHours();
-		}
+		// For determining day/night, use the location's hour via the helper
+		const locationSeconds = getSecondsSinceMidnightInLocationTime(testDate);
+		const displayHour = Math.floor(locationSeconds / 3600);
 		isNight = displayHour < 6 || displayHour >= 18;
 		
 		// Update Earth colors based on time and weather
@@ -1086,11 +1356,15 @@
 			</svg>
 		</div>
 
-		<div class="earth" style="background: {earthGradient}; --text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --location-size: {locationSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin}; --location-margin: {locationMargin}">
-		<!-- Time and Date Section -->
-		<div class="time-date-section">
+		<!-- Time and Date Section (above earth) -->
+		<div class="time-date-section" style="--text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --date-margin: {dateMargin}">
 			<div class="time">{currentTime}</div>
 			<div class="date">{currentDate}</div>
+		</div>
+
+		<div class="earth" style="background: {earthGradient}; --text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --location-size: {locationSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin}; --location-margin: {locationMargin}">
+		<!-- Location inside earth -->
+		<div class="location-section">
 			<div class="location">{location}</div>
 		</div>
 
@@ -1163,9 +1437,38 @@
 	</div>
 	-->
 	{:else}
-		<!-- No Location Message -->
-		<div class="no-location-message">
-			<p>Set location in Settings to view weather</p>
+		<!-- Loading State - Animated Earth with orbiting Sun and Moon (Feb 22, 2042 at Giza, Egypt) -->
+		<div class="celestial-container loading" style="--earth-size: {earthSize}px; --padding: {padding}px;">
+			<!-- Sun (using calculated position) -->
+			<div
+				class="sun loading-fade-in"
+				style="left: {loadingSunPosition.x}px; top: {loadingSunPosition.y}px"
+			></div>
+			
+			<!-- Moon (using calculated position with waning crescent phase) -->
+			<div
+				class="moon loading-fade-in"
+				style="
+					left: {loadingMoonPosition.x}px;
+					top: {loadingMoonPosition.y}px;
+					transform: translate(-50%, -50%) scale({loadingMoonScale});
+				"
+			>
+				<svg class="moon-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+					<circle cx="50" cy="50" r="50" fill="#d4c5b0" />
+					<!-- Waning crescent shadow (~97% shadow for 3% illumination) -->
+					<path d="M 50,0 A 47,50 0 0,0 50,100 A 50,50 0 0,1 50,0 Z" fill="rgba(20, 15, 25, 0.95)" />
+				</svg>
+			</div>
+			
+			<div class="earth loading-earth loading-fade-in" style="background: {loadingEarthGradient}; --text-color: {loadingIsNight ? 'var(--foreground)' : 'var(--background)'}; --time-size: {timeSize}; --date-size: {dateSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin};">
+				<!-- Time display while loading (centered) -->
+				<div class="loading-time-section">
+					<div class="time">{currentTime}</div>
+					<div class="date">{currentDate}</div>
+					<div class="loading-indicator">Loading weather...</div>
+				</div>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -1273,7 +1576,17 @@
 
 	.time-date-section {
 		position: absolute;
-		top: calc(var(--top-spacing, 0.9) * 1rem);
+		bottom: calc(100% - var(--padding, 90px) + 1rem);
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 3;
+		text-align: center;
+		width: 100%;
+	}
+
+	.location-section {
+		position: absolute;
+		top: 18%;
 		left: 50%;
 		transform: translateX(-50%);
 		z-index: 3;
@@ -1463,6 +1776,44 @@
 		color: var(--text-secondary);
 		text-align: center;
 		margin: 0;
+	}
+
+	/* Loading State Styles */
+	.celestial-container.loading {
+		opacity: 1;
+	}
+
+	.loading-fade-in {
+		opacity: 0;
+		animation: fadeIn 0.3s ease-out forwards;
+	}
+
+	@keyframes fadeIn {
+		0% {
+			opacity: 0;
+		}
+		100% {
+			opacity: 1;
+		}
+	}
+
+	.loading-earth {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.loading-time-section {
+		text-align: center;
+	}
+
+	.loading-indicator {
+		font-size: 0.875rem;
+		opacity: 0.6;
+		margin-top: 1rem;
+		color: var(--text-color, var(--text-secondary));
+		text-shadow: 0 1px 2px var(--shadow);
 	}
 
 	/* Responsive adjustments */
