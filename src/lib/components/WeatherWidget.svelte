@@ -1738,16 +1738,6 @@
 		<div class="temperature">
 			<span class="temp-number">{displayTemp}</span><span class="degree-symbol">°{isCelsius ? 'C' : 'F'}</span>
 		</div>
-
-		<!-- Humidity - Below Temperature -->
-		<div class="humidity-center">
-			<span class="humidity-value">{displayHumidity}</span>
-			<span class="humidity-symbols">
-				<span class="symbol-phi">φ</span>
-				<span class="symbol-percent">%</span>
-				<span class="symbol-drop">💧</span>
-			</span>
-		</div>
 		</div>
 	</div>
 
@@ -1859,6 +1849,18 @@
 			</div>
 		{/if}
 	</div>
+
+		<!-- Humidity Section -->
+		<div class="humidity-section">
+			<div class="humidity-header">
+				<span class="humidity-icon">💧</span>
+				<span class="humidity-label">Humidity</span>
+			</div>
+			<div class="humidity-stats">
+				<span class="humidity-value-large">{displayHumidity}</span>
+				<span class="humidity-unit">%</span>
+			</div>
+		</div>
 	</div>
 	{:else}
 		<!-- Loading State - Animated Earth with orbiting Sun and Moon (Feb 22, 2042 at Giza, Egypt) -->
@@ -2055,25 +2057,46 @@
 		margin-top: 0.5rem;
 	}
 
-	.humidity-center {
-		position: absolute;
-		top: 50%;
-		left: 50%;
-		transform: translateX(-50%);
-		margin-top: 3rem;
-		z-index: 2;
-		font-size: 1.5rem;
-		font-weight: 300;
-		color: var(--text-color, var(--text-primary));
-		text-shadow: 0 2px 4px var(--shadow);
+	/* ======== HUMIDITY SECTION ======== */
+	.humidity-section {
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		gap: 0.3rem;
 	}
 
-	.humidity-value {
-		font-weight: 600;
-		font-size: 1.5rem;
+	.humidity-header {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		opacity: 0.8;
+	}
+
+	.humidity-icon {
+		font-size: 1.2rem;
+	}
+
+	.humidity-label {
+		font-size: 0.55rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		opacity: 0.7;
+	}
+
+	.humidity-stats {
+		display: flex;
+		align-items: baseline;
+		gap: 0.25rem;
+	}
+
+	.humidity-value-large {
+		font-weight: 100;
+		font-size: 1.8rem;
+	}
+
+	.humidity-unit {
+		font-size: 0.8rem;
+		opacity: 0.7;
 	}
 
 	/* ======== BOTTOM INFO ROW ======== */
@@ -2236,35 +2259,6 @@
 		padding: 0.15rem 0.4rem;
 		border-radius: 0.25rem;
 		font-weight: 500;
-	}
-
-	.humidity-symbols {
-		display: grid;
-		grid-template-columns: auto auto;
-		grid-template-rows: auto auto;
-		gap: 0.1rem;
-		font-size: 0.7rem;
-		opacity: 0.8;
-		align-items: center;
-		justify-items: center;
-	}
-
-	.symbol-phi {
-		grid-column: 1 / 3;
-		grid-row: 1;
-		font-size: 0.7rem;
-	}
-
-	.symbol-percent {
-		grid-column: 1;
-		grid-row: 2;
-		font-size: 0.7rem;
-	}
-
-	.symbol-drop {
-		grid-column: 2;
-		grid-row: 2;
-		font-size: 0.7rem;
 	}
 
 	.temp-graph-svg {
