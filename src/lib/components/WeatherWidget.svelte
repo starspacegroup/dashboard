@@ -1749,36 +1749,27 @@
 				<span class="wind-icon">💨</span>
 				<span class="wind-label">Wind</span>
 			</div>
-			<div class="wind-stats">
-				<div class="wind-stat">
-					<span class="wind-stat-value">{Math.round(windSpeed)}</span>
-					<span class="wind-stat-unit">mph</span>
-					<span class="wind-stat-label">speed</span>
-				</div>
-				<div class="wind-stat direction">
-					<div class="wind-compass" style="--wind-direction: {windDirection}deg;">
-						<svg viewBox="0 0 40 40" class="compass-arrow">
-							<!-- Compass circle -->
-							<circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-opacity="0.2" stroke-width="1"/>
-							<!-- Arrow pointing in wind direction (where wind is coming FROM) -->
-							<path 
-								d="M20 6 L24 18 L20 15 L16 18 Z" 
-								fill="currentColor"
-								class="arrow-head"
-							/>
-							<line x1="20" y1="15" x2="20" y2="32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-						</svg>
+			<div class="wind-display">
+				<div class="wind-compass">
+					{#if windGust > windSpeed}
+						<span class="wind-gust-value" style="--wind-direction: {windDirection}deg;">{Math.round(windGust)}</span>
+					{/if}
+					<svg viewBox="0 0 40 40" class="compass-arrow" style="--wind-direction: {windDirection}deg;">
+						<!-- Compass circle -->
+						<circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-opacity="0.2" stroke-width="1"/>
+						<!-- Arrow pointing in wind direction (where wind is coming FROM) -->
+						<path 
+							d="M20 6 L24 18 L20 15 L16 18 Z" 
+							fill="currentColor"
+							class="arrow-head"
+						/>
+						<line x1="20" y1="15" x2="20" y2="32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+					</svg>
+					<div class="wind-speed" style="--wind-direction: {windDirection}deg;">
+						<span class="wind-speed-value">{Math.round(windSpeed)}</span>
+						<span class="wind-speed-unit">mph</span>
 					</div>
-					<span class="wind-stat-dir-text">{windDirectionText}</span>
-					<span class="wind-stat-label">direction</span>
 				</div>
-				{#if windGust > windSpeed}
-					<div class="wind-stat gust">
-						<span class="wind-stat-value">{Math.round(windGust)}</span>
-						<span class="wind-stat-unit">mph</span>
-						<span class="wind-stat-label">gusts</span>
-					</div>
-				{/if}
 			</div>
 		</div>
 
@@ -2239,53 +2230,35 @@
 		opacity: 0.7;
 	}
 
-	.wind-stats {
+	.wind-display {
 		display: flex;
-		gap: 0.75rem;
-		align-items: flex-start;
-	}
-
-	.wind-stat {
-		display: flex;
-		flex-direction: column;
 		align-items: center;
-		gap: 0.1rem;
+		justify-content: center;
 	}
 
-	.wind-stat-value {
+	.wind-gust-value {
+		position: absolute;
+		/* Position at the arrow tip - rotates with wind direction */
+		--angle: var(--wind-direction, 0deg);
+		--radius: calc(var(--wind-value-size, 1.4rem) * 1.5);
+		top: 50%;
+		left: 50%;
+		transform: 
+			translateX(-50%) 
+			translateY(-50%)
+			rotate(var(--angle))
+			translateY(calc(-1 * var(--radius)))
+			rotate(calc(-1 * var(--angle)));
 		font-weight: 200;
-		font-size: var(--wind-value-size, 1.4rem);
+		font-size: calc(var(--wind-value-size, 1.4rem) * 0.8);
 		line-height: 1;
-	}
-
-	.wind-stat-unit {
-		font-size: var(--wind-unit-size, 0.7rem);
-		opacity: 0.6;
-	}
-
-	.wind-stat-degrees {
-		font-size: var(--wind-unit-size, 0.7rem);
-		opacity: 0.5;
-	}
-
-	.wind-stat-label {
-		font-size: var(--wind-label-size, 0.5rem);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		opacity: 0.5;
-	}
-
-	.wind-stat.gust .wind-stat-value {
 		color: var(--warning, #f59e0b);
 	}
 
-	.wind-stat.direction {
-		gap: 0.15rem;
-	}
-
 	.wind-compass {
-		width: calc(var(--wind-value-size, 1.4rem) * 1.8);
-		height: calc(var(--wind-value-size, 1.4rem) * 1.8);
+		position: relative;
+		width: calc(var(--wind-value-size, 1.4rem) * 2.2);
+		height: calc(var(--wind-value-size, 1.4rem) * 2.2);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -2303,10 +2276,33 @@
 		opacity: 0.9;
 	}
 
-	.wind-stat-dir-text {
+	.wind-speed {
+		position: absolute;
+		/* Position at the arrow tail - opposite of arrow tip */
+		--angle: var(--wind-direction, 0deg);
+		--radius: calc(var(--wind-value-size, 1.4rem) * 1.6);
+		top: 50%;
+		left: 50%;
+		transform: 
+			translateX(-50%) 
+			translateY(-50%)
+			rotate(var(--angle))
+			translateY(var(--radius))
+			rotate(calc(-1 * var(--angle)));
+		display: flex;
+		align-items: baseline;
+		gap: 0.1rem;
+	}
+
+	.wind-speed-value {
+		font-weight: 200;
+		font-size: var(--wind-value-size, 1.4rem);
+		line-height: 1;
+	}
+
+	.wind-speed-unit {
 		font-size: var(--wind-unit-size, 0.7rem);
-		font-weight: 500;
-		opacity: 0.8;
+		opacity: 0.6;
 	}
 
 	/* ======== PRESSURE SECTION ======== */
