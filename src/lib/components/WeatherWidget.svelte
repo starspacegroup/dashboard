@@ -28,9 +28,18 @@
 		timestamp: number;
 		sunrise?: number;
 		sunset?: number;
+		solarNoon?: number;
+		dayLength?: number;
+		civilTwilightBegin?: number;
+		civilTwilightEnd?: number;
+		nauticalTwilightBegin?: number;
+		nauticalTwilightEnd?: number;
+		astronomicalTwilightBegin?: number;
+		astronomicalTwilightEnd?: number;
 		moonrise?: number;
 		moonset?: number;
 		moonPhase?: number;
+		moonIllumination?: number;
 		timezone?: string;
 		timezoneOffset?: number;
 	}
@@ -60,8 +69,17 @@
 	let hasLocationData = false;
 	let sunrise = 0;
 	let sunset = 0;
+	let solarNoon = 0;
+	let dayLength = 0;
+	let civilTwilightBegin = 0;
+	let civilTwilightEnd = 0;
+	let nauticalTwilightBegin = 0;
+	let nauticalTwilightEnd = 0;
+	let astronomicalTwilightBegin = 0;
+	let astronomicalTwilightEnd = 0;
 	let moonrise = 0;
 	let moonset = 0;
+	let moonIllumination = 0;
 	let timezone = '';
 	let timezoneOffset = 0; // Offset in seconds from UTC
 	let isCelsius = true;
@@ -92,6 +110,92 @@
 	$: pressureSize = Math.max(0.9, 1.8 * textScale); // 1.8rem base, min 0.9rem
 	$: pressureUnitSize = Math.max(0.5, 0.8 * textScale); // 0.8rem base, min 0.5rem
 	$: pressureTrendSize = Math.max(0.7, 1.4 * textScale); // 1.4rem base, min 0.7rem
+	$: pressureGraphWidth = Math.max(80, 120 * textScale); // Graph width scales with widget
+	$: pressureGraphHeight = Math.max(24, 36 * textScale); // Graph height scales with widget
+	
+	// Compute pressure forecast for next 24 hours (for graph)
+	$: pressureForecast = (() => {
+		const nowTimestamp = Math.floor(Date.now() / 1000);
+		// Filter to only future hours (next 24 hours)
+		const futureData = hourlyData.filter(h => h.time >= nowTimestamp && h.time <= nowTimestamp + 24 * 3600);
+		if (futureData.length < 2) return { path: '', minPressure: 0, maxPressure: 0, dropWarning: false, points: [], segments: [], severityColor: '#3b82f6', rateOfChange: 0 };
+		
+		const pressures = futureData.map(h => h.pressure || 1013);
+		const minP = Math.min(...pressures);
+		const maxP = Math.max(...pressures);
+		const range = maxP - minP || 1; // Avoid division by zero
+		
+		// Create SVG path points - normalize to graph dimensions
+		const width = pressureGraphWidth;
+		const height = pressureGraphHeight;
+		const padding = 2;
+		
+		const points = futureData.map((h, i) => {
+			const x = padding + (i / (futureData.length - 1)) * (width - padding * 2);
+			const pressureVal = h.pressure ?? 1013;
+			const y = padding + (1 - (pressureVal - minP) / range) * (height - padding * 2);
+			return { x, y, pressure: pressureVal, time: h.time };
+		});
+		
+		// Helper to get color based on rate of change
+		const getSegmentColor = (rate: number): string => {
+			// Rate is hPa per hour (positive = dropping)
+			// Thresholds: 
+			// <= 0: Rising or stable - blue
+			// 0-0.5: Slight drop - blue to cyan
+			// 0.5-1: Moderate drop - cyan to orange
+			// 1-2: Significant drop - orange to red
+			// 2+: Rapid drop - red
+			if (rate <= 0) {
+				return '#3b82f6'; // Blue - stable/rising
+			} else if (rate <= 0.5) {
+				const t = rate / 0.5;
+				return interpolateColor('#3b82f6', '#06b6d4', t); // Blue to cyan
+			} else if (rate <= 1) {
+				const t = (rate - 0.5) / 0.5;
+				return interpolateColor('#06b6d4', '#f59e0b', t); // Cyan to orange
+			} else if (rate <= 2) {
+				const t = (rate - 1) / 1;
+				return interpolateColor('#f59e0b', '#ef4444', t); // Orange to red
+			} else {
+				return '#ef4444'; // Red - rapid drop
+			}
+		};
+		
+		// Calculate segments with colors based on local rate of change
+		const segments: Array<{ x1: number; y1: number; x2: number; y2: number; color: string; rate: number }> = [];
+		let maxDropRate = 0;
+		
+		for (let i = 1; i < points.length; i++) {
+			const prevPressure = points[i - 1].pressure;
+			const currPressure = points[i].pressure;
+			const rate = prevPressure - currPressure; // Positive = pressure dropping
+			
+			if (rate > maxDropRate) maxDropRate = rate;
+			
+			segments.push({
+				x1: points[i - 1].x,
+				y1: points[i - 1].y,
+				x2: points[i].x,
+				y2: points[i].y,
+				color: getSegmentColor(rate),
+				rate
+			});
+		}
+		
+		// Calculate overall severity for the warning badge
+		const firstPressure = pressures[0];
+		const lowestPressure = minP;
+		const totalDrop = firstPressure - lowestPressure;
+		const dropWarning = totalDrop > 4;
+		
+		// Overall severity color (for the dot and warning)
+		const severityColor = getSegmentColor(maxDropRate);
+		
+		const pathData = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+		
+		return { path: pathData, minPressure: minP, maxPressure: maxP, dropWarning, points, segments, severityColor, rateOfChange: maxDropRate };
+	})();
 	
 	// Coordinates (if available)
 	let latitude: number | null = null;
@@ -398,13 +502,29 @@
 		location = data.location;
 		description = data.description || '';
 		hourlyData = data.hourly || [];
+		
+		// Sun data from sunrise-sunset.org API
 		sunrise = data.sunrise || 0;
 		sunset = data.sunset || 0;
+		solarNoon = data.solarNoon || 0;
+		dayLength = data.dayLength || 0;
+		civilTwilightBegin = data.civilTwilightBegin || 0;
+		civilTwilightEnd = data.civilTwilightEnd || 0;
+		nauticalTwilightBegin = data.nauticalTwilightBegin || 0;
+		nauticalTwilightEnd = data.nauticalTwilightEnd || 0;
+		astronomicalTwilightBegin = data.astronomicalTwilightBegin || 0;
+		astronomicalTwilightEnd = data.astronomicalTwilightEnd || 0;
+		
+		// Moon data from astronomical calculations
 		moonrise = data.moonrise || 0;
 		moonset = data.moonset || 0;
 		if (data.moonPhase !== undefined) {
 			moonPhase = data.moonPhase;
 		}
+		if (data.moonIllumination !== undefined) {
+			moonIllumination = data.moonIllumination;
+		}
+		
 		timezone = data.timezone || '';
 		timezoneOffset = data.timezoneOffset || 0;
 		lastUpdate = data.timestamp || Date.now();
@@ -1419,30 +1539,79 @@
 			</span>
 		</div>
 
-		<!-- Barometric Pressure - Left of Temperature, slightly above center -->
-		<div class="pressure-center" style="--pressure-size: {pressureSize}rem; --pressure-unit-size: {pressureUnitSize}rem; --pressure-trend-size: {pressureTrendSize}rem">
-			<span class="pressure-value">{pressure.toFixed(1)}</span>
-			<span class="pressure-unit">hPa</span>
-			<span class="pressure-trend" class:rising={pressureTrend.direction.includes('rising')} class:falling={pressureTrend.direction.includes('falling')}>
-				{#if pressureTrend.direction === 'rapidly-rising'}
-					↑↑
-				{:else if pressureTrend.direction === 'rising'}
-					↑
-				{:else if pressureTrend.direction === 'rapidly-falling'}
-					↓↓
-				{:else if pressureTrend.direction === 'falling'}
-					↓
-				{:else}
-					→
-				{/if}
-			</span>
-		</div>
-
 			<!-- Humidity Wave (at bottom) -->
 			<div class="humidity">
 				<div class="humidity-wave"></div>
 			</div>
 		</div>
+	</div>
+
+	<!-- Barometric Pressure with 24-hour forecast graph - Below Earth -->
+	<div class="pressure-section" style="--pressure-size: {pressureSize}rem; --pressure-unit-size: {pressureUnitSize}rem; --pressure-trend-size: {pressureTrendSize}rem">
+		<div class="pressure-header">
+			<span class="pressure-value">{pressure.toFixed(1)}</span>
+			<span class="pressure-unit">hPa</span>
+		</div>
+		
+		<!-- 24-hour pressure forecast graph -->
+		{#if pressureForecast.path}
+			<div class="pressure-graph" class:drop-warning={pressureForecast.dropWarning}>
+				<svg 
+					width="{pressureGraphWidth}" 
+					height="{pressureGraphHeight}" 
+					viewBox="0 0 {pressureGraphWidth} {pressureGraphHeight}"
+					class="pressure-sparkline"
+				>
+					<!-- Gradient definitions for fill areas -->
+					<defs>
+						{#each pressureForecast.segments as segment, i}
+							<linearGradient id="segGrad-{widget.id}-{i}" x1="0%" y1="0%" x2="0%" y2="100%">
+								<stop offset="0%" stop-color="{segment.color}" stop-opacity="0.25"/>
+								<stop offset="100%" stop-color="{segment.color}" stop-opacity="0"/>
+							</linearGradient>
+						{/each}
+					</defs>
+					
+					<!-- Fill areas for each segment -->
+					{#each pressureForecast.segments as segment, i}
+						<path 
+							d="M {segment.x1.toFixed(1)} {segment.y1.toFixed(1)} L {segment.x2.toFixed(1)} {segment.y2.toFixed(1)} L {segment.x2.toFixed(1)} {pressureGraphHeight - 2} L {segment.x1.toFixed(1)} {pressureGraphHeight - 2} Z" 
+							fill="url(#segGrad-{widget.id}-{i})"
+						/>
+					{/each}
+					
+					<!-- Colored line segments -->
+					{#each pressureForecast.segments as segment}
+						<line 
+							x1="{segment.x1.toFixed(1)}" 
+							y1="{segment.y1.toFixed(1)}" 
+							x2="{segment.x2.toFixed(1)}" 
+							y2="{segment.y2.toFixed(1)}" 
+							stroke="{segment.color}" 
+							stroke-width="2.5"
+							stroke-linecap="round"
+						/>
+					{/each}
+					
+					<!-- Current point indicator -->
+					{#if pressureForecast.points.length > 0}
+						<circle 
+							cx="{pressureForecast.points[0].x}" 
+							cy="{pressureForecast.points[0].y}" 
+							r="3" 
+							fill="{pressureForecast.segments[0]?.color || '#3b82f6'}"
+						/>
+					{/if}
+				</svg>
+				<div class="pressure-graph-labels">
+					<span class="graph-label-now">Now</span>
+					<span class="graph-label-24h">+24h</span>
+				</div>
+				{#if pressureForecast.dropWarning}
+					<div class="pressure-warning" style="color: {pressureForecast.severityColor}; background: color-mix(in srgb, {pressureForecast.severityColor} 15%, transparent);">Pressure drop ahead</div>
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 	<!-- Time Test Slider (hidden for now)
@@ -1669,21 +1838,18 @@
 		font-size: 1.5rem;
 	}
 
-	.pressure-center {
-		position: absolute;
-		top: 50%;
-		left: 15%;
-		transform: translateY(-50%);
-		margin-top: -1rem;
-		z-index: 2;
-		font-size: 1.8rem;
-		font-weight: 300;
-		color: var(--text-color, var(--text-primary));
-		text-shadow: 0 2px 4px var(--shadow);
+	.pressure-section {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.1rem;
+		gap: 0.3rem;
+		margin-top: -0.5rem;
+	}
+
+	.pressure-header {
+		display: flex;
+		align-items: baseline;
+		gap: 0.25rem;
 	}
 
 	.pressure-value {
@@ -1696,18 +1862,36 @@
 		opacity: 0.7;
 	}
 
-	.pressure-trend {
-		font-weight: 600;
-		font-size: var(--pressure-trend-size, 1.4rem);
-		margin-top: 0.2rem;
+	.pressure-graph {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		margin-top: 0.3rem;
+		gap: 0.15rem;
 	}
 
-	.pressure-trend.rising {
-		color: var(--success, #4ade80);
+	.pressure-sparkline {
+		overflow: visible;
 	}
 
-	.pressure-trend.falling {
-		color: var(--warning, #f59e0b);
+	.pressure-graph-labels {
+		display: flex;
+		justify-content: space-between;
+		width: 100%;
+		font-size: 0.5rem;
+		opacity: 0.5;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.pressure-warning {
+		font-size: 0.55rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin-top: 0.1rem;
+		padding: 0.15rem 0.4rem;
+		border-radius: 0.25rem;
+		font-weight: 500;
 	}
 
 	.humidity-symbols {
