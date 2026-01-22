@@ -20,6 +20,9 @@
 		dewPoint: number;
 		pressure?: number;
 		pressureTrend?: { direction: string; change: number };
+		windSpeed?: number;
+		windDirection?: number;
+		windGust?: number;
 		condition: string;
 		description: string;
 		location: string;
@@ -62,8 +65,87 @@
 	let dewPoint = 50;
 	let pressure = 1013.25; // Default sea level pressure in hPa
 	let pressureTrend: { direction: string; change: number } = { direction: 'steady', change: 0 };
+	let windSpeed = 0; // mph
+	let windDirection = 0; // degrees (0=N, 90=E, 180=S, 270=W)
+	let windGust = 0; // mph
 	let location = 'Lewiston, ME';
 	let condition = 'partly-cloudy';
+	let weatherCondition = 'clear'; // Raw condition from API for animations: clear, clouds, fog, drizzle, rain, snow, thunderstorm
+	
+	// Calculate wind effect on animations
+	// Wind direction: 0=N, 90=E, 180=S, 270=W (where wind comes FROM)
+	// Particles travel in the direction the wind BLOWS (opposite of where it comes from)
+	$: windDirectionRadians = (windDirection * Math.PI) / 180;
+	
+	// Direction wind BLOWS TO in degrees (add 180° to flip from FROM to TO)
+	$: windBlowsToAngle = (windDirection + 180) % 360;
+	
+	// Calculate X and Y components of wind direction (for where wind BLOWS TO)
+	// Using standard math coordinates: 0° = up, 90° = right, 180° = down, 270° = left
+	// But CSS rotation: 0° = up (north), positive = clockwise
+	$: windBlowsX = Math.sin(windDirectionRadians + Math.PI); // -1 to 1 (positive = blows east/right)
+	$: windBlowsY = Math.cos(windDirectionRadians + Math.PI); // -1 to 1 (positive = blows north/up, negative = south/down)
+	
+	// Scale by wind speed (0-2 range at 50mph)
+	$: windEffectBase = Math.min(windSpeed, 50) / 25;
+	$: windEffectGust = Math.min(windGust || windSpeed, 50) / 25;
+	
+	// Horizontal travel distance for particles (in pixels)
+	$: windTravelX = windBlowsX * windEffectGust * 60;
+	
+	// Starting position offset (particles start from where wind comes FROM)
+	$: windStartOffset = -windBlowsX * windEffectGust * 30;
+	
+	// Wind intensity ranges (for CSS custom properties)
+	$: windIntensityBase = Math.min(windSpeed / 40, 1);
+	$: windIntensityGust = Math.min((windGust || windSpeed) / 40, 1);
+	
+	// Rain angle follows wind direction (tilts in direction wind blows)
+	$: rainAngleBase = windBlowsX * windEffectBase * 30;
+	$: rainAngleGust = windBlowsX * windEffectGust * 40;
+	
+	// Snow drift (pixels)
+	$: snowDriftBase = windBlowsX * windEffectBase * 50;
+	$: snowDriftGust = windBlowsX * windEffectGust * 80;
+	
+	// Gust cycle duration (faster gusts = faster oscillation, 2-6 seconds)
+	$: gustCycleDuration = Math.max(2, 6 - windIntensityGust * 4);
+	
+	// Generate weather particle data reactively
+	interface WeatherParticle {
+		id: number;
+		left: number;
+		delay: number;
+		duration: number;
+		opacity: number;
+		size: number;
+	}
+	
+	function generateParticles(count: number, config: { delayMax: number; durationMin: number; durationRange: number; opacityMin: number; opacityRange: number; sizeMin: number; sizeRange: number }): WeatherParticle[] {
+		return Array.from({ length: count }, (_, i) => ({
+			id: i,
+			left: Math.random() * 100,
+			delay: Math.random() * config.delayMax,
+			duration: config.durationMin + Math.random() * config.durationRange,
+			opacity: config.opacityMin + Math.random() * config.opacityRange,
+			size: config.sizeMin + Math.random() * config.sizeRange
+		}));
+	}
+	
+	$: rainParticles = weatherCondition === 'rain' 
+		? generateParticles(40, { delayMax: 0.8, durationMin: 0.4, durationRange: 0.2, opacityMin: 0.5, opacityRange: 0.3, sizeMin: 15, sizeRange: 10 })
+		: weatherCondition === 'drizzle'
+		? generateParticles(20, { delayMax: 1, durationMin: 0.6, durationRange: 0.3, opacityMin: 0.3, opacityRange: 0.2, sizeMin: 8, sizeRange: 6 })
+		: [];
+	
+	$: snowParticles = weatherCondition === 'snow'
+		? generateParticles(30, { delayMax: 1.5, durationMin: 1.2, durationRange: 1, opacityMin: 0.6, opacityRange: 0.3, sizeMin: 10, sizeRange: 8 })
+		: [];
+	
+	$: stormParticles = weatherCondition === 'thunderstorm'
+		? generateParticles(50, { delayMax: 0.5, durationMin: 0.3, durationRange: 0.15, opacityMin: 0.6, opacityRange: 0.3, sizeMin: 18, sizeRange: 12 })
+		: [];
+	
 	let hourlyData: HourlyData[] = [];
 	let isLoading = true;
 	let hasLocationData = false;
@@ -112,6 +194,20 @@
 	$: pressureTrendSize = Math.max(0.7, 1.4 * textScale); // 1.4rem base, min 0.7rem
 	$: pressureGraphWidth = Math.max(80, 120 * textScale); // Graph width scales with widget
 	$: pressureGraphHeight = Math.max(24, 36 * textScale); // Graph height scales with widget
+	
+	// Wind info sizing
+	$: windValueSize = Math.max(0.9, 1.4 * textScale); // Wind speed value size
+	$: windUnitSize = Math.max(0.5, 0.7 * textScale); // Unit size
+	$: windLabelSize = Math.max(0.45, 0.55 * textScale); // Label size
+	
+	// Convert wind direction degrees to compass direction
+	function getWindDirection(degrees: number): string {
+		const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+		const index = Math.round(degrees / 22.5) % 16;
+		return directions[index];
+	}
+	
+	$: windDirectionText = getWindDirection(windDirection);
 	
 	// Compute pressure forecast for next 24 hours (for graph)
 	$: pressureForecast = (() => {
@@ -499,6 +595,9 @@
 		dewPoint = data.dewPoint || 0;
 		pressure = data.pressure || 1013.25;
 		pressureTrend = data.pressureTrend || { direction: 'steady', change: 0 };
+		windSpeed = data.windSpeed || 0;
+		windDirection = data.windDirection || 0;
+		windGust = data.windGust || 0;
 		location = data.location;
 		description = data.description || '';
 		hourlyData = data.hourly || [];
@@ -548,13 +647,16 @@
 			widgets.updateTitle(widget.id, `Weather - ${cityName}`);
 		}
 		
+		// Store raw condition for weather animations
+		const rawCondition = data.condition.toLowerCase();
+		weatherCondition = rawCondition;
+		
 		// Map weather conditions to our display conditions
-		const weatherCondition = data.condition.toLowerCase();
-		if (weatherCondition.includes('clear')) {
+		if (rawCondition.includes('clear')) {
 			condition = 'sunny';
-		} else if (weatherCondition.includes('cloud')) {
+		} else if (rawCondition.includes('cloud')) {
 			condition = 'partly-cloudy';
-		} else if (weatherCondition.includes('rain')) {
+		} else if (rawCondition.includes('rain')) {
 			condition = 'rainy';
 		} else {
 			condition = 'partly-cloudy';
@@ -1492,10 +1594,118 @@
 			<div class="date">{currentDate}</div>
 		</div>
 
-		<div class="earth" style="background: {earthGradient}; --text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --location-size: {locationSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin}; --location-margin: {locationMargin}">
+		<div 
+			class="earth weather-{weatherCondition}" 
+			style="background: {earthGradient}; --text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --location-size: {locationSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin}; --location-margin: {locationMargin}"
+		>
+		<!-- Weather Animation Overlay -->
+		<div class="weather-animation-container" style="
+			--wind-travel-x: {windTravelX}px;
+			--wind-start-offset: {windStartOffset}%;
+			--wind-blows-x: {windBlowsX};
+			--wind-intensity-base: {windIntensityBase};
+			--wind-intensity-gust: {windIntensityGust};
+			--rain-angle-base: {rainAngleBase}deg;
+			--rain-angle-gust: {rainAngleGust}deg;
+			--snow-drift-base: {snowDriftBase}px;
+			--snow-drift-gust: {snowDriftGust}px;
+			--gust-cycle: {gustCycleDuration}s;
+		">
+			<!-- Rain Animation -->
+			{#if weatherCondition === 'rain' || weatherCondition === 'drizzle'}
+				<div class="rain-container">
+					{#each rainParticles as p (p.id)}
+						<div 
+							class="raindrop" 
+							style="
+								left: calc({p.left}% + var(--wind-start-offset, 0%));
+								animation-delay: {p.delay}s;
+								--base-duration: {p.duration}s;
+								opacity: {p.opacity};
+								height: {p.size}px;
+							"
+						></div>
+					{/each}
+				</div>
+			{/if}
+
+			<!-- Snow Animation -->
+			{#if weatherCondition === 'snow'}
+				<div class="snow-container">
+					{#each snowParticles as p (p.id)}
+						<div 
+							class="snowflake" 
+							style="
+								left: calc({p.left}% + var(--wind-start-offset, 0%));
+								animation-delay: {p.delay}s;
+								--base-duration: {p.duration}s;
+								opacity: {p.opacity};
+								font-size: {p.size}px;
+							"
+						>❄</div>
+					{/each}
+				</div>
+			{/if}
+
+			<!-- Clouds Animation -->
+			<!-- Clouds Animation -->
+			{#if weatherCondition === 'clouds'}
+				<div class="clouds-container" style="
+					--wind-x: {windBlowsX};
+					--wind-y: {windBlowsY};
+				">
+					<div class="cloud cloud-1"></div>
+					<div class="cloud cloud-2"></div>
+					<div class="cloud cloud-3"></div>
+				</div>
+			{/if}
+
+			<!-- Fog Animation -->
+			{#if weatherCondition === 'fog'}
+				<div class="fog-container" style="
+					--wind-x: {windBlowsX};
+					--wind-y: {windBlowsY};
+				">
+					<div class="fog-layer fog-1"></div>
+					<div class="fog-layer fog-2"></div>
+					<div class="fog-layer fog-3"></div>
+				</div>
+			{/if}
+
+			<!-- Thunderstorm Animation -->
+			{#if weatherCondition === 'thunderstorm'}
+				<div class="thunderstorm-container">
+					<div class="rain-container storm-rain">
+						{#each stormParticles as p (p.id)}
+							<div 
+								class="raindrop heavy" 
+								style="
+									left: calc({p.left}% + var(--wind-start-offset, 0%));
+									animation-delay: {p.delay}s;
+									--base-duration: {p.duration}s;
+									opacity: {p.opacity};
+									height: {p.size}px;
+								"
+							></div>
+						{/each}
+					</div>
+					<div class="lightning"></div>
+					<div class="lightning lightning-2"></div>
+				</div>
+			{/if}
+
+			<!-- Clear/Sunny Animation -->
+			{#if weatherCondition === 'clear'}
+				<div class="clear-container">
+					<div class="sun-rays"></div>
+				</div>
+			{/if}
+		</div>
+
 		<!-- Location inside earth -->
 		<div class="location-section">
 			<div class="location">{location}</div>
+			<div class="condition-text">{description}</div>
 		</div>
 
 		<!-- 24-Hour Temperature Graph (layered behind temperature) -->
@@ -1546,8 +1756,49 @@
 		</div>
 	</div>
 
-	<!-- Barometric Pressure with 24-hour forecast graph - Below Earth -->
-	<div class="pressure-section" style="--pressure-size: {pressureSize}rem; --pressure-unit-size: {pressureUnitSize}rem; --pressure-trend-size: {pressureTrendSize}rem">
+	<!-- Bottom Info Row - Wind and Pressure side by side -->
+	<div class="bottom-info-row">
+		<!-- Wind Info Section -->
+		<div class="wind-section" style="--wind-value-size: {windValueSize}rem; --wind-unit-size: {windUnitSize}rem; --wind-label-size: {windLabelSize}rem;">
+			<div class="wind-header">
+				<span class="wind-icon">💨</span>
+				<span class="wind-label">Wind</span>
+			</div>
+			<div class="wind-stats">
+				<div class="wind-stat">
+					<span class="wind-stat-value">{Math.round(windSpeed)}</span>
+					<span class="wind-stat-unit">mph</span>
+					<span class="wind-stat-label">speed</span>
+				</div>
+				<div class="wind-stat direction">
+					<div class="wind-compass" style="--wind-direction: {windDirection}deg;">
+						<svg viewBox="0 0 40 40" class="compass-arrow">
+							<!-- Compass circle -->
+							<circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-opacity="0.2" stroke-width="1"/>
+							<!-- Arrow pointing in wind direction (where wind is coming FROM) -->
+							<path 
+								d="M20 6 L24 18 L20 15 L16 18 Z" 
+								fill="currentColor"
+								class="arrow-head"
+							/>
+							<line x1="20" y1="15" x2="20" y2="32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+						</svg>
+					</div>
+					<span class="wind-stat-dir-text">{windDirectionText}</span>
+					<span class="wind-stat-label">direction</span>
+				</div>
+				{#if windGust > windSpeed}
+					<div class="wind-stat gust">
+						<span class="wind-stat-value">{Math.round(windGust)}</span>
+						<span class="wind-stat-unit">mph</span>
+						<span class="wind-stat-label">gusts</span>
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		<!-- Barometric Pressure with 24-hour forecast graph -->
+		<div class="pressure-section" style="--pressure-size: {pressureSize}rem; --pressure-unit-size: {pressureUnitSize}rem; --pressure-trend-size: {pressureTrendSize}rem">
 		<div class="pressure-header">
 			<span class="pressure-value">{pressure.toFixed(1)}</span>
 			<span class="pressure-unit">hPa</span>
@@ -1613,27 +1864,7 @@
 			</div>
 		{/if}
 	</div>
-
-	<!-- Time Test Slider (hidden for now)
-	<div class="time-test-slider">
-		<label for="time-offset">
-			Time: {testDateOffset === 0 ? 'Now' : testDateOffset > 0 ? `+${Math.floor(testDateOffset / 60)}h ${testDateOffset % 60}m` : `${Math.floor(Math.abs(testDateOffset) / 60)}h ${Math.abs(testDateOffset) % 60}m ago`}
-		</label>
-		<input 
-			id="time-offset"
-			type="range" 
-			min="-1440" 
-			max="0" 
-			step="30"
-			bind:value={testDateOffset}
-		/>
-		<div class="slider-labels">
-			<span>24h ago</span>
-			<span>12h ago</span>
-			<span>Now</span>
-		</div>
 	</div>
-	-->
 	{:else}
 		<!-- Loading State - Animated Earth with orbiting Sun and Moon (Feb 22, 2042 at Giza, Egypt) -->
 		<div class="celestial-container loading" style="--earth-size: {earthSize}px; --padding: {padding}px;">
@@ -1683,6 +1914,7 @@
 		overflow: visible;
 	}
 
+	/* Debug Weather Condition Dropdown */
 	.celestial-container {
 		position: relative;
 		width: var(--earth-size, 320px);
@@ -1772,6 +2004,17 @@
 		text-shadow: 0 1px 2px var(--shadow);
 	}
 
+	.condition-text {
+		position: relative;
+		z-index: 3;
+		font-size: calc(var(--location-size, 1) * 0.75rem);
+		color: var(--text-color, var(--text-primary));
+		opacity: 0.6;
+		margin-top: 0.15rem;
+		text-shadow: 0 1px 2px var(--shadow);
+		font-style: italic;
+	}
+
 	.time-date-section {
 		position: absolute;
 		bottom: calc(100% - var(--padding, 90px) + 1rem);
@@ -1838,12 +2081,118 @@
 		font-size: 1.5rem;
 	}
 
+	/* ======== BOTTOM INFO ROW ======== */
+	.bottom-info-row {
+		display: flex;
+		justify-content: center;
+		align-items: flex-start;
+		gap: 2rem;
+		margin-top: -0.5rem;
+		width: 100%;
+	}
+
+	/* ======== WIND SECTION ======== */
+	.wind-section {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.3rem;
+	}
+
+	.wind-header {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		opacity: 0.8;
+	}
+
+	.wind-icon {
+		font-size: var(--wind-value-size, 1.2rem);
+	}
+
+	.wind-label {
+		font-size: var(--wind-label-size, 0.55rem);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		opacity: 0.7;
+	}
+
+	.wind-stats {
+		display: flex;
+		gap: 0.75rem;
+		align-items: flex-start;
+	}
+
+	.wind-stat {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.1rem;
+	}
+
+	.wind-stat-value {
+		font-weight: 200;
+		font-size: var(--wind-value-size, 1.4rem);
+		line-height: 1;
+	}
+
+	.wind-stat-unit {
+		font-size: var(--wind-unit-size, 0.7rem);
+		opacity: 0.6;
+	}
+
+	.wind-stat-degrees {
+		font-size: var(--wind-unit-size, 0.7rem);
+		opacity: 0.5;
+	}
+
+	.wind-stat-label {
+		font-size: var(--wind-label-size, 0.5rem);
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		opacity: 0.5;
+	}
+
+	.wind-stat.gust .wind-stat-value {
+		color: var(--warning, #f59e0b);
+	}
+
+	.wind-stat.direction {
+		gap: 0.15rem;
+	}
+
+	.wind-compass {
+		width: calc(var(--wind-value-size, 1.4rem) * 1.8);
+		height: calc(var(--wind-value-size, 1.4rem) * 1.8);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.compass-arrow {
+		width: 100%;
+		height: 100%;
+		transform: rotate(var(--wind-direction, 0deg));
+		transition: transform 0.5s ease-out;
+		color: var(--foreground);
+	}
+
+	.compass-arrow .arrow-head {
+		opacity: 0.9;
+	}
+
+	.wind-stat-dir-text {
+		font-size: var(--wind-unit-size, 0.7rem);
+		font-weight: 500;
+		opacity: 0.8;
+	}
+
+	/* ======== PRESSURE SECTION ======== */
 	.pressure-section {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		gap: 0.3rem;
-		margin-top: -0.5rem;
 	}
 
 	.pressure-header {
@@ -1956,64 +2305,6 @@
 		clip-path: ellipse(160px 40px at 50% 100%);
 	}
 
-	/* Time Test Slider */
-	.time-test-slider {
-		width: 100%;
-		max-width: 320px;
-		padding: 1rem;
-		background: var(--surface-variant);
-		border-radius: 12px;
-		border: 1px solid var(--border);
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.time-test-slider label {
-		color: var(--text-primary);
-		font-size: 0.875rem;
-		font-weight: 500;
-		text-align: center;
-	}
-
-	.time-test-slider input[type="range"] {
-		width: 100%;
-		height: 6px;
-		background: var(--surface-container-high);
-		border-radius: 3px;
-		outline: none;
-		appearance: none;
-		-webkit-appearance: none;
-	}
-
-	.time-test-slider input[type="range"]::-webkit-slider-thumb {
-		-webkit-appearance: none;
-		appearance: none;
-		width: 18px;
-		height: 18px;
-		background: var(--text-primary);
-		border-radius: 50%;
-		cursor: pointer;
-		box-shadow: 0 2px 4px var(--shadow);
-	}
-
-	.time-test-slider input[type="range"]::-moz-range-thumb {
-		width: 18px;
-		height: 18px;
-		background: var(--text-primary);
-		border-radius: 50%;
-		cursor: pointer;
-		border: none;
-		box-shadow: 0 2px 4px var(--shadow);
-	}
-
-	.slider-labels {
-		display: flex;
-		justify-content: space-between;
-		color: var(--text-secondary);
-		font-size: 0.75rem;
-	}
-
 	/* No Location Message */
 	.no-location-message {
 		display: flex;
@@ -2069,6 +2360,564 @@
 		color: var(--text-color, var(--text-secondary));
 		text-shadow: 0 1px 2px var(--shadow);
 	}
+
+	/* ========================================
+	   Weather Condition Animations
+	   Visual effects overlay on the earth sphere
+	   ======================================== */
+
+	/* Weather Animation Container */
+	.weather-animation-container {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		border-radius: 50%;
+		overflow: visible; /* Allow particles to start outside */
+		pointer-events: none;
+		z-index: 50; /* High z-index to appear above other content */
+	}
+
+	/* ======== RAIN & DRIZZLE ======== */
+	.rain-container {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		overflow: visible;
+		z-index: 100;
+	}
+
+	.raindrop {
+		position: absolute;
+		top: 0;
+		width: 2px;
+		background: linear-gradient(to bottom, transparent, rgba(174, 194, 224, 0.8));
+		border-radius: 0 0 2px 2px;
+		animation: rainFall var(--base-duration, 0.5s) linear infinite, rainGust var(--gust-cycle, 3s) ease-in-out infinite;
+		z-index: 100;
+	}
+
+	.raindrop.heavy {
+		width: 3px;
+		background: linear-gradient(to bottom, transparent, rgba(150, 180, 220, 0.9));
+	}
+
+	@keyframes rainFall {
+		0% {
+			transform: translateY(0) translateX(0);
+			opacity: 1;
+		}
+		100% {
+			transform: translateY(350px) translateX(var(--wind-travel-x, 0px));
+			opacity: 0;
+		}
+	}
+
+	/* Gust animation oscillates the rain angle */
+	@keyframes rainGust {
+		0%, 100% {
+			/* Base wind */
+		}
+		50% {
+			/* Gust peak - extra travel during gusts */
+		}
+	}
+
+	/* Apply rotation via a wrapper approach - rain container tilts with wind */
+	.rain-container {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		overflow: visible;
+		z-index: 100;
+		animation: rainContainerGust var(--gust-cycle, 3s) ease-in-out infinite;
+	}
+
+	@keyframes rainContainerGust {
+		0%, 100% {
+			transform: rotate(var(--rain-angle-base, 0deg));
+		}
+		50% {
+			transform: rotate(var(--rain-angle-gust, 0deg));
+		}
+	}
+
+	/* ======== SNOW ======== */
+	.snow-container {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		overflow: visible;
+		z-index: 100;
+		animation: snowContainerGust var(--gust-cycle, 3s) ease-in-out infinite;
+	}
+
+	@keyframes snowContainerGust {
+		0%, 100% {
+			transform: translateX(var(--snow-drift-base, 0px));
+		}
+		50% {
+			transform: translateX(var(--snow-drift-gust, 0px));
+		}
+	}
+
+	.snowflake {
+		position: absolute;
+		top: 0;
+		color: #fff;
+		text-shadow: 
+			0 0 4px rgba(255, 255, 255, 0.9),
+			0 0 8px rgba(200, 220, 255, 0.6),
+			1px 1px 2px rgba(100, 150, 200, 0.4);
+		animation: snowFall var(--base-duration, 1.5s) linear infinite;
+		filter: drop-shadow(0 0 3px rgba(180, 200, 255, 0.7));
+		z-index: 100;
+	}
+
+	@keyframes snowFall {
+		0% {
+			transform: translateY(0) rotate(0deg) translateX(0);
+			opacity: 1;
+		}
+		10% {
+			opacity: 1;
+		}
+		50% {
+			transform: translateY(160px) rotate(180deg) translateX(calc(var(--wind-travel-x, 0px) * 0.4));
+		}
+		90% {
+			opacity: 0.8;
+		}
+		100% {
+			transform: translateY(350px) rotate(360deg) translateX(calc(var(--wind-travel-x, 0px) * 0.8));
+			opacity: 0;
+		}
+	}
+
+	/* ======== CLOUDS ======== */
+	.clouds-container {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		overflow: visible;
+		z-index: 100;
+	}
+
+	.cloud {
+		position: absolute;
+		background: radial-gradient(ellipse at center, rgba(180, 180, 200, 0.7) 0%, rgba(150, 150, 170, 0.3) 50%, transparent 70%);
+		border-radius: 50%;
+		filter: blur(8px);
+		z-index: 100;
+	}
+
+	.cloud-1 {
+		width: 120px;
+		height: 60px;
+		/* Start from center, animation moves it from windward edge */
+		top: calc(50% - 30px);
+		left: calc(50% - 60px);
+		animation: cloudFloat 8s linear infinite;
+	}
+
+	.cloud-2 {
+		width: 100px;
+		height: 50px;
+		top: calc(50% - 25px);
+		left: calc(50% - 50px);
+		animation: cloudFloat 10s linear infinite;
+		animation-delay: -3s;
+	}
+
+	.cloud-3 {
+		width: 80px;
+		height: 40px;
+		top: calc(50% - 20px);
+		left: calc(50% - 40px);
+		animation: cloudFloat 7s linear infinite;
+		animation-delay: -5s;
+	}
+
+	/* Clouds move in full 360° wind direction */
+	/* --wind-x: -1 to 1 (positive = blows right/east) */
+	/* --wind-y: -1 to 1 (positive = blows up/north, negative = down/south) */
+	@keyframes cloudFloat {
+		0% {
+			/* Start from windward edge (opposite of wind direction) */
+			transform: translate(
+				calc(var(--wind-x, 0.5) * 200px),
+				calc(var(--wind-y, 0) * -100px)
+			);
+			opacity: 0;
+		}
+		10% {
+			opacity: 0.6;
+		}
+		90% {
+			opacity: 0.6;
+		}
+		100% {
+			/* End at leeward edge (in wind direction) */
+			transform: translate(
+				calc(var(--wind-x, 0.5) * -200px),
+				calc(var(--wind-y, 0) * 100px)
+			);
+			opacity: 0;
+		}
+	}
+
+	/* ======== FOG ======== */
+	.fog-container {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		overflow: visible;
+		z-index: 100;
+	}
+
+	.fog-layer {
+		position: absolute;
+		width: 200%;
+		height: 40%;
+		left: -50%;
+		background: linear-gradient(
+			90deg,
+			transparent 0%,
+			rgba(180, 180, 195, 0.5) 20%,
+			rgba(200, 200, 215, 0.6) 50%,
+			rgba(180, 180, 195, 0.5) 80%,
+			transparent 100%
+		);
+		filter: blur(12px);
+		z-index: 100;
+	}
+
+	.fog-1 {
+		top: 15%;
+		animation: fogDrift 4s ease-in-out infinite;
+	}
+
+	.fog-2 {
+		top: 40%;
+		animation: fogDrift 5s ease-in-out infinite;
+		animation-delay: -2s;
+	}
+
+	.fog-3 {
+		top: 65%;
+		animation: fogDrift 6s ease-in-out infinite;
+		animation-delay: -3s;
+	}
+
+	/* Fog drifts in 360° wind direction */
+	@keyframes fogDrift {
+		0%, 100% {
+			transform: translate(
+				calc(var(--wind-x, 0.3) * 60px),
+				calc(var(--wind-y, 0) * -30px)
+			);
+			opacity: 0.5;
+		}
+		50% {
+			transform: translate(
+				calc(var(--wind-x, 0.3) * -60px),
+				calc(var(--wind-y, 0) * 30px)
+			);
+			opacity: 0.7;
+		}
+	}
+
+	/* ======== THUNDERSTORM ======== */
+	.thunderstorm-container {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		overflow: visible;
+		z-index: 100;
+		/* Apply gust effect to storm container for rain angle oscillation */
+		animation: rainContainerGust var(--gust-cycle, 3s) ease-in-out infinite;
+	}
+
+	.storm-rain .raindrop {
+		animation: rainFall var(--base-duration, 0.3s) linear infinite;
+	}
+
+	.lightning {
+		position: absolute;
+		top: 10%;
+		left: 30%;
+		width: 4px;
+		height: 80px;
+		background: linear-gradient(
+			to bottom,
+			rgba(255, 255, 200, 0.9),
+			rgba(200, 200, 255, 0.7),
+			transparent
+		);
+		opacity: 0;
+		animation: lightningFlash 2s ease-in-out infinite;
+		z-index: 100;
+		clip-path: polygon(
+			50% 0%,
+			60% 30%,
+			80% 30%,
+			45% 55%,
+			65% 55%,
+			30% 100%,
+			40% 60%,
+			20% 60%,
+			55% 35%,
+			35% 35%
+		);
+		transform: scaleX(2) scaleY(1.5);
+		filter: blur(1px);
+	}
+
+	.lightning-2 {
+		left: 60%;
+		top: 15%;
+		animation-delay: 3s;
+		transform: scaleX(-2) scaleY(1.3);
+	}
+
+	@keyframes lightningFlash {
+		0%, 100% {
+			opacity: 0;
+		}
+		2% {
+			opacity: 1;
+		}
+		4% {
+			opacity: 0.3;
+		}
+		6% {
+			opacity: 0.9;
+		}
+		8% {
+			opacity: 0;
+		}
+		50% {
+			opacity: 0;
+		}
+		52% {
+			opacity: 0.8;
+		}
+		54% {
+			opacity: 0;
+		}
+	}
+
+	/* ======== CLEAR/SUNNY ======== */
+	.clear-container {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		overflow: visible;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 100;
+	}
+
+	.sun-rays {
+		position: absolute;
+		width: 100%;
+		height: 100%;
+		background: radial-gradient(
+			circle at center,
+			rgba(255, 220, 150, 0.15) 0%,
+			rgba(255, 200, 100, 0.08) 30%,
+			transparent 60%
+		);
+		animation: sunPulse 2s ease-in-out infinite;
+		z-index: 100;
+	}
+
+	@keyframes sunPulse {
+		0%, 100% {
+			transform: scale(1);
+			opacity: 0.5;
+		}
+		50% {
+			transform: scale(1.15);
+			opacity: 1;
+		}
+	}
+
+	/* Box shadow effects for weather (subtle enhancement) */
+	.earth.weather-clear {
+		animation: clearGlow 8s ease-in-out infinite;
+	}
+
+	@keyframes clearGlow {
+		0%, 100% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 0 60px rgba(255, 200, 100, 0.03);
+		}
+		50% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 0 80px rgba(255, 220, 120, 0.06);
+		}
+	}
+
+	.earth.weather-clouds {
+		animation: cloudDrift 12s ease-in-out infinite;
+	}
+
+	@keyframes cloudDrift {
+		0%, 100% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 20px -10px 60px rgba(100, 100, 120, 0.06);
+		}
+		33% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset -15px 5px 70px rgba(90, 90, 110, 0.08);
+		}
+		66% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 10px 15px 50px rgba(110, 110, 130, 0.06);
+		}
+	}
+
+	.earth.weather-fog {
+		animation: fogHaze 10s ease-in-out infinite;
+	}
+
+	@keyframes fogHaze {
+		0%, 100% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 0 80px rgba(180, 180, 190, 0.08);
+		}
+		50% {
+			box-shadow: 
+				0 8px 40px var(--shadow),
+				inset 0 0 100px rgba(200, 200, 210, 0.12);
+		}
+	}
+
+	.earth.weather-drizzle {
+		animation: drizzleShimmer 6s ease-in-out infinite;
+	}
+
+	@keyframes drizzleShimmer {
+		0%, 100% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 -20px 40px rgba(130, 170, 200, 0.06);
+		}
+		50% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 -30px 50px rgba(140, 180, 210, 0.10);
+		}
+	}
+
+	.earth.weather-rain {
+		animation: rainRipple 4s ease-in-out infinite;
+	}
+
+	@keyframes rainRipple {
+		0%, 100% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 -30px 50px rgba(100, 150, 200, 0.08);
+		}
+		50% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 -40px 60px rgba(110, 160, 210, 0.12);
+		}
+	}
+
+	.earth.weather-snow {
+		animation: snowGlow 7s ease-in-out infinite;
+	}
+
+	@keyframes snowGlow {
+		0%, 100% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 0 50px rgba(220, 230, 250, 0.06);
+		}
+		50% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 0 70px rgba(235, 245, 255, 0.10);
+		}
+	}
+
+	.earth.weather-thunderstorm {
+		animation: thunderFlash 8s ease-in-out infinite;
+	}
+
+	@keyframes thunderFlash {
+		0%, 100% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 -30px 50px rgba(80, 100, 140, 0.08);
+		}
+		11%, 13% {
+			box-shadow: 
+				0 8px 40px var(--shadow),
+				inset 0 0 100px rgba(200, 210, 255, 0.25);
+		}
+		12%, 14% {
+			box-shadow: 
+				0 8px 32px var(--shadow),
+				inset 0 -30px 50px rgba(80, 100, 140, 0.08);
+		}
+		51%, 53% {
+			box-shadow: 
+				0 8px 36px var(--shadow),
+				inset 0 0 80px rgba(180, 190, 240, 0.20);
+		}
+	}
+
+	/* Reduce motion for users who prefer it - temporarily disabled for testing */
+	/*
+	@media (prefers-reduced-motion: reduce) {
+		.earth.weather-clear,
+		.earth.weather-clouds,
+		.earth.weather-fog,
+		.earth.weather-drizzle,
+		.earth.weather-rain,
+		.earth.weather-snow,
+		.earth.weather-thunderstorm {
+			animation: none;
+		}
+		
+		.raindrop,
+		.snowflake,
+		.cloud,
+		.fog-layer,
+		.lightning,
+		.sun-rays {
+			animation: none !important;
+			opacity: 0.3;
+		}
+	}
+	*/
 
 	/* Responsive adjustments */
 	@media (max-width: 768px) {

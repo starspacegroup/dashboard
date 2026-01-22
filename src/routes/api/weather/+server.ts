@@ -76,10 +76,11 @@ export const GET: RequestHandler = async ({ url }) => {
     const forecastUrl = new URL('https://api.open-meteo.com/v1/forecast');
     forecastUrl.searchParams.set('latitude', latitude);
     forecastUrl.searchParams.set('longitude', longitude);
-    forecastUrl.searchParams.set('current', 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,is_day,surface_pressure');
-    forecastUrl.searchParams.set('hourly', 'temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,weather_code,is_day,surface_pressure');
+    forecastUrl.searchParams.set('current', 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,is_day,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m');
+    forecastUrl.searchParams.set('hourly', 'temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,weather_code,is_day,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m');
     forecastUrl.searchParams.set('daily', 'sunrise,sunset');
     forecastUrl.searchParams.set('temperature_unit', 'fahrenheit');
+    forecastUrl.searchParams.set('wind_speed_unit', 'mph');
     forecastUrl.searchParams.set('timezone', 'auto');
     forecastUrl.searchParams.set('past_days', '1');
     forecastUrl.searchParams.set('forecast_days', '2');
@@ -113,6 +114,11 @@ export const GET: RequestHandler = async ({ url }) => {
 
     // Get current pressure (in hPa/mbar)
     const currentPressure = data.current.surface_pressure;
+
+    // Get current wind data
+    const windSpeed = data.current.wind_speed_10m; // mph
+    const windDirection = data.current.wind_direction_10m; // degrees (0=N, 90=E, 180=S, 270=W)
+    const windGust = data.current.wind_gusts_10m; // mph
 
     // Calculate pressure trend from last 3 hours of hourly data
     const pressureTrend = calculatePressureTrend(data.hourly.time, data.hourly.surface_pressure);
@@ -162,6 +168,9 @@ export const GET: RequestHandler = async ({ url }) => {
       dewPoint: Math.round(dewPointEstimate),
       pressure: Math.round(currentPressure * 10) / 10,
       pressureTrend: pressureTrend,
+      windSpeed: Math.round(windSpeed),
+      windDirection: Math.round(windDirection),
+      windGust: Math.round(windGust),
       condition: weatherInfo.condition,
       description: weatherInfo.description,
       location: locationName,
