@@ -1748,11 +1748,6 @@
 				<span class="symbol-drop">💧</span>
 			</span>
 		</div>
-
-			<!-- Humidity Wave (at bottom) -->
-			<div class="humidity">
-				<div class="humidity-wave"></div>
-			</div>
 		</div>
 	</div>
 
@@ -2288,21 +2283,6 @@
 		width: 100%;
 		height: 60px;
 		z-index: 0;
-	}
-
-	.humidity-wave {
-		position: absolute;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		height: 40px;
-		background: linear-gradient(180deg,
-			rgba(100, 150, 200, 0.3) 0%,
-			rgba(80, 130, 180, 0.4) 50%,
-			rgba(60, 110, 160, 0.5) 100%
-		);
-		border-radius: 0 0 160px 160px;
-		clip-path: ellipse(160px 40px at 50% 100%);
 	}
 
 	/* No Location Message */
