@@ -1,32 +1,36 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { env } from '$env/dynamic/private';
 
-const { OPENWEATHER_API_KEY = '' } = env;
+// US state name to abbreviation mapping
+const US_STATE_ABBREVIATIONS: Record<string, string> = {
+  'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR', 'California': 'CA',
+  'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE', 'Florida': 'FL', 'Georgia': 'GA',
+  'Hawaii': 'HI', 'Idaho': 'ID', 'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA',
+  'Kansas': 'KS', 'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+  'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS', 'Missouri': 'MO',
+  'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ',
+  'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH',
+  'Oklahoma': 'OK', 'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+  'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT', 'Vermont': 'VT',
+  'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV', 'Wisconsin': 'WI', 'Wyoming': 'WY',
+  'District of Columbia': 'DC'
+};
 
 export const GET: RequestHandler = async ({ url }) => {
   const query = url.searchParams.get('q');
-
-  if (!OPENWEATHER_API_KEY.trim()) {
-    console.error('OPENWEATHER_API_KEY is not set!');
-    return json(
-      { error: 'OpenWeather API key not configured' },
-      { status: 500 }
-    );
-  }
 
   if (!query || query.trim().length < 2) {
     return json({ results: [] });
   }
 
   try {
-    // OpenWeather geocoding API - supports city names, zip codes, etc.
-    const geoUrl = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(query)}&limit=5&appid=${OPENWEATHER_API_KEY.trim()}`;
+    // Open-Meteo geocoding API - free, no API key required
+    const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`;
     const response = await fetch(geoUrl);
 
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Geocoding API error:', errorData);
+      const errorText = await response.text();
+      console.error('Geocoding API error:', errorText);
       return json(
         { error: 'Failed to geocode location' },
         { status: 500 }
@@ -36,16 +40,32 @@ export const GET: RequestHandler = async ({ url }) => {
     const data = await response.json();
 
     // Transform the results to a cleaner format
-    const results = data.map((place: any) => ({
-      name: place.name,
-      state: place.state || '',
-      country: place.country,
-      lat: place.lat,
-      lon: place.lon,
-      displayName: place.state
-        ? `${place.name}, ${place.state}, ${place.country}`
-        : `${place.name}, ${place.country}`
-    }));
+    const results = (data.results || []).map((place: any) => {
+      const state = place.admin1 || ''; // admin1 is usually the state/province
+      const country = place.country_code?.toUpperCase() || place.country || '';
+
+      // Convert full state name to abbreviation for US locations
+      const stateAbbr = US_STATE_ABBREVIATIONS[state] || state;
+
+      // Build display name
+      let displayName = place.name;
+      if (stateAbbr) {
+        displayName += `, ${stateAbbr}`;
+      }
+      if (country) {
+        displayName += `, ${country}`;
+      }
+
+      return {
+        name: place.name,
+        state: stateAbbr,
+        country: country,
+        lat: place.latitude,
+        lon: place.longitude,
+        timezone: place.timezone,
+        displayName: displayName
+      };
+    });
 
     return json({ results });
   } catch (error) {

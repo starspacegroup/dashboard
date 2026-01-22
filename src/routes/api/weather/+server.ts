@@ -1,29 +1,58 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { env } from '$env/dynamic/private';
 
-const { OPENWEATHER_API_KEY = '' } = env;
+// WMO Weather interpretation codes mapping to conditions and icons
+// See: https://open-meteo.com/en/docs#weathervariables
+const WMO_CODES: Record<number, { condition: string; icon: string; description: string; }> = {
+  0: { condition: 'clear', icon: '01d', description: 'Clear sky' },
+  1: { condition: 'clear', icon: '01d', description: 'Mainly clear' },
+  2: { condition: 'clouds', icon: '02d', description: 'Partly cloudy' },
+  3: { condition: 'clouds', icon: '03d', description: 'Overcast' },
+  45: { condition: 'fog', icon: '50d', description: 'Fog' },
+  48: { condition: 'fog', icon: '50d', description: 'Depositing rime fog' },
+  51: { condition: 'drizzle', icon: '09d', description: 'Light drizzle' },
+  53: { condition: 'drizzle', icon: '09d', description: 'Moderate drizzle' },
+  55: { condition: 'drizzle', icon: '09d', description: 'Dense drizzle' },
+  56: { condition: 'drizzle', icon: '09d', description: 'Light freezing drizzle' },
+  57: { condition: 'drizzle', icon: '09d', description: 'Dense freezing drizzle' },
+  61: { condition: 'rain', icon: '10d', description: 'Slight rain' },
+  63: { condition: 'rain', icon: '10d', description: 'Moderate rain' },
+  65: { condition: 'rain', icon: '10d', description: 'Heavy rain' },
+  66: { condition: 'rain', icon: '13d', description: 'Light freezing rain' },
+  67: { condition: 'rain', icon: '13d', description: 'Heavy freezing rain' },
+  71: { condition: 'snow', icon: '13d', description: 'Slight snow fall' },
+  73: { condition: 'snow', icon: '13d', description: 'Moderate snow fall' },
+  75: { condition: 'snow', icon: '13d', description: 'Heavy snow fall' },
+  77: { condition: 'snow', icon: '13d', description: 'Snow grains' },
+  80: { condition: 'rain', icon: '09d', description: 'Slight rain showers' },
+  81: { condition: 'rain', icon: '09d', description: 'Moderate rain showers' },
+  82: { condition: 'rain', icon: '09d', description: 'Violent rain showers' },
+  85: { condition: 'snow', icon: '13d', description: 'Slight snow showers' },
+  86: { condition: 'snow', icon: '13d', description: 'Heavy snow showers' },
+  95: { condition: 'thunderstorm', icon: '11d', description: 'Thunderstorm' },
+  96: { condition: 'thunderstorm', icon: '11d', description: 'Thunderstorm with slight hail' },
+  99: { condition: 'thunderstorm', icon: '11d', description: 'Thunderstorm with heavy hail' }
+};
+
+// Get weather info from WMO code
+function getWeatherFromWMO(code: number, isNight: boolean = false): { condition: string; icon: string; description: string; } {
+  const weather = WMO_CODES[code] || { condition: 'clear', icon: '01d', description: 'Unknown' };
+  // Replace 'd' with 'n' for night icons
+  const icon = isNight ? weather.icon.replace('d', 'n') : weather.icon;
+  return { ...weather, icon };
+}
 
 export const GET: RequestHandler = async ({ url }) => {
   const lat = url.searchParams.get('lat');
   const lon = url.searchParams.get('lon');
   const zip = url.searchParams.get('zip');
 
-  if (!OPENWEATHER_API_KEY.trim()) {
-    console.error('OPENWEATHER_API_KEY is not set!');
-    return json(
-      { error: 'OpenWeather API key not configured' },
-      { status: 500 }
-    );
-  }
-
   try {
-    // One Call API 3.0 requires coordinates
     let latitude: string;
     let longitude: string;
 
     if (zip) {
-      // Convert zip code to coordinates using geocoding API
+      // Convert zip code to coordinates using Open-Meteo geocoding
       const coords = await getCoordinatesFromZip(zip);
       if (!coords) {
         return json(
@@ -42,68 +71,118 @@ export const GET: RequestHandler = async ({ url }) => {
       longitude = '-70.2148';
     }
 
-    // Use One Call API 3.0
-    // Note: This API requires a subscription (free tier available)
-    // Include hourly data and daily data (for moon data) for the next 48 hours (we'll use 24)
-    const weatherUrl = `https://api.openweathermap.org/data/3.0/onecall?lat=${latitude}&lon=${longitude}&units=imperial&exclude=minutely,alerts&appid=${OPENWEATHER_API_KEY.trim()}`;
+    // Fetch current weather and forecast from Open-Meteo
+    // Using Fahrenheit (temperature_unit=fahrenheit) for consistency with existing code
+    const forecastUrl = new URL('https://api.open-meteo.com/v1/forecast');
+    forecastUrl.searchParams.set('latitude', latitude);
+    forecastUrl.searchParams.set('longitude', longitude);
+    forecastUrl.searchParams.set('current', 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,is_day,surface_pressure');
+    forecastUrl.searchParams.set('hourly', 'temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,weather_code,is_day,surface_pressure');
+    forecastUrl.searchParams.set('daily', 'sunrise,sunset');
+    forecastUrl.searchParams.set('temperature_unit', 'fahrenheit');
+    forecastUrl.searchParams.set('timezone', 'auto');
+    forecastUrl.searchParams.set('past_days', '1');
+    forecastUrl.searchParams.set('forecast_days', '2');
 
-    const response = await fetch(weatherUrl);
+    const response = await fetch(forecastUrl.toString());
 
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error('OpenWeather API error:', errorData);
-
-      // If One Call 3.0 fails (e.g., subscription issue), fallback to geocoding + current weather
-      return await fallbackToCurrentWeather(latitude, longitude);
+      const errorText = await response.text();
+      console.error('Open-Meteo API error:', errorText);
+      return json(
+        { error: 'Failed to fetch weather data from Open-Meteo' },
+        { status: 500 }
+      );
     }
 
     const data = await response.json();
 
-    // Get next 24 hours of hourly data (future forecast)
-    const futureHourly = data.hourly.slice(0, 24).map((hour: any) => ({
-      time: hour.dt,
-      temperature: Math.round(hour.temp),
-      feelsLike: Math.round(hour.feels_like),
-      humidity: hour.humidity,
-      dewPoint: Math.round(hour.dew_point),
-      condition: hour.weather[0].main.toLowerCase(),
-      icon: hour.weather[0].icon
-    }));
+    // Get current time index in the hourly arrays
+    const now = new Date();
+    const currentHourISO = now.toISOString().slice(0, 13) + ':00';
 
-    // Fetch historical data for the past 24 hours using Time Machine API
-    const historicalHourly = await fetchHistoricalData(latitude, longitude);
+    // Current weather data
+    const isNight = data.current.is_day === 0;
+    const weatherInfo = getWeatherFromWMO(data.current.weather_code, isNight);
 
-    // Combine historical + current + future data, then interpolate to 30-min resolution
-    const allHourlyData = [...historicalHourly, ...futureHourly];
+    // Calculate dew point from current conditions (Open-Meteo doesn't provide it in current)
+    // Using Magnus formula approximation: Td ≈ T - ((100 - RH) / 5) for quick estimate
+    const currentTemp = data.current.temperature_2m;
+    const currentHumidity = data.current.relative_humidity_2m;
+    const dewPointEstimate = currentTemp - ((100 - currentHumidity) / 5);
 
-    // Remove duplicates (based on timestamp) and sort by time
-    const uniqueHourly = allHourlyData.reduce((acc: any[], curr) => {
-      if (!acc.find(h => h.time === curr.time)) {
-        acc.push(curr);
+    // Get current pressure (in hPa/mbar)
+    const currentPressure = data.current.surface_pressure;
+
+    // Calculate pressure trend from last 3 hours of hourly data
+    const pressureTrend = calculatePressureTrend(data.hourly.time, data.hourly.surface_pressure);
+
+    // Process hourly data - combine past and future
+    const hourlyData = [];
+    const nowTimestamp = Math.floor(Date.now() / 1000);
+
+    for (let i = 0; i < data.hourly.time.length; i++) {
+      const hourTime = new Date(data.hourly.time[i]).getTime() / 1000;
+      // Include 24 hours back and 24 hours forward
+      if (hourTime >= nowTimestamp - 24 * 3600 && hourTime <= nowTimestamp + 24 * 3600) {
+        const hourIsNight = data.hourly.is_day[i] === 0;
+        const hourWeather = getWeatherFromWMO(data.hourly.weather_code[i], hourIsNight);
+
+        hourlyData.push({
+          time: hourTime,
+          temperature: Math.round(data.hourly.temperature_2m[i]),
+          feelsLike: Math.round(data.hourly.apparent_temperature[i]),
+          humidity: data.hourly.relative_humidity_2m[i],
+          dewPoint: Math.round(data.hourly.dew_point_2m[i]),
+          pressure: Math.round(data.hourly.surface_pressure[i] * 10) / 10,
+          condition: hourWeather.condition,
+          icon: hourWeather.icon
+        });
       }
-      return acc;
-    }, []).sort((a, b) => a.time - b.time);
+    }
+
+    // Sort by time
+    hourlyData.sort((a, b) => a.time - b.time);
 
     // Interpolate to 30-minute resolution
-    const interpolatedHourly = interpolateToHalfHour(uniqueHourly);
+    const interpolatedHourly = interpolateToHalfHour(hourlyData);
 
-    // Transform the One Call API 3.0 data to a simpler format
+    // Parse sunrise/sunset for today
+    const todayIndex = data.daily.time.findIndex((d: string) => {
+      const date = new Date(d);
+      return date.toDateString() === now.toDateString();
+    });
+
+    const sunriseTime = todayIndex >= 0 ? new Date(data.daily.sunrise[todayIndex]).getTime() / 1000 : 0;
+    const sunsetTime = todayIndex >= 0 ? new Date(data.daily.sunset[todayIndex]).getTime() / 1000 : 0;
+
+    // Calculate moon phase and moonrise/moonset
+    const moonData = calculateMoonData(parseFloat(latitude), parseFloat(longitude), now);
+
+    // Get location name via reverse geocoding
+    const locationName = await getLocationName(latitude, longitude);
+
+    // Get timezone offset in seconds
+    const timezoneOffset = getTimezoneOffset(data.timezone);
+
     const weatherData = {
-      temperature: Math.round(data.current.temp),
-      humidity: data.current.humidity,
-      dewPoint: Math.round(data.current.dew_point),
-      condition: data.current.weather[0].main.toLowerCase(),
-      description: data.current.weather[0].description,
-      location: await getLocationName(latitude, longitude),
-      icon: data.current.weather[0].icon,
+      temperature: Math.round(currentTemp),
+      humidity: currentHumidity,
+      dewPoint: Math.round(dewPointEstimate),
+      pressure: Math.round(currentPressure * 10) / 10,
+      pressureTrend: pressureTrend,
+      condition: weatherInfo.condition,
+      description: weatherInfo.description,
+      location: locationName,
+      icon: weatherInfo.icon,
       hourly: interpolatedHourly,
-      sunrise: data.current.sunrise,
-      sunset: data.current.sunset,
-      moonrise: data.daily?.[0]?.moonrise || 0,
-      moonset: data.daily?.[0]?.moonset || 0,
-      moonPhase: data.daily?.[0]?.moon_phase,
+      sunrise: sunriseTime,
+      sunset: sunsetTime,
+      moonrise: moonData.moonrise,
+      moonset: moonData.moonset,
+      moonPhase: moonData.phase,
       timezone: data.timezone,
-      timezoneOffset: data.timezone_offset,
+      timezoneOffset: timezoneOffset,
       timestamp: Date.now()
     };
 
@@ -117,87 +196,66 @@ export const GET: RequestHandler = async ({ url }) => {
   }
 };
 
-// Fetch historical weather data for the past 24 hours
-async function fetchHistoricalData(lat: string, lon: string): Promise<any[]> {
-  const historicalData: any[] = [];
-  const now = Math.floor(Date.now() / 1000);
+// Calculate pressure trend from hourly data
+// Returns: 'rising', 'falling', 'steady', or 'rapidly-rising', 'rapidly-falling'
+function calculatePressureTrend(times: string[], pressures: number[]): { direction: string; change: number; } {
+  const now = Date.now();
+  const threeHoursAgo = now - 3 * 60 * 60 * 1000;
 
-  // We need to fetch data for distinct days that cover the past 24 hours
-  // The timemachine endpoint returns hourly data for a specific day
-  // We'll fetch yesterday's data and today's past hours
+  // Find pressure readings from approximately 3 hours ago and now
+  let oldestPressure: number | null = null;
+  let newestPressure: number | null = null;
+  let oldestTime = 0;
+  let newestTime = 0;
 
-  try {
-    // Fetch data for 24 hours ago (to get yesterday's hourly data)
-    const yesterday = now - 24 * 60 * 60;
-    const timeMachineUrl = `https://api.openweathermap.org/data/3.0/onecall/timemachine?lat=${lat}&lon=${lon}&dt=${yesterday}&units=imperial&appid=${OPENWEATHER_API_KEY.trim()}`;
+  for (let i = 0; i < times.length; i++) {
+    const time = new Date(times[i]).getTime();
+    const pressure = pressures[i];
 
-    const response = await fetch(timeMachineUrl);
-
-    if (response.ok) {
-      const data = await response.json();
-
-      // The timemachine API returns data for the requested timestamp
-      // It includes hourly data for that day
-      if (data.data && Array.isArray(data.data)) {
-        for (const hour of data.data) {
-          // Only include data points from the past 24 hours
-          if (hour.dt >= now - 24 * 60 * 60 && hour.dt <= now) {
-            historicalData.push({
-              time: hour.dt,
-              temperature: Math.round(hour.temp),
-              feelsLike: Math.round(hour.feels_like),
-              humidity: hour.humidity,
-              dewPoint: Math.round(hour.dew_point || 0),
-              condition: hour.weather?.[0]?.main?.toLowerCase() || 'clear',
-              icon: hour.weather?.[0]?.icon || '01d'
-            });
-          }
-        }
-      }
-    } else {
-      console.error('Time Machine API error:', await response.text());
-    }
-
-    // Also fetch today's historical data (for hours between midnight and now)
-    const todayMidnight = new Date();
-    todayMidnight.setHours(0, 0, 0, 0);
-    const todayTimestamp = Math.floor(todayMidnight.getTime() / 1000);
-
-    // Only fetch if today is different from yesterday's request
-    if (todayTimestamp > yesterday) {
-      const todayUrl = `https://api.openweathermap.org/data/3.0/onecall/timemachine?lat=${lat}&lon=${lon}&dt=${todayTimestamp}&units=imperial&appid=${OPENWEATHER_API_KEY.trim()}`;
-
-      const todayResponse = await fetch(todayUrl);
-
-      if (todayResponse.ok) {
-        const todayData = await todayResponse.json();
-
-        if (todayData.data && Array.isArray(todayData.data)) {
-          for (const hour of todayData.data) {
-            // Only include past data points (before now)
-            if (hour.dt >= now - 24 * 60 * 60 && hour.dt <= now) {
-              // Check if we already have this timestamp
-              if (!historicalData.find(h => h.time === hour.dt)) {
-                historicalData.push({
-                  time: hour.dt,
-                  temperature: Math.round(hour.temp),
-                  feelsLike: Math.round(hour.feels_like),
-                  humidity: hour.humidity,
-                  dewPoint: Math.round(hour.dew_point || 0),
-                  condition: hour.weather?.[0]?.main?.toLowerCase() || 'clear',
-                  icon: hour.weather?.[0]?.icon || '01d'
-                });
-              }
-            }
-          }
-        }
+    // Find the reading closest to 3 hours ago
+    if (time >= threeHoursAgo - 30 * 60 * 1000 && time <= threeHoursAgo + 30 * 60 * 1000) {
+      if (oldestPressure === null || Math.abs(time - threeHoursAgo) < Math.abs(oldestTime - threeHoursAgo)) {
+        oldestPressure = pressure;
+        oldestTime = time;
       }
     }
-  } catch (error) {
-    console.error('Error fetching historical data:', error);
+
+    // Find the most recent reading (closest to now)
+    if (time <= now && time > now - 60 * 60 * 1000) {
+      if (newestPressure === null || time > newestTime) {
+        newestPressure = pressure;
+        newestTime = time;
+      }
+    }
   }
 
-  return historicalData.sort((a, b) => a.time - b.time);
+  if (oldestPressure === null || newestPressure === null) {
+    return { direction: 'steady', change: 0 };
+  }
+
+  // Calculate change in hPa over the period
+  const change = newestPressure - oldestPressure;
+  const changeRounded = Math.round(change * 10) / 10;
+
+  // Thresholds for pressure trends (in hPa over 3 hours)
+  // Rapid change: > 2 hPa/3hr
+  // Normal change: 0.5-2 hPa/3hr
+  // Steady: < 0.5 hPa/3hr
+  let direction: string;
+
+  if (change > 2) {
+    direction = 'rapidly-rising';
+  } else if (change > 0.5) {
+    direction = 'rising';
+  } else if (change < -2) {
+    direction = 'rapidly-falling';
+  } else if (change < -0.5) {
+    direction = 'falling';
+  } else {
+    direction = 'steady';
+  }
+
+  return { direction, change: changeRounded };
 }
 
 // Interpolate hourly data to 30-minute resolution
@@ -225,6 +283,7 @@ function interpolateToHalfHour(hourlyData: any[]): any[] {
           feelsLike: Math.round((current.feelsLike + next.feelsLike) / 2),
           humidity: Math.round((current.humidity + next.humidity) / 2),
           dewPoint: Math.round((current.dewPoint + next.dewPoint) / 2),
+          pressure: Math.round(((current.pressure || 0) + (next.pressure || 0)) / 2 * 10) / 10,
           condition: current.condition, // Keep the earlier condition
           icon: current.icon,
           interpolated: true // Mark as interpolated
@@ -236,79 +295,89 @@ function interpolateToHalfHour(hourlyData: any[]): any[] {
   return interpolated;
 }
 
-// Fallback to Current Weather API (2.5) if One Call 3.0 fails
-async function fallbackToCurrentWeather(lat: string, lon: string) {
+// Get timezone offset in seconds from IANA timezone string
+function getTimezoneOffset(timezone: string): number {
   try {
-    const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=imperial&appid=${OPENWEATHER_API_KEY.trim()}`;
-    const response = await fetch(weatherUrl);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Current Weather API error:', errorData);
-      throw new Error('Current Weather API also failed');
-    }
-
-    const data = await response.json();
-
-    // Get IANA timezone from coordinates using a timezone lookup
-    const timezoneString = await getTimezoneFromCoords(lat, lon);
-
-    const weatherData = {
-      temperature: Math.round(data.main.temp),
-      humidity: data.main.humidity,
-      dewPoint: 0, // Fallback API doesn't have dew point data
-      condition: data.weather[0].main.toLowerCase(),
-      description: data.weather[0].description,
-      location: `${data.name}, ${data.sys.country}`,
-      icon: data.weather[0].icon,
-      hourly: [], // Fallback API doesn't have hourly data
-      sunrise: data.sys.sunrise,
-      sunset: data.sys.sunset,
-      timezone: timezoneString,
-      timezoneOffset: data.timezone, // OpenWeather 2.5 API returns timezone offset in seconds
-      timestamp: Date.now()
-    };
-
-    return json(weatherData);
-  } catch (error) {
-    console.error('Fallback API error:', error);
-    return json(
-      { error: 'All weather APIs failed' },
-      { status: 500 }
-    );
+    const now = new Date();
+    const utcTime = now.getTime() + now.getTimezoneOffset() * 60000;
+    const targetTime = new Date(utcTime).toLocaleString('en-US', { timeZone: timezone });
+    const targetDate = new Date(targetTime);
+    const diff = targetDate.getTime() - utcTime;
+    return Math.round(diff / 1000);
+  } catch {
+    return 0;
   }
 }
 
-// Get IANA timezone string from coordinates
-async function getTimezoneFromCoords(lat: string, lon: string): Promise<string> {
-  try {
-    // Use timeapi.io for IANA timezone lookup (free, no API key needed)
-    const response = await fetch(`https://timeapi.io/api/timezone/coordinate?latitude=${lat}&longitude=${lon}`);
-    if (response.ok) {
-      const data = await response.json();
-      return data.timeZone || '';
-    }
-  } catch (error) {
-    console.error('Error getting timezone:', error);
-  }
-  return '';
+// Calculate moon phase and approximate rise/set times
+// Moon phase: 0 = new moon, 0.5 = full moon, 1 = new moon
+function calculateMoonData(lat: number, lon: number, date: Date): { phase: number; moonrise: number; moonset: number; } {
+  // Calculate moon phase using a simplified algorithm
+  // Based on the synodic month (29.53059 days)
+  const synodicMonth = 29.53059;
+
+  // Known new moon: January 6, 2000, 18:14 UTC
+  const knownNewMoon = new Date('2000-01-06T18:14:00Z').getTime();
+  const now = date.getTime();
+
+  const daysSinceNewMoon = (now - knownNewMoon) / (1000 * 60 * 60 * 24);
+  const moonAge = daysSinceNewMoon % synodicMonth;
+  const phase = moonAge / synodicMonth;
+
+  // Approximate moonrise/moonset calculation
+  // This is a simplified calculation - for accurate times, a proper astronomical library would be needed
+  const midnight = new Date(date);
+  midnight.setHours(0, 0, 0, 0);
+  const midnightTimestamp = midnight.getTime() / 1000;
+
+  // Moon rises about 50 minutes later each day
+  // At new moon, moon rises/sets with the sun
+  // At full moon, moon rises at sunset and sets at sunrise
+  const phaseOffset = phase * 24 * 3600; // Phase affects rise time throughout the day
+
+  // Rough approximation: moonrise varies through the day based on phase
+  const moonrise = midnightTimestamp + phaseOffset;
+  const moonset = moonrise + 12 * 3600; // Moon is up for roughly 12 hours
+
+  return {
+    phase,
+    moonrise: Math.round(moonrise),
+    moonset: Math.round(moonset)
+  };
 }
 
-// Convert zip code to coordinates using geocoding API
+// Convert zip code to coordinates using Open-Meteo geocoding
 async function getCoordinatesFromZip(zip: string): Promise<{ lat: string; lon: string; } | null> {
   try {
-    // OpenWeather geocoding API for zip codes (US only by default)
-    const geoUrl = `https://api.openweathermap.org/geo/1.0/zip?zip=${zip},US&appid=${OPENWEATHER_API_KEY.trim()}`;
+    // Open-Meteo geocoding search - search for the zip code as a place name
+    // This works well for US zip codes when combined with "USA"
+    const searchQuery = `${zip} USA`;
+    const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchQuery)}&count=1&language=en&format=json`;
+
     const response = await fetch(geoUrl);
 
     if (response.ok) {
       const data = await response.json();
-      return {
-        lat: data.lat.toString(),
-        lon: data.lon.toString()
-      };
-    } else {
-      console.error('Geocoding failed:', await response.text());
+      if (data.results && data.results.length > 0) {
+        return {
+          lat: data.results[0].latitude.toString(),
+          lon: data.results[0].longitude.toString()
+        };
+      }
+    }
+
+    // Fallback: try searching just the zip code
+    const fallbackUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(zip)}&count=1&language=en&format=json`;
+    const fallbackResponse = await fetch(fallbackUrl);
+
+    if (fallbackResponse.ok) {
+      const fallbackData = await fallbackResponse.json();
+      if (fallbackData.results && fallbackData.results.length > 0) {
+        return {
+          lat: fallbackData.results[0].latitude.toString(),
+          lon: fallbackData.results[0].longitude.toString()
+        };
+      }
     }
   } catch (error) {
     console.error('Error geocoding zip code:', error);
@@ -332,34 +401,40 @@ const US_STATE_ABBREVIATIONS: Record<string, string> = {
   'District of Columbia': 'DC'
 };
 
-// Get location name from coordinates using reverse geocoding
+// Get location name from coordinates using Open-Meteo reverse geocoding
 async function getLocationName(lat: string, lon: string): Promise<string> {
   try {
-    const geoUrl = `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${OPENWEATHER_API_KEY.trim()}`;
-    const response = await fetch(geoUrl);
+    // Open-Meteo doesn't have a direct reverse geocoding API
+    // Use Nominatim (OpenStreetMap) for reverse geocoding - it's free and doesn't require API key
+    const geoUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`;
+    const response = await fetch(geoUrl, {
+      headers: {
+        'User-Agent': 'StarspaceDashboard/1.0'
+      }
+    });
 
     if (response.ok) {
       const data = await response.json();
-      if (data.length > 0) {
-        const place = data[0];
-        // Format: "City, ST USA" (e.g., "Chandler, AZ USA")
-        const city = place.name;
-        const stateFull = place.state || '';
-        const country = place.country || '';
+      if (data.address) {
+        const addr = data.address;
+        const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || '';
+        const state = addr.state || '';
+        const country = addr.country_code?.toUpperCase() || '';
 
         // Convert full state name to abbreviation for US locations
-        const stateAbbr = US_STATE_ABBREVIATIONS[stateFull] || stateFull;
+        const stateAbbr = US_STATE_ABBREVIATIONS[state] || state;
         // Convert "US" to "USA"
         const countryDisplay = country === 'US' ? 'USA' : country;
 
-        if (stateAbbr && countryDisplay) {
+        if (city && stateAbbr && countryDisplay) {
           return `${city}, ${stateAbbr} ${countryDisplay}`;
-        } else if (stateAbbr) {
+        } else if (city && stateAbbr) {
           return `${city}, ${stateAbbr}`;
-        } else if (countryDisplay) {
+        } else if (city && countryDisplay) {
           return `${city}, ${countryDisplay}`;
+        } else if (city) {
+          return city;
         }
-        return city;
       }
     }
   } catch (error) {

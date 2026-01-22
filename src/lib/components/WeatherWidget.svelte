@@ -18,6 +18,8 @@
 		temperature: number;
 		humidity: number;
 		dewPoint: number;
+		pressure?: number;
+		pressureTrend?: { direction: string; change: number };
 		condition: string;
 		description: string;
 		location: string;
@@ -39,6 +41,7 @@
 		feelsLike: number;
 		humidity: number;
 		dewPoint: number;
+		pressure?: number;
 		condition: string;
 		icon: string;
 	}
@@ -48,6 +51,8 @@
 	let temperature = 72;
 	let humidity = 65;
 	let dewPoint = 50;
+	let pressure = 1013.25; // Default sea level pressure in hPa
+	let pressureTrend: { direction: string; change: number } = { direction: 'steady', change: 0 };
 	let location = 'Lewiston, ME';
 	let condition = 'partly-cloudy';
 	let hourlyData: HourlyData[] = [];
@@ -84,6 +89,9 @@
 	$: topSpacing = Math.max(0.5, 0.9 * textScale); // 0.9rem base, min 0.5rem
 	$: dateMargin = Math.max(0.15, 0.25 * textScale); // 0.25rem base, min 0.15rem
 	$: locationMargin = Math.max(0.25, 0.5 * textScale); // 0.5rem base, min 0.25rem
+	$: pressureSize = Math.max(0.9, 1.8 * textScale); // 1.8rem base, min 0.9rem
+	$: pressureUnitSize = Math.max(0.5, 0.8 * textScale); // 0.8rem base, min 0.5rem
+	$: pressureTrendSize = Math.max(0.7, 1.4 * textScale); // 1.4rem base, min 0.7rem
 	
 	// Coordinates (if available)
 	let latitude: number | null = null;
@@ -385,6 +393,8 @@
 		temperature = data.temperature;
 		humidity = data.humidity;
 		dewPoint = data.dewPoint || 0;
+		pressure = data.pressure || 1013.25;
+		pressureTrend = data.pressureTrend || { direction: 'steady', change: 0 };
 		location = data.location;
 		description = data.description || '';
 		hourlyData = data.hourly || [];
@@ -418,7 +428,7 @@
 			widgets.updateTitle(widget.id, `Weather - ${cityName}`);
 		}
 		
-		// Map OpenWeather conditions to our conditions
+		// Map weather conditions to our display conditions
 		const weatherCondition = data.condition.toLowerCase();
 		if (weatherCondition.includes('clear')) {
 			condition = 'sunny';
@@ -675,7 +685,7 @@
 				currentTime = adjustedTime.toLocaleTimeString('en-US', { 
 					hour: '2-digit', 
 					minute: '2-digit', 
-					second: '2-digit',
+					...(hasLocationData ? {} : { second: '2-digit' }),
 					hour12: true,
 					timeZone: timezone
 				});
@@ -703,7 +713,7 @@
 			currentTime = displayDate.toLocaleTimeString('en-US', { 
 				hour: '2-digit', 
 				minute: '2-digit', 
-				second: '2-digit',
+				...(hasLocationData ? {} : { second: '2-digit' }),
 				hour12: true 
 			});
 			
@@ -713,7 +723,7 @@
 			const weekday = displayDate.toLocaleString('en-US', { weekday: 'long' });
 			currentDate = `${year} ${month} ${day} (${weekday})`;
 		} else {
-			// No location data yet - show local time
+			// No location data yet - show local time with seconds
 			currentTime = adjustedTime.toLocaleTimeString('en-US', { 
 				hour: '2-digit', 
 				minute: '2-digit', 
@@ -1409,6 +1419,25 @@
 			</span>
 		</div>
 
+		<!-- Barometric Pressure - Left of Temperature, slightly above center -->
+		<div class="pressure-center" style="--pressure-size: {pressureSize}rem; --pressure-unit-size: {pressureUnitSize}rem; --pressure-trend-size: {pressureTrendSize}rem">
+			<span class="pressure-value">{pressure.toFixed(1)}</span>
+			<span class="pressure-unit">hPa</span>
+			<span class="pressure-trend" class:rising={pressureTrend.direction.includes('rising')} class:falling={pressureTrend.direction.includes('falling')}>
+				{#if pressureTrend.direction === 'rapidly-rising'}
+					↑↑
+				{:else if pressureTrend.direction === 'rising'}
+					↑
+				{:else if pressureTrend.direction === 'rapidly-falling'}
+					↓↓
+				{:else if pressureTrend.direction === 'falling'}
+					↓
+				{:else}
+					→
+				{/if}
+			</span>
+		</div>
+
 			<!-- Humidity Wave (at bottom) -->
 			<div class="humidity">
 				<div class="humidity-wave"></div>
@@ -1638,6 +1667,47 @@
 	.humidity-value {
 		font-weight: 600;
 		font-size: 1.5rem;
+	}
+
+	.pressure-center {
+		position: absolute;
+		top: 50%;
+		left: 15%;
+		transform: translateY(-50%);
+		margin-top: -1rem;
+		z-index: 2;
+		font-size: 1.8rem;
+		font-weight: 300;
+		color: var(--text-color, var(--text-primary));
+		text-shadow: 0 2px 4px var(--shadow);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.1rem;
+	}
+
+	.pressure-value {
+		font-weight: 100;
+		font-size: var(--pressure-size, 1.8rem);
+	}
+
+	.pressure-unit {
+		font-size: var(--pressure-unit-size, 0.8rem);
+		opacity: 0.7;
+	}
+
+	.pressure-trend {
+		font-weight: 600;
+		font-size: var(--pressure-trend-size, 1.4rem);
+		margin-top: 0.2rem;
+	}
+
+	.pressure-trend.rising {
+		color: var(--success, #4ade80);
+	}
+
+	.pressure-trend.falling {
+		color: var(--warning, #f59e0b);
 	}
 
 	.humidity-symbols {
