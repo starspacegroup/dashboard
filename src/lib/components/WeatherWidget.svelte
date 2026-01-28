@@ -2066,11 +2066,17 @@
 	.location {
 		position: relative;
 		z-index: 3;
-		font-size: calc(var(--location-size, 1) * 1rem);
+		font-size: calc(var(--location-size, 1) * 0.85rem);
 		color: var(--text-color, var(--text-primary));
 		opacity: 0.8;
 		margin-top: 0;
 		text-shadow: 0 1px 2px var(--shadow);
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		padding: 0 0.5rem;
+		box-sizing: border-box;
 	}
 
 	.condition-text {
@@ -2110,7 +2116,9 @@
 		transform: translateX(-50%);
 		z-index: 3;
 		text-align: center;
-		width: 100%;
+		/* At 18% from top, chord width ≈ 77% of diameter */
+		width: 70%;
+		max-width: 70%;
 	}
 
 	.temperature {
