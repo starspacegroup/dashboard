@@ -515,22 +515,31 @@
 
 	async function fetchWeatherData() {
 		try {
-			// Try to get user's location
+			// Try to get user's location with a timeout
 			if (navigator.geolocation) {
-				navigator.geolocation.getCurrentPosition(
-					async (position) => {
-						const { latitude, longitude } = position.coords;
-						await fetchWeatherFromAPI(latitude, longitude);
-					},
-					async (error) => {
-						// Geolocation failed or denied - don't load any weather data
-						isLoading = false;
-						// Don't set hasLocationData = true
-					}
-				);
+				// Create a promise that times out after 10 seconds
+				const locationPromise = new Promise<GeolocationPosition>((resolve, reject) => {
+					navigator.geolocation.getCurrentPosition(
+						resolve,
+						reject,
+						{ timeout: 10000, maximumAge: 300000 } // 10s timeout, 5min cache
+					);
+				});
+
+				try {
+					const position = await locationPromise;
+					const { latitude, longitude } = position.coords;
+					await fetchWeatherFromAPI(latitude, longitude);
+				} catch (geoError) {
+					// Geolocation failed, timed out, or denied
+					// Fall back to default location (Lewiston, ME)
+					console.log('Geolocation unavailable, using default location');
+					await fetchWeatherFromAPI(44.1004, -70.2148);
+				}
 			} else {
-				// Geolocation not supported - don't load any weather data
-				isLoading = false;
+				// Geolocation not supported - fall back to default location
+				console.log('Geolocation not supported, using default location');
+				await fetchWeatherFromAPI(44.1004, -70.2148);
 			}
 		} catch (error) {
 			console.error('Error fetching weather:', error);

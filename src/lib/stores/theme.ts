@@ -80,7 +80,9 @@ function createThemeStore() {
       if (!browser) return 'dark';
       let currentTheme: Theme = 'dark';
       subscribe(t => currentTheme = t)();
-      return currentTheme === 'auto' ? getSystemTheme() : currentTheme;
+      // Need to cast because TypeScript can't track the subscription pattern correctly
+      const themeValue = currentTheme as Theme;
+      return themeValue === 'auto' ? getSystemTheme() : themeValue;
     },
     initialize: () => {
       if (browser) {
