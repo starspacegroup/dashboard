@@ -10,7 +10,9 @@
 
 	// Make cache key unique per widget instance
 	$: WEATHER_CACHE_KEY = `dashboard-weather-data-${widget.id}`;
-	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+	// Client-side cache: 10 minutes to match server-side cache
+	// Server caches weather for 10 min, so no point refreshing more often
+	const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes in milliseconds
 	const GLOBAL_UNIT_PREFERENCE_KEY = 'dashboard-temp-unit-global';
 	const ZIP_CODE_KEY = 'dashboard-zip-code';
 
@@ -1021,7 +1023,8 @@
 		// Load weather data
 		loadWeatherData();
 		
-		// Refresh weather data every 5 minutes (use loadWeatherData to respect widget config)
+		// Refresh weather data every 10 minutes (matches server-side cache TTL)
+		// Server caches: weather=10min, astronomical=daily, location=24h
 		const weatherInterval = setInterval(() => {
 			loadWeatherData();
 		}, CACHE_DURATION);

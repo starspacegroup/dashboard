@@ -1,5 +1,14 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import {
+  getWeatherFromCache,
+  setWeatherCache,
+  getAstronomicalFromCache,
+  setAstronomicalCache,
+  getLocationFromCache,
+  setLocationCache,
+  getWeatherCacheInfo
+} from '$lib/server/weatherCache';
 
 // WMO Weather interpretation codes mapping to conditions and icons
 // See: https://open-meteo.com/en/docs#weathervariables
@@ -71,7 +80,56 @@ export const GET: RequestHandler = async ({ url }) => {
       longitude = '-70.2148';
     }
 
-    // Fetch current weather and forecast from Open-Meteo
+    const now = new Date();
+    const forceRefresh = url.searchParams.get('refresh') === 'true';
+
+    // Check if we have cached weather data (unless force refresh)
+    const cachedWeather = forceRefresh ? null : getWeatherFromCache(latitude, longitude);
+    const cacheInfo = getWeatherCacheInfo(latitude, longitude);
+
+    // If we have valid cached weather data, try to use cached location and astro data too
+    if (cachedWeather) {
+      // Get cached or fresh location name
+      let locationName = getLocationFromCache(latitude, longitude);
+      if (!locationName) {
+        locationName = await getLocationName(latitude, longitude);
+        setLocationCache(latitude, longitude, locationName);
+      }
+
+      // Get cached or fresh astronomical data
+      let astroData = getAstronomicalFromCache(latitude, longitude, now);
+      if (!astroData) {
+        astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
+        setAstronomicalCache(latitude, longitude, now, astroData, cachedWeather.timezone);
+      }
+
+      // Return cached response with merged data
+      const weatherData = {
+        ...cachedWeather,
+        location: locationName,
+        sunrise: astroData.sunrise,
+        sunset: astroData.sunset,
+        solarNoon: astroData.solarNoon,
+        dayLength: astroData.dayLength,
+        civilTwilightBegin: astroData.civilTwilightBegin,
+        civilTwilightEnd: astroData.civilTwilightEnd,
+        nauticalTwilightBegin: astroData.nauticalTwilightBegin,
+        nauticalTwilightEnd: astroData.nauticalTwilightEnd,
+        astronomicalTwilightBegin: astroData.astronomicalTwilightBegin,
+        astronomicalTwilightEnd: astroData.astronomicalTwilightEnd,
+        moonrise: astroData.moonrise,
+        moonset: astroData.moonset,
+        moonPhase: astroData.moonPhase,
+        moonIllumination: astroData.moonIllumination,
+        timestamp: Date.now(),
+        cached: true,
+        cacheAge: cacheInfo?.age || 0
+      };
+
+      return json(weatherData);
+    }
+
+    // Fetch fresh weather data from Open-Meteo
     // Using Fahrenheit (temperature_unit=fahrenheit) for consistency with existing code
     const forecastUrl = new URL('https://api.open-meteo.com/v1/forecast');
     forecastUrl.searchParams.set('latitude', latitude);
@@ -99,7 +157,6 @@ export const GET: RequestHandler = async ({ url }) => {
     const data = await response.json();
 
     // Get current time index in the hourly arrays
-    const now = new Date();
     const currentHourISO = now.toISOString().slice(0, 13) + ':00';
 
     // Current weather data
@@ -153,16 +210,11 @@ export const GET: RequestHandler = async ({ url }) => {
     // Interpolate to 30-minute resolution
     const interpolatedHourly = interpolateToHalfHour(hourlyData);
 
-    // Fetch astronomical data from free APIs (sunrise-sunset.org + moon calculations)
-    const astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
-
-    // Get location name via reverse geocoding
-    const locationName = await getLocationName(latitude, longitude);
-
     // Get timezone offset in seconds
     const timezoneOffset = getTimezoneOffset(data.timezone);
 
-    const weatherData = {
+    // Cache the core weather data (before adding location/astro)
+    const weatherCacheData = {
       temperature: Math.round(currentTemp),
       humidity: currentHumidity,
       dewPoint: Math.round(dewPointEstimate),
@@ -173,9 +225,30 @@ export const GET: RequestHandler = async ({ url }) => {
       windGust: Math.round(windGust),
       condition: weatherInfo.condition,
       description: weatherInfo.description,
-      location: locationName,
       icon: weatherInfo.icon,
       hourly: interpolatedHourly,
+      timezone: data.timezone,
+      timezoneOffset: timezoneOffset
+    };
+    setWeatherCache(latitude, longitude, weatherCacheData);
+
+    // Get cached or fresh astronomical data
+    let astroData = getAstronomicalFromCache(latitude, longitude, now);
+    if (!astroData) {
+      astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
+      setAstronomicalCache(latitude, longitude, now, astroData, data.timezone);
+    }
+
+    // Get cached or fresh location name
+    let locationName = getLocationFromCache(latitude, longitude);
+    if (!locationName) {
+      locationName = await getLocationName(latitude, longitude);
+      setLocationCache(latitude, longitude, locationName);
+    }
+
+    const weatherData = {
+      ...weatherCacheData,
+      location: locationName,
       sunrise: astroData.sunrise,
       sunset: astroData.sunset,
       solarNoon: astroData.solarNoon,
@@ -190,9 +263,8 @@ export const GET: RequestHandler = async ({ url }) => {
       moonset: astroData.moonset,
       moonPhase: astroData.moonPhase,
       moonIllumination: astroData.moonIllumination,
-      timezone: data.timezone,
-      timezoneOffset: timezoneOffset,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      cached: false
     };
 
     return json(weatherData);
