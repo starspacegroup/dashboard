@@ -16,7 +16,13 @@ const US_STATE_ABBREVIATIONS: Record<string, string> = {
   'District of Columbia': 'DC'
 };
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ url, locals }) => {
+  // Require authentication
+  const session = await locals.getSession();
+  if (!session?.user) {
+    return json({ error: 'Authentication required' }, { status: 401 });
+  }
+
   const query = url.searchParams.get('q');
 
   if (!query || query.trim().length < 2) {

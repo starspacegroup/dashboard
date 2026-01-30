@@ -1,3 +1,4 @@
+import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
 interface GitHubOrganization {
@@ -130,16 +131,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const session = await locals.getSession() as ExtendedSession | null;
 
 	if (!session?.user) {
-		return {
-			user: null,
-			githubProjects: [],
-			organizationProjects: [],
-			allGithubProjects: [],
-			assignedPRs: [],
-			createdPRs: [],
-			reviewRequestedPRs: [],
-			copilotMetrics: []
-		};
+		throw redirect(303, '/signin');
 	}
 
 	try {

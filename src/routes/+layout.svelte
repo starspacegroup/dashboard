@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { theme } from '$lib/stores/theme';
+	import { page } from '$app/stores';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import WeatherWidgetSettings from '$lib/components/WeatherWidgetSettings.svelte';
 	import Footer from '$lib/components/Footer.svelte';
@@ -13,6 +14,9 @@
 	export let data;
 
 	let commandPaletteOpen = false;
+
+	// Check if we're on a page that should hide the main chrome (header/footer)
+	$: isMinimalLayout = $page.url.pathname === '/signin';
 
 	onMount(() => {
 		theme.initialize();
@@ -60,6 +64,7 @@
 />
 
 <div class="app">
+	{#if !isMinimalLayout}
 	<header>
 		<h1>Dashboard</h1>
 		<nav>
@@ -81,12 +86,15 @@
 			{/if}
 		</nav>
 	</header>
+	{/if}
 
-	<main>
+	<main class:minimal={isMinimalLayout}>
 		<slot />
 	</main>
 
+	{#if !isMinimalLayout}
 	<Footer />
+	{/if}
 </div>
 
 <style>
@@ -218,6 +226,10 @@
 		box-sizing: border-box;
 		overflow-x: hidden;
 		animation: fadeIn 0.4s var(--ease-out);
+	}
+
+	main.minimal {
+		padding: 0;
 	}
 
 	@keyframes fadeIn {

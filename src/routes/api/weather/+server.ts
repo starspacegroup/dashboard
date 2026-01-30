@@ -51,7 +51,13 @@ function getWeatherFromWMO(code: number, isNight: boolean = false): { condition:
   return { ...weather, icon };
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ url, locals }) => {
+  // Require authentication
+  const session = await locals.getSession();
+  if (!session?.user) {
+    return json({ error: 'Authentication required' }, { status: 401 });
+  }
+
   const lat = url.searchParams.get('lat');
   const lon = url.searchParams.get('lon');
   const zip = url.searchParams.get('zip');
