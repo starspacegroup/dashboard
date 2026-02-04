@@ -98,15 +98,40 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       // Get cached or fresh location name
       let locationName = getLocationFromCache(latitude, longitude);
       if (!locationName) {
-        locationName = await getLocationName(latitude, longitude);
-        setLocationCache(latitude, longitude, locationName);
+        try {
+          locationName = await getLocationName(latitude, longitude);
+          setLocationCache(latitude, longitude, locationName);
+        } catch {
+          locationName = 'Unknown Location';
+        }
       }
 
       // Get cached or fresh astronomical data
       let astroData = getAstronomicalFromCache(latitude, longitude, now);
       if (!astroData) {
-        astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
-        setAstronomicalCache(latitude, longitude, now, astroData, cachedWeather.timezone);
+        try {
+          astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
+          setAstronomicalCache(latitude, longitude, now, astroData, cachedWeather.timezone);
+        } catch {
+          // Use default values if astronomical fetch fails
+          const midnightTs = Math.floor(now.getTime() / 1000);
+          astroData = {
+            sunrise: midnightTs + 6 * 3600,
+            sunset: midnightTs + 18 * 3600,
+            solarNoon: midnightTs + 12 * 3600,
+            dayLength: 12 * 3600,
+            civilTwilightBegin: midnightTs + 5.5 * 3600,
+            civilTwilightEnd: midnightTs + 18.5 * 3600,
+            nauticalTwilightBegin: midnightTs + 5 * 3600,
+            nauticalTwilightEnd: midnightTs + 19 * 3600,
+            astronomicalTwilightBegin: midnightTs + 4.5 * 3600,
+            astronomicalTwilightEnd: midnightTs + 19.5 * 3600,
+            moonPhase: 0.5,
+            moonIllumination: 0.5,
+            moonrise: midnightTs + 20 * 3600,
+            moonset: midnightTs + 8 * 3600
+          };
+        }
       }
 
       // Return cached response with merged data
@@ -151,7 +176,12 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
     let response: Response;
     try {
-      response = await fetch(forecastUrl.toString());
+      response = await fetch(forecastUrl.toString(), {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'StarspaceDashboard/1.0'
+        }
+      });
     } catch (fetchError) {
       console.error('Open-Meteo fetch error:', fetchError);
       return json(
@@ -169,7 +199,16 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       );
     }
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      console.error('Open-Meteo JSON parse error:', parseError);
+      return json(
+        { error: 'Failed to parse Open-Meteo response' },
+        { status: 502 }
+      );
+    }
 
     // Get current time index in the hourly arrays
     const currentHourISO = now.toISOString().slice(0, 13) + ':00';
@@ -250,15 +289,42 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     // Get cached or fresh astronomical data
     let astroData = getAstronomicalFromCache(latitude, longitude, now);
     if (!astroData) {
-      astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
-      setAstronomicalCache(latitude, longitude, now, astroData, data.timezone);
+      try {
+        astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
+        setAstronomicalCache(latitude, longitude, now, astroData, data.timezone);
+      } catch (astroError) {
+        console.error('Astronomical data fetch error:', astroError);
+        // Use default values if astronomical fetch fails
+        const midnightTs = Math.floor(now.getTime() / 1000);
+        astroData = {
+          sunrise: midnightTs + 6 * 3600,
+          sunset: midnightTs + 18 * 3600,
+          solarNoon: midnightTs + 12 * 3600,
+          dayLength: 12 * 3600,
+          civilTwilightBegin: midnightTs + 5.5 * 3600,
+          civilTwilightEnd: midnightTs + 18.5 * 3600,
+          nauticalTwilightBegin: midnightTs + 5 * 3600,
+          nauticalTwilightEnd: midnightTs + 19 * 3600,
+          astronomicalTwilightBegin: midnightTs + 4.5 * 3600,
+          astronomicalTwilightEnd: midnightTs + 19.5 * 3600,
+          moonPhase: 0.5,
+          moonIllumination: 0.5,
+          moonrise: midnightTs + 20 * 3600,
+          moonset: midnightTs + 8 * 3600
+        };
+      }
     }
 
     // Get cached or fresh location name
     let locationName = getLocationFromCache(latitude, longitude);
     if (!locationName) {
-      locationName = await getLocationName(latitude, longitude);
-      setLocationCache(latitude, longitude, locationName);
+      try {
+        locationName = await getLocationName(latitude, longitude);
+        setLocationCache(latitude, longitude, locationName);
+      } catch (locationError) {
+        console.error('Location name fetch error:', locationError);
+        locationName = 'Unknown Location';
+      }
     }
 
     const weatherData = {
@@ -286,9 +352,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   } catch (error) {
     console.error('Error fetching weather:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorStack = error instanceof Error ? error.stack : '';
     return json(
-      { error: `Failed to fetch weather data: ${errorMessage}`, stack: errorStack },
+      { error: `Weather API error: ${errorMessage}` },
       { status: 500 }
     );
   }
