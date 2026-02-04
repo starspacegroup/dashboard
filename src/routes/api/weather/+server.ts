@@ -149,14 +149,23 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     forecastUrl.searchParams.set('past_days', '1');
     forecastUrl.searchParams.set('forecast_days', '2');
 
-    const response = await fetch(forecastUrl.toString());
+    let response: Response;
+    try {
+      response = await fetch(forecastUrl.toString());
+    } catch (fetchError) {
+      console.error('Open-Meteo fetch error:', fetchError);
+      return json(
+        { error: `Failed to connect to Open-Meteo: ${fetchError instanceof Error ? fetchError.message : 'Network error'}` },
+        { status: 502 }
+      );
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Open-Meteo API error:', errorText);
+      console.error('Open-Meteo API error:', response.status, errorText);
       return json(
-        { error: 'Failed to fetch weather data from Open-Meteo' },
-        { status: 500 }
+        { error: `Open-Meteo API error (${response.status}): ${errorText.slice(0, 200)}` },
+        { status: 502 }
       );
     }
 
@@ -276,8 +285,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     return json(weatherData);
   } catch (error) {
     console.error('Error fetching weather:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : '';
     return json(
-      { error: 'Failed to fetch weather data' },
+      { error: `Failed to fetch weather data: ${errorMessage}`, stack: errorStack },
       { status: 500 }
     );
   }
