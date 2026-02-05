@@ -267,9 +267,13 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     // Get timezone offset in seconds
     const timezoneOffset = getTimezoneOffset(data.timezone);
 
+    // Get current feels-like temperature
+    const currentFeelsLike = Math.round(data.current.apparent_temperature);
+
     // Cache the core weather data (before adding location/astro)
     const weatherCacheData = {
       temperature: Math.round(currentTemp),
+      feelsLike: currentFeelsLike,
       humidity: currentHumidity,
       dewPoint: Math.round(dewPointEstimate),
       pressure: Math.round(currentPressure * 10) / 10,

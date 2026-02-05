@@ -18,6 +18,7 @@
 
 	interface WeatherData {
 		temperature: number;
+		feelsLike?: number;
 		humidity: number;
 		dewPoint: number;
 		pressure?: number;
@@ -63,6 +64,7 @@
 	let currentTime = '';
 	let currentDate = '';
 	let temperature = 72;
+	let feelsLike = 72;
 	let humidity = 65;
 	let dewPoint = 50;
 	let pressure = 1013.25; // Default sea level pressure in hPa
@@ -451,10 +453,22 @@
 	})();
 
 	// Reactive temperature display - uses time offset data when time traveling
-	$: displayTemp = isCelsius 
-		? Math.round((timeOffsetData.temperature - 32) * 5 / 9) 
+	$: displayTemp = isCelsius
+		? Math.round((timeOffsetData.temperature - 32) * 5 / 9)
 		: timeOffsetData.temperature;
-	
+
+	// High/Low for next 24 hours
+	$: tempHighLow = (() => {
+		if (next24HoursData.length === 0) return null;
+		const temps = next24HoursData.map(h => h.temperature);
+		const highF = Math.max(...temps);
+		const lowF = Math.min(...temps);
+		return {
+			high: isCelsius ? Math.round((highF - 32) * 5 / 9) : highF,
+			low: isCelsius ? Math.round((lowF - 32) * 5 / 9) : lowF
+		};
+	})();
+
 	// Reactive humidity display - uses time offset data when time traveling
 	$: displayHumidity = timeOffsetData.humidity;
 
@@ -632,6 +646,7 @@
 
 	function applyWeatherData(data: WeatherData) {
 		temperature = data.temperature;
+		feelsLike = data.feelsLike ?? data.temperature;
 		humidity = data.humidity;
 		dewPoint = data.dewPoint || 0;
 		pressure = data.pressure || 1013.25;
@@ -1776,41 +1791,51 @@
 
 		<!-- 24-Hour Temperature Graph (layered behind temperature) -->
 		{#if next24HoursData.length > 0}
-			<svg class="temp-graph-svg" width="{earthSize}" height="80" viewBox="0 0 {earthSize} 80">
-				<!-- Define gradient for temperature colors -->
+			<svg class="temp-graph-svg" width="{earthSize}" height="100" viewBox="0 0 {earthSize} 100">
+				<!-- Define gradient and glow filter for temperature colors -->
 				<defs>
-					<linearGradient id="tempGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+					<linearGradient id="tempGradient-{widget.id}" x1="0%" y1="0%" x2="100%" y2="0%">
 						{#each next24HoursData as hour, index}
 							{@const offset = (index / Math.max(next24HoursData.length - 1, 1)) * 100}
 							{@const color = getTemperatureColor(hour.temperature)}
 							<stop offset="{offset}%" stop-color={color} />
 						{/each}
 					</linearGradient>
+					<!-- Glow filter for dramatic effect -->
+					<filter id="tempGlow-{widget.id}" x="-50%" y="-50%" width="200%" height="200%">
+						<feGaussianBlur stdDeviation="4" result="blur"/>
+						<feMerge>
+							<feMergeNode in="blur"/>
+							<feMergeNode in="blur"/>
+							<feMergeNode in="SourceGraphic"/>
+						</feMerge>
+					</filter>
 				</defs>
 
-				<!-- Temperature line with gradient -->
+				<!-- Shadow/glow layer -->
 				<path
 					d={temperaturePath}
 					fill="none"
-					stroke="url(#tempGradient)"
-					stroke-width="8"
+					stroke="url(#tempGradient-{widget.id})"
+					stroke-width="16"
 					stroke-linecap="round"
 					stroke-linejoin="round"
+					opacity="0.3"
+					filter="url(#tempGlow-{widget.id})"
+					transform="translate(0, 10)"
 				/>
 
-				<!-- Forecasted high label at peak -->
-				{#if graphHighInfo}
-					<text
-						x={graphHighInfo.x}
-						y={graphHighInfo.y}
-						class="graph-high-label"
-						text-anchor="middle"
-						fill="var(--text-color, var(--text-primary))"
-						opacity="0.4"
-					>
-						{graphHighInfo.temp}°
-					</text>
-				{/if}
+				<!-- Main temperature line with gradient -->
+				<path
+					d={temperaturePath}
+					fill="none"
+					stroke="url(#tempGradient-{widget.id})"
+					stroke-width="10"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					filter="url(#tempGlow-{widget.id})"
+					transform="translate(0, 10)"
+				/>
 			</svg>
 		{/if}
 
@@ -1819,32 +1844,47 @@
 			<span class="temp-number">{displayTemp}</span><span class="degree-symbol">°{isCelsius ? 'C' : 'F'}</span>
 		</div>
 
-		<!-- Bottom Info Row - Compact wind, pressure, humidity -->
+		<!-- High/Low -->
+		{#if tempHighLow}
+			<div class="temp-details">
+				<span class="high-low">
+					<span class="high">H:{tempHighLow.high}°</span>
+					<span class="low">L:{tempHighLow.low}°</span>
+				</span>
+			</div>
+		{/if}
+
+		<!-- Bottom Info Row - Enhanced wind, pressure, humidity -->
 		<div class="bottom-info-row" style="--base-scale: {textScale};">
-			<!-- Wind -->
-			<div class="compact-wind" style="--importance: {windImportance};">
-				<svg viewBox="0 0 24 24" class="compact-wind-arrow" style="transform: rotate({windDirection}deg);">
-					<path d="M12 2L8 10h3v10h2V10h3L12 2z" fill="currentColor" opacity="0.9"/>
-				</svg>
-				<span class="compact-value">{Math.round(windGust > windSpeed ? windGust : windSpeed)}</span>
-				<span class="compact-unit">mph</span>
+			<!-- Wind with direction -->
+			<div class="info-item wind-info" style="--importance: {windImportance};">
+				<div class="info-icon-row">
+					<svg viewBox="0 0 24 24" class="wind-arrow" style="transform: rotate({windDirection}deg);">
+						<path d="M12 2L8 10h3v10h2V10h3L12 2z" fill="currentColor"/>
+					</svg>
+					<span class="wind-direction">{windDirectionText}</span>
+				</div>
+				<div class="info-value-row">
+					<span class="info-value">{Math.round(windGust > windSpeed ? windGust : windSpeed)}</span>
+					<span class="info-unit">mph</span>
+				</div>
+				{#if windGust > windSpeed + 5}
+					<span class="gust-label">gusts</span>
+				{/if}
 			</div>
 
-			<!-- Pressure with mini graph -->
-			<div class="compact-pressure" style="--importance: {pressureImportance};">
-				<div class="compact-pressure-top">
-					<span class="compact-value">{pressure.toFixed(0)}</span>
-					<span class="compact-unit">hPa</span>
+			<!-- Pressure with trend -->
+			<div class="info-item pressure-info" style="--importance: {pressureImportance};">
+				<div class="info-value-row">
+					<span class="info-value">{pressure.toFixed(0)}</span>
+					<span class="info-unit">hPa</span>
 				</div>
 				{#if pressureForecast.segments.length > 0}
-					<svg
-						class="compact-pressure-graph"
-						viewBox="0 0 50 16"
-					>
+					<svg class="pressure-graph" viewBox="0 0 60 20">
 						{#each pressureForecast.segments as segment, i}
 							{@const totalSegs = pressureForecast.segments.length}
-							{@const x1 = (i / totalSegs) * 50}
-							{@const x2 = ((i + 1) / totalSegs) * 50}
+							{@const x1 = 2 + (i / totalSegs) * 56}
+							{@const x2 = 2 + ((i + 1) / totalSegs) * 56}
 							{@const pt1 = pressureForecast.points[i]}
 							{@const pt2 = pressureForecast.points[i + 1]}
 							{@const graphH = pressureGraphHeight || 36}
@@ -1852,11 +1892,11 @@
 							{@const y2Norm = pt2 ? (pt2.y - 2) / (graphH - 4) : 0.5}
 							<line
 								x1="{x1}"
-								y1="{2 + y1Norm * 12}"
+								y1="{2 + y1Norm * 16}"
 								x2="{x2}"
-								y2="{2 + y2Norm * 12}"
+								y2="{2 + y2Norm * 16}"
 								stroke="{segment.color}"
-								stroke-width="1.5"
+								stroke-width="2"
 								stroke-linecap="round"
 							/>
 						{/each}
@@ -1864,32 +1904,37 @@
 							{@const firstPt = pressureForecast.points[0]}
 							{@const graphH = pressureGraphHeight || 36}
 							{@const y1Norm = (firstPt.y - 2) / (graphH - 4)}
-							<circle cx="1" cy="{2 + y1Norm * 12}" r="1.5" fill="{pressureForecast.severityColor}"/>
+							<circle cx="3" cy="{2 + y1Norm * 16}" r="2.5" fill="{pressureForecast.severityColor}"/>
 						{/if}
 					</svg>
 				{/if}
+				<span class="trend-label" style="color: {pressureForecast.severityColor}">
+					{pressureTrend.direction === 'rising' ? '↑ Rising' : pressureTrend.direction === 'falling' ? '↓ Falling' : '→ Steady'}
+				</span>
 			</div>
 
-			<!-- Humidity droplet -->
-			<div class="compact-humidity" style="--importance: {humidityImportance};">
-				<svg viewBox="0 0 24 32" class="compact-droplet">
+			<!-- Humidity with visual fill -->
+			<div class="info-item humidity-info" style="--importance: {humidityImportance};">
+				<svg viewBox="0 0 28 36" class="humidity-droplet">
 					<defs>
 						<linearGradient id="droplet-fill-{widget.id}" x1="0%" y1="100%" x2="0%" y2="0%">
-							<stop offset="0%" stop-color="#3b82f6" stop-opacity="0.8"/>
-							<stop offset="{displayHumidity}%" stop-color="#3b82f6" stop-opacity="0.8"/>
-							<stop offset="{displayHumidity}%" stop-color="#3b82f6" stop-opacity="0.15"/>
-							<stop offset="100%" stop-color="#3b82f6" stop-opacity="0.15"/>
+							<stop offset="0%" stop-color="#60a5fa" stop-opacity="0.9"/>
+							<stop offset="{displayHumidity}%" stop-color="#60a5fa" stop-opacity="0.9"/>
+							<stop offset="{displayHumidity}%" stop-color="#60a5fa" stop-opacity="0.2"/>
+							<stop offset="100%" stop-color="#60a5fa" stop-opacity="0.2"/>
 						</linearGradient>
 					</defs>
-					<path d="M12 2C12 2 4 12 4 18c0 4.4 3.6 8 8 8s8-3.6 8-8c0-6-8-16-8-16z"
+					<path d="M14 2C14 2 4 14 4 21c0 5.5 4.5 10 10 10s10-4.5 10-10c0-7-10-19-10-19z"
 						fill="url(#droplet-fill-{widget.id})"
 						stroke="currentColor"
-						stroke-width="1"
-						stroke-opacity="0.3"
+						stroke-width="1.5"
+						stroke-opacity="0.4"
 					/>
 				</svg>
-				<span class="compact-value">{displayHumidity}</span>
-				<span class="compact-unit">%</span>
+				<div class="info-value-row">
+					<span class="info-value">{displayHumidity}</span>
+					<span class="info-unit">%</span>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -2027,28 +2072,33 @@
 	.location {
 		position: relative;
 		z-index: 3;
-		font-size: calc(var(--location-size, 1) * 0.85rem);
+		font-size: calc(var(--location-size, 1) * 1rem);
+		font-weight: 500;
 		color: var(--text-color, var(--text-primary));
-		opacity: 0.8;
+		opacity: 0.95;
 		margin-top: 0;
-		text-shadow: 0 1px 2px var(--shadow);
+		text-shadow:
+			0 1px 2px var(--shadow),
+			0 2px 4px var(--shadow);
 		max-width: 100%;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		padding: 0 0.5rem;
+		padding: 0 0.75rem;
 		box-sizing: border-box;
+		letter-spacing: 0.01em;
 	}
 
 	.condition-text {
 		position: relative;
 		z-index: 3;
-		font-size: calc(var(--location-size, 1) * 0.75rem);
+		font-size: calc(var(--location-size, 1) * 0.8rem);
 		color: var(--text-color, var(--text-primary));
-		opacity: 0.6;
-		margin-top: 0.15rem;
-		text-shadow: 0 1px 2px var(--shadow);
-		font-style: italic;
+		opacity: 0.75;
+		margin-top: 0.2rem;
+		text-shadow: 0 1px 3px var(--shadow);
+		font-weight: 400;
+		letter-spacing: 0.02em;
 	}
 
 	.time-date-section {
@@ -2107,81 +2157,140 @@
 		margin-top: 0.5rem;
 	}
 
-	/* ======== BOTTOM INFO ROW - COMPACT ======== */
+	/* ======== FEELS LIKE & HIGH/LOW ======== */
+	.temp-details {
+		position: absolute;
+		top: 66%;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 3;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: calc(0.85rem * var(--base-scale, 1));
+		color: var(--text-color, var(--text-primary));
+		text-shadow: 0 1px 3px var(--shadow);
+	}
+
+	.high-low {
+		display: flex;
+		gap: 0.75rem;
+		font-weight: 500;
+		opacity: 0.9;
+	}
+
+	.high-low .high {
+		color: #f97316;
+	}
+
+	.high-low .low {
+		color: #60a5fa;
+	}
+
+	/* ======== BOTTOM INFO ROW - ENHANCED ======== */
 	.bottom-info-row {
 		position: absolute;
-		bottom: 12%;
+		bottom: 10%;
 		left: 50%;
 		transform: translateX(-50%);
 		display: flex;
 		justify-content: center;
 		align-items: flex-end;
-		gap: calc(0.8rem * var(--base-scale, 1));
+		gap: calc(1.25rem * var(--base-scale, 1));
 		z-index: 10;
-		max-width: 85%;
+		max-width: 90%;
 	}
 
-	/* Shared compact element styles with importance scaling */
-	.compact-wind,
-	.compact-pressure,
-	.compact-humidity {
+	/* Shared info item styles */
+	.info-item {
 		display: flex;
-		align-items: center;
-		transition: transform 0.3s ease;
-		transform: scale(var(--importance, 1));
-	}
-
-	.compact-value {
-		font-weight: 200;
-		font-size: calc(0.75rem * var(--importance, 1));
-		line-height: 1;
-		opacity: calc(0.7 + var(--importance, 1) * 0.2);
-	}
-
-	.compact-unit {
-		font-size: calc(0.4rem * var(--importance, 1));
-		opacity: 0.5;
-		margin-left: 1px;
-	}
-
-	/* Compact Wind */
-	.compact-wind {
-		gap: 2px;
-	}
-
-	.compact-wind-arrow {
-		width: calc(12px * var(--importance, 1));
-		height: calc(12px * var(--importance, 1));
-		transition: transform 0.5s ease-out, width 0.3s ease, height 0.3s ease;
-		opacity: 0.8;
-	}
-
-	/* Compact Pressure */
-	.compact-pressure {
 		flex-direction: column;
 		align-items: center;
-		gap: 1px;
+		gap: 0.15rem;
+		transition: transform 0.3s ease;
+		transform: scale(var(--importance, 1));
+		color: var(--text-color, var(--text-primary));
+		text-shadow: 0 1px 3px var(--shadow);
 	}
 
-	.compact-pressure-top {
+	.info-icon-row {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+	}
+
+	.info-value-row {
 		display: flex;
 		align-items: baseline;
+		gap: 0.1rem;
 	}
 
-	.compact-pressure-graph {
-		width: calc(36px * var(--importance, 1));
-		height: calc(12px * var(--importance, 1));
+	.info-value {
+		font-weight: 500;
+		font-size: calc(1rem * var(--importance, 1));
+		line-height: 1;
+	}
+
+	.info-unit {
+		font-size: calc(0.55rem * var(--importance, 1));
+		opacity: 0.7;
+		font-weight: 400;
+	}
+
+	/* Wind Info */
+	.wind-info {
+		min-width: 2.5rem;
+	}
+
+	.wind-arrow {
+		width: calc(16px * var(--importance, 1));
+		height: calc(16px * var(--importance, 1));
+		transition: transform 0.5s ease-out;
+		opacity: 0.9;
+	}
+
+	.wind-direction {
+		font-size: calc(0.65rem * var(--importance, 1));
+		font-weight: 600;
+		opacity: 0.85;
+	}
+
+	.gust-label {
+		font-size: 0.5rem;
+		opacity: 0.6;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	/* Pressure Info */
+	.pressure-info {
+		min-width: 3rem;
+	}
+
+	.pressure-graph {
+		width: calc(48px * var(--importance, 1));
+		height: calc(16px * var(--importance, 1));
+		opacity: 0.9;
+		overflow: visible;
+	}
+
+	.trend-label {
+		font-size: 0.5rem;
+		font-weight: 500;
 		opacity: 0.8;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
 	}
 
-	/* Compact Humidity */
-	.compact-humidity {
-		gap: 2px;
+	/* Humidity Info */
+	.humidity-info {
+		min-width: 2.5rem;
 	}
 
-	.compact-droplet {
-		width: calc(10px * var(--importance, 1));
-		height: calc(14px * var(--importance, 1));
+	.humidity-droplet {
+		width: calc(20px * var(--importance, 1));
+		height: calc(26px * var(--importance, 1));
 		transition: width 0.3s ease, height 0.3s ease;
 	}
 
@@ -2191,7 +2300,8 @@
 		left: 50%;
 		transform: translate(-50%, -50%);
 		z-index: 1;
-		opacity: 0.7;
+		opacity: 0.85;
+		overflow: visible;
 	}
 
 	.graph-high-label {
@@ -2207,24 +2317,6 @@
 		width: 100%;
 		height: 60px;
 		z-index: 0;
-	}
-
-	/* No Location Message */
-	.no-location-message {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 1rem;
-		min-height: 400px;
-		width: 100%;
-	}
-
-	.no-location-message p {
-		font-size: 1.125rem;
-		color: var(--text-secondary);
-		text-align: center;
-		margin: 0;
 	}
 
 	/* Loading State Styles */
