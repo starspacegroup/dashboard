@@ -1439,9 +1439,9 @@
 		const avgBrightness = (baseColor1.r + baseColor1.g + baseColor1.b + 
 		                        baseColor2.r + baseColor2.g + baseColor2.b) / 6;
 		
-		const textColor = avgBrightness > 160 
+		const textColor = avgBrightness > 160
 			? 'rgba(40, 40, 40, 0.95)' // Dark text for bright backgrounds
-			: 'var(--text-primary)'; // Use theme text color
+			: 'rgba(255, 255, 255, 0.95)'; // Light text for dark backgrounds
 		
 		return { gradient, textColor };
 	}
@@ -1974,6 +1974,7 @@
 		overflow: hidden;
 		flex-shrink: 0;
 		aspect-ratio: 1 / 1;
+		color: var(--text-color);
 	}
 
 	.sun,
