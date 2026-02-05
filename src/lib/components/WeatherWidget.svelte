@@ -700,9 +700,15 @@
 		return `M ${points.join(' L ')}`;
 	}
 
+	// Filter hourly data to only the next 24 hours from now
+	$: next24HoursData = (() => {
+		const nowTimestamp = Math.floor(Date.now() / 1000);
+		return hourlyData.filter(h => h.time >= nowTimestamp && h.time <= nowTimestamp + 24 * 3600);
+	})();
+
 	// Generate SVG path for temperature graph (scales with earth size)
-	$: temperaturePath = hourlyData.length > 0
-		? generateGraphPath(hourlyData.map(h => h.temperature), earthSize, 80)
+	$: temperaturePath = next24HoursData.length > 0
+		? generateGraphPath(next24HoursData.map(h => h.temperature), earthSize, 80)
 		: '';
 
 	// Generate SVG path for dew point graph (scales with earth size)
@@ -1721,13 +1727,13 @@
 		</div>
 
 		<!-- 24-Hour Temperature Graph (layered behind temperature) -->
-		{#if hourlyData.length > 0}
+		{#if next24HoursData.length > 0}
 			<svg class="temp-graph-svg" width="{earthSize}" height="80" viewBox="0 0 {earthSize} 80">
 				<!-- Define gradient for temperature colors -->
 				<defs>
 					<linearGradient id="tempGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-						{#each hourlyData.slice(0, 24) as hour, index}
-							{@const offset = (index / 23) * 100}
+						{#each next24HoursData as hour, index}
+							{@const offset = (index / Math.max(next24HoursData.length - 1, 1)) * 100}
 							{@const color = getTemperatureColor(hour.temperature)}
 							<stop offset="{offset}%" stop-color={color} />
 						{/each}
