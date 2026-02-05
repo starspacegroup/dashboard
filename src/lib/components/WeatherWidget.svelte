@@ -201,7 +201,38 @@
 	$: windValueSize = Math.max(0.9, 1.4 * textScale); // Wind speed value size
 	$: windUnitSize = Math.max(0.5, 0.7 * textScale); // Unit size
 	$: windLabelSize = Math.max(0.45, 0.55 * textScale); // Label size
-	
+
+	// Dynamic importance scaling for bottom info row
+	// Wind: higher speeds = more important (scale 0.85 to 1.4)
+	$: windImportance = (() => {
+		const speed = windGust > windSpeed ? windGust : windSpeed;
+		if (speed < 5) return 0.85;      // Calm
+		if (speed < 15) return 0.95;     // Light
+		if (speed < 25) return 1.1;      // Moderate
+		if (speed < 40) return 1.25;     // Strong
+		return 1.4;                       // Very strong
+	})();
+
+	// Pressure: deviation from normal (1013) or rapid change = more important
+	$: pressureImportance = (() => {
+		const deviation = Math.abs(pressure - 1013);
+		const changeRate = pressureForecast.rateOfChange || 0;
+		// Higher importance for extreme values or rapid changes
+		if (deviation > 30 || changeRate > 0.5) return 1.3;
+		if (deviation > 20 || changeRate > 0.3) return 1.15;
+		if (deviation > 10 || changeRate > 0.15) return 1.0;
+		return 0.9;
+	})();
+
+	// Humidity: extremes are more important
+	$: humidityImportance = (() => {
+		const h = displayHumidity;
+		if (h < 20 || h > 95) return 1.3;   // Extreme
+		if (h < 30 || h > 85) return 1.15;  // Notable
+		if (h < 40 || h > 75) return 1.0;   // Mild
+		return 0.9;                          // Normal
+	})();
+
 	// Convert wind direction degrees to compass direction
 	function getWindDirection(degrees: number): string {
 		const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
@@ -235,42 +266,41 @@
 			return { x, y, pressure: pressureVal, time: h.time };
 		});
 		
-		// Helper to get color based on rate of change
+		// Helper to get color based on rate of change (absolute value for any rapid shift)
 		const getSegmentColor = (rate: number): string => {
-			// Rate is hPa per hour (positive = dropping)
-			// Thresholds: 
-			// <= 0: Rising or stable - blue
-			// 0-0.5: Slight drop - blue to cyan
-			// 0.5-1: Moderate drop - cyan to orange
-			// 1-2: Significant drop - orange to red
-			// 2+: Rapid drop - red
-			if (rate <= 0) {
-				return '#3b82f6'; // Blue - stable/rising
-			} else if (rate <= 0.5) {
-				const t = rate / 0.5;
+			// Use absolute rate - any rapid shift (drop or rise) goes towards red
+			const absRate = Math.abs(rate);
+			// Thresholds (more sensitive - typical sustained drop is 0.3-0.5 hPa/hour):
+			// 0-0.15: Stable - blue to cyan
+			// 0.15-0.3: Mild shift - cyan to orange
+			// 0.3-0.6: Moderate shift - orange to red
+			// 0.6+: Rapid shift - red
+			if (absRate <= 0.15) {
+				const t = absRate / 0.15;
 				return interpolateColor('#3b82f6', '#06b6d4', t); // Blue to cyan
-			} else if (rate <= 1) {
-				const t = (rate - 0.5) / 0.5;
+			} else if (absRate <= 0.3) {
+				const t = (absRate - 0.15) / 0.15;
 				return interpolateColor('#06b6d4', '#f59e0b', t); // Cyan to orange
-			} else if (rate <= 2) {
-				const t = (rate - 1) / 1;
+			} else if (absRate <= 0.6) {
+				const t = (absRate - 0.3) / 0.3;
 				return interpolateColor('#f59e0b', '#ef4444', t); // Orange to red
 			} else {
-				return '#ef4444'; // Red - rapid drop
+				return '#ef4444'; // Red - rapid shift
 			}
 		};
 		
 		// Calculate segments with colors based on local rate of change
 		const segments: Array<{ x1: number; y1: number; x2: number; y2: number; color: string; rate: number }> = [];
-		let maxDropRate = 0;
-		
+		let maxShiftRate = 0;
+
 		for (let i = 1; i < points.length; i++) {
 			const prevPressure = points[i - 1].pressure;
 			const currPressure = points[i].pressure;
 			const rate = prevPressure - currPressure; // Positive = pressure dropping
-			
-			if (rate > maxDropRate) maxDropRate = rate;
-			
+			const absRate = Math.abs(rate);
+
+			if (absRate > maxShiftRate) maxShiftRate = absRate;
+
 			segments.push({
 				x1: points[i - 1].x,
 				y1: points[i - 1].y,
@@ -280,19 +310,19 @@
 				rate
 			});
 		}
-		
+
 		// Calculate overall severity for the warning badge
 		const firstPressure = pressures[0];
 		const lowestPressure = minP;
 		const totalDrop = firstPressure - lowestPressure;
 		const dropWarning = totalDrop > 4;
-		
-		// Overall severity color (for the dot and warning)
-		const severityColor = getSegmentColor(maxDropRate);
-		
+
+		// Overall severity color (for the dot and warning) - based on max shift in either direction
+		const severityColor = getSegmentColor(maxShiftRate);
+
 		const pathData = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
-		
-		return { path: pathData, minPressure: minP, maxPressure: maxP, dropWarning, points, segments, severityColor, rateOfChange: maxDropRate };
+
+		return { path: pathData, minPressure: minP, maxPressure: maxP, dropWarning, points, segments, severityColor, rateOfChange: maxShiftRate };
 	})();
 	
 	// Coordinates (if available)
@@ -710,6 +740,24 @@
 	$: temperaturePath = next24HoursData.length > 0
 		? generateGraphPath(next24HoursData.map(h => h.temperature), earthSize, 80)
 		: '';
+
+	// Calculate max temperature info for the graph high label
+	$: graphHighInfo = (() => {
+		if (next24HoursData.length === 0) return null;
+		const temps = next24HoursData.map(h => h.temperature);
+		const maxTemp = Math.max(...temps);
+		const minTemp = Math.min(...temps);
+		const maxIndex = temps.indexOf(maxTemp);
+		const valueRange = maxTemp - minTemp || 10;
+		// Calculate x position (same logic as generateGraphPath)
+		const x = (maxIndex / (temps.length - 1)) * earthSize;
+		// Calculate y position (top of graph, with small offset)
+		const normalizedValue = (maxTemp - minTemp) / valueRange;
+		const y = 80 - normalizedValue * 80;
+		// Display value in user's preferred unit
+		const displayValue = isCelsius ? maxTemp : maxTemp;
+		return { temp: Math.round(displayValue), x, y: Math.max(y - 4, 10) };
+	})();
 
 	// Generate SVG path for dew point graph (scales with earth size)
 	$: dewPointPath = hourlyData.length > 0 && hourlyData.some(h => h.dewPoint !== undefined && h.dewPoint !== 0)
@@ -1749,6 +1797,20 @@
 					stroke-linecap="round"
 					stroke-linejoin="round"
 				/>
+
+				<!-- Forecasted high label at peak -->
+				{#if graphHighInfo}
+					<text
+						x={graphHighInfo.x}
+						y={graphHighInfo.y}
+						class="graph-high-label"
+						text-anchor="middle"
+						fill="var(--text-color, var(--text-primary))"
+						opacity="0.4"
+					>
+						{graphHighInfo.temp}°
+					</text>
+				{/if}
 			</svg>
 		{/if}
 
@@ -1756,189 +1818,81 @@
 		<div class="temperature">
 			<span class="temp-number">{displayTemp}</span><span class="degree-symbol">°{isCelsius ? 'C' : 'F'}</span>
 		</div>
-		</div>
-	</div>
 
-	<!-- Bottom Info Row - Wind and Pressure side by side -->
-	<div class="bottom-info-row">
-		<!-- Wind Info Section -->
-		<div class="wind-section" style="--wind-value-size: {windValueSize}rem; --wind-unit-size: {windUnitSize}rem; --wind-label-size: {windLabelSize}rem;">
-			<div class="wind-header">
-				<span class="wind-icon">💨</span>
-				<span class="wind-label">Wind</span>
-			</div>
-			<div class="wind-display">
-				<div class="wind-compass">
-					{#if windGust > windSpeed}
-						<span class="wind-gust-value" style="--wind-direction: {windDirection}deg;">{Math.round(windGust)}</span>
-					{/if}
-					<svg viewBox="0 0 40 40" class="compass-arrow" style="--wind-direction: {windDirection}deg;">
-						<!-- Compass circle -->
-						<circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-opacity="0.2" stroke-width="1"/>
-						<!-- Arrow pointing in wind direction (where wind is coming FROM) -->
-						<path 
-							d="M20 6 L24 18 L20 15 L16 18 Z" 
-							fill="currentColor"
-							class="arrow-head"
-						/>
-						<line x1="20" y1="15" x2="20" y2="32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-					</svg>
-					<div class="wind-speed" style="--wind-direction: {windDirection}deg;">
-						<span class="wind-speed-value">{Math.round(windSpeed)}</span>
-						<span class="wind-speed-unit">mph</span>
-					</div>
-				</div>
-			</div>
-		</div>
-
-		<!-- Barometric Pressure with 24-hour forecast graph -->
-		<div class="pressure-section" style="--pressure-size: {pressureSize}rem; --pressure-unit-size: {pressureUnitSize}rem; --pressure-trend-size: {pressureTrendSize}rem">
-		<div class="pressure-header">
-			<span class="pressure-value">{pressure.toFixed(1)}</span>
-			<span class="pressure-unit">hPa</span>
-		</div>
-		
-		<!-- 24-hour pressure forecast graph -->
-		{#if pressureForecast.path}
-			<div class="pressure-graph" class:drop-warning={pressureForecast.dropWarning}>
-				<svg 
-					width="{pressureGraphWidth}" 
-					height="{pressureGraphHeight}" 
-					viewBox="0 0 {pressureGraphWidth} {pressureGraphHeight}"
-					class="pressure-sparkline"
-				>
-					<!-- Gradient definitions for fill areas -->
-					<defs>
-						{#each pressureForecast.segments as segment, i}
-							<linearGradient id="segGrad-{widget.id}-{i}" x1="0%" y1="0%" x2="0%" y2="100%">
-								<stop offset="0%" stop-color="{segment.color}" stop-opacity="0.25"/>
-								<stop offset="100%" stop-color="{segment.color}" stop-opacity="0"/>
-							</linearGradient>
-						{/each}
-					</defs>
-					
-					<!-- Fill areas for each segment -->
-					{#each pressureForecast.segments as segment, i}
-						<path 
-							d="M {segment.x1.toFixed(1)} {segment.y1.toFixed(1)} L {segment.x2.toFixed(1)} {segment.y2.toFixed(1)} L {segment.x2.toFixed(1)} {pressureGraphHeight - 2} L {segment.x1.toFixed(1)} {pressureGraphHeight - 2} Z" 
-							fill="url(#segGrad-{widget.id}-{i})"
-						/>
-					{/each}
-					
-					<!-- Colored line segments -->
-					{#each pressureForecast.segments as segment}
-						<line 
-							x1="{segment.x1.toFixed(1)}" 
-							y1="{segment.y1.toFixed(1)}" 
-							x2="{segment.x2.toFixed(1)}" 
-							y2="{segment.y2.toFixed(1)}" 
-							stroke="{segment.color}" 
-							stroke-width="2.5"
-							stroke-linecap="round"
-						/>
-					{/each}
-					
-					<!-- Current point indicator -->
-					{#if pressureForecast.points.length > 0}
-						<circle 
-							cx="{pressureForecast.points[0].x}" 
-							cy="{pressureForecast.points[0].y}" 
-							r="3" 
-							fill="{pressureForecast.segments[0]?.color || '#3b82f6'}"
-						/>
-					{/if}
+		<!-- Bottom Info Row - Compact wind, pressure, humidity -->
+		<div class="bottom-info-row" style="--base-scale: {textScale};">
+			<!-- Wind -->
+			<div class="compact-wind" style="--importance: {windImportance};">
+				<svg viewBox="0 0 24 24" class="compact-wind-arrow" style="transform: rotate({windDirection}deg);">
+					<path d="M12 2L8 10h3v10h2V10h3L12 2z" fill="currentColor" opacity="0.9"/>
 				</svg>
-				<div class="pressure-graph-labels">
-					<span class="graph-label-now">Now</span>
-					<span class="graph-label-24h">+24h</span>
+				<span class="compact-value">{Math.round(windGust > windSpeed ? windGust : windSpeed)}</span>
+				<span class="compact-unit">mph</span>
+			</div>
+
+			<!-- Pressure with mini graph -->
+			<div class="compact-pressure" style="--importance: {pressureImportance};">
+				<div class="compact-pressure-top">
+					<span class="compact-value">{pressure.toFixed(0)}</span>
+					<span class="compact-unit">hPa</span>
 				</div>
-				{#if pressureForecast.dropWarning}
-					<div class="pressure-warning" style="color: {pressureForecast.severityColor}; background: color-mix(in srgb, {pressureForecast.severityColor} 15%, transparent);">Pressure drop ahead</div>
+				{#if pressureForecast.segments.length > 0}
+					<svg
+						class="compact-pressure-graph"
+						viewBox="0 0 50 16"
+					>
+						{#each pressureForecast.segments as segment, i}
+							{@const totalSegs = pressureForecast.segments.length}
+							{@const x1 = (i / totalSegs) * 50}
+							{@const x2 = ((i + 1) / totalSegs) * 50}
+							{@const pt1 = pressureForecast.points[i]}
+							{@const pt2 = pressureForecast.points[i + 1]}
+							{@const graphH = pressureGraphHeight || 36}
+							{@const y1Norm = pt1 ? (pt1.y - 2) / (graphH - 4) : 0.5}
+							{@const y2Norm = pt2 ? (pt2.y - 2) / (graphH - 4) : 0.5}
+							<line
+								x1="{x1}"
+								y1="{2 + y1Norm * 12}"
+								x2="{x2}"
+								y2="{2 + y2Norm * 12}"
+								stroke="{segment.color}"
+								stroke-width="1.5"
+								stroke-linecap="round"
+							/>
+						{/each}
+						{#if pressureForecast.points[0]}
+							{@const firstPt = pressureForecast.points[0]}
+							{@const graphH = pressureGraphHeight || 36}
+							{@const y1Norm = (firstPt.y - 2) / (graphH - 4)}
+							<circle cx="1" cy="{2 + y1Norm * 12}" r="1.5" fill="{pressureForecast.severityColor}"/>
+						{/if}
+					</svg>
 				{/if}
 			</div>
-		{/if}
-	</div>
 
-		<!-- Humidity Section - Glass of Water -->
-		<div class="humidity-section">
-			<div class="humidity-header">
-				<span class="humidity-label">Humidity</span>
-			</div>
-			<div class="humidity-glass-container">
-				<svg class="humidity-glass" viewBox="0 0 40 60" xmlns="http://www.w3.org/2000/svg">
-					<!-- Glass outline with slightly tapered shape -->
+			<!-- Humidity droplet -->
+			<div class="compact-humidity" style="--importance: {humidityImportance};">
+				<svg viewBox="0 0 24 32" class="compact-droplet">
 					<defs>
-						<clipPath id="glass-clip-{widget.id}">
-							<!-- Tapered glass interior shape -->
-							<path d="M 6 8 L 8 52 Q 8 56, 12 56 L 28 56 Q 32 56, 32 52 L 34 8 Z" />
-						</clipPath>
-						<linearGradient id="water-gradient-{widget.id}" x1="0%" y1="0%" x2="100%" y2="0%">
-							<stop offset="0%" style="stop-color: rgba(59, 130, 246, 0.6)" />
-							<stop offset="50%" style="stop-color: rgba(96, 165, 250, 0.7)" />
-							<stop offset="100%" style="stop-color: rgba(59, 130, 246, 0.6)" />
-						</linearGradient>
-						<linearGradient id="glass-shine-{widget.id}" x1="0%" y1="0%" x2="100%" y2="0%">
-							<stop offset="0%" style="stop-color: rgba(255, 255, 255, 0.15)" />
-							<stop offset="30%" style="stop-color: rgba(255, 255, 255, 0.05)" />
-							<stop offset="100%" style="stop-color: rgba(255, 255, 255, 0)" />
+						<linearGradient id="droplet-fill-{widget.id}" x1="0%" y1="100%" x2="0%" y2="0%">
+							<stop offset="0%" stop-color="#3b82f6" stop-opacity="0.8"/>
+							<stop offset="{displayHumidity}%" stop-color="#3b82f6" stop-opacity="0.8"/>
+							<stop offset="{displayHumidity}%" stop-color="#3b82f6" stop-opacity="0.15"/>
+							<stop offset="100%" stop-color="#3b82f6" stop-opacity="0.15"/>
 						</linearGradient>
 					</defs>
-					
-					<!-- Water fill - height based on humidity -->
-					<g clip-path="url(#glass-clip-{widget.id})">
-						<!-- Water body -->
-						<rect 
-							x="6" 
-							y="{56 - (displayHumidity / 100) * 48}" 
-							width="28" 
-							height="{(displayHumidity / 100) * 48 + 4}" 
-							fill="url(#water-gradient-{widget.id})"
-							class="water-fill"
-						/>
-						<!-- Water surface wave effect -->
-						<path 
-							d="M 6 {56 - (displayHumidity / 100) * 48} 
-							   Q 13 {54 - (displayHumidity / 100) * 48}, 20 {56 - (displayHumidity / 100) * 48} 
-							   Q 27 {58 - (displayHumidity / 100) * 48}, 34 {56 - (displayHumidity / 100) * 48}"
-							fill="rgba(147, 197, 253, 0.5)"
-							class="water-surface"
-						/>
-					</g>
-					
-					<!-- Glass outline -->
-					<path 
-						d="M 5 6 Q 5 4, 7 4 L 33 4 Q 35 4, 35 6 L 33 52 Q 33 57, 28 57 L 12 57 Q 7 57, 7 52 Z" 
-						fill="none" 
-						stroke="var(--foreground)" 
-						stroke-width="1.5"
-						stroke-opacity="0.5"
-					/>
-					
-					<!-- Glass rim highlight -->
-					<path 
-						d="M 7 4 L 33 4" 
-						fill="none" 
-						stroke="var(--foreground)" 
-						stroke-width="2"
+					<path d="M12 2C12 2 4 12 4 18c0 4.4 3.6 8 8 8s8-3.6 8-8c0-6-8-16-8-16z"
+						fill="url(#droplet-fill-{widget.id})"
+						stroke="currentColor"
+						stroke-width="1"
 						stroke-opacity="0.3"
-						stroke-linecap="round"
-					/>
-					
-					<!-- Glass shine/reflection -->
-					<path 
-						d="M 8 8 L 9 50 Q 9 54, 12 54" 
-						fill="none" 
-						stroke="url(#glass-shine-{widget.id})" 
-						stroke-width="3"
-						stroke-linecap="round"
 					/>
 				</svg>
-				<div class="humidity-value-overlay">
-					<span class="humidity-value-large">{displayHumidity}</span>
-					<span class="humidity-unit">%</span>
-				</div>
+				<span class="compact-value">{displayHumidity}</span>
+				<span class="compact-unit">%</span>
 			</div>
 		</div>
+	</div>
 	</div>
 	{:else}
 		<!-- Loading State - Animated Earth with orbiting Sun and Moon (Feb 22, 2042 at Giza, Egypt) -->
@@ -2130,7 +2084,7 @@
 	.temperature {
 		position: absolute;
 		top: 50%;
-		left: 50%;
+		left: 46%;
 		transform: translate(-50%, -50%);
 		z-index: 2;
 		font-size: 5rem;
@@ -2152,239 +2106,82 @@
 		margin-top: 0.5rem;
 	}
 
-	/* ======== HUMIDITY SECTION ======== */
-	.humidity-section {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.3rem;
-	}
-
-	.humidity-header {
-		display: flex;
-		align-items: center;
-		gap: 0.3rem;
-		opacity: 0.8;
-	}
-
-	.humidity-label {
-		font-size: 0.55rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		opacity: 0.7;
-	}
-
-	.humidity-glass-container {
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-	}
-
-	.humidity-glass {
-		width: 50px;
-		height: 75px;
-	}
-
-	.water-fill {
-		transition: y 0.5s ease-out, height 0.5s ease-out;
-	}
-
-	.water-surface {
-		animation: wave 2s ease-in-out infinite;
-	}
-
-	@keyframes wave {
-		0%, 100% {
-			transform: translateX(0);
-		}
-		50% {
-			transform: translateX(2px);
-		}
-	}
-
-	.humidity-value-overlay {
-		display: flex;
-		align-items: baseline;
-		gap: 0.1rem;
-		margin-top: 0.25rem;
-	}
-
-	.humidity-value-large {
-		font-weight: 100;
-		font-size: 1.4rem;
-	}
-
-	.humidity-unit {
-		font-size: 0.7rem;
-		opacity: 0.7;
-	}
-
-	/* ======== BOTTOM INFO ROW ======== */
+	/* ======== BOTTOM INFO ROW - COMPACT ======== */
 	.bottom-info-row {
+		position: absolute;
+		bottom: 12%;
+		left: 50%;
+		transform: translateX(-50%);
 		display: flex;
 		justify-content: center;
-		align-items: flex-start;
-		gap: 2rem;
-		margin-top: -0.5rem;
-		width: 100%;
+		align-items: flex-end;
+		gap: calc(0.8rem * var(--base-scale, 1));
+		z-index: 10;
+		max-width: 85%;
 	}
 
-	/* ======== WIND SECTION ======== */
-	.wind-section {
+	/* Shared compact element styles with importance scaling */
+	.compact-wind,
+	.compact-pressure,
+	.compact-humidity {
 		display: flex;
-		flex-direction: column;
 		align-items: center;
-		gap: 0.3rem;
+		transition: transform 0.3s ease;
+		transform: scale(var(--importance, 1));
 	}
 
-	.wind-header {
-		display: flex;
-		align-items: center;
-		gap: 0.3rem;
+	.compact-value {
+		font-weight: 200;
+		font-size: calc(0.75rem * var(--importance, 1));
+		line-height: 1;
+		opacity: calc(0.7 + var(--importance, 1) * 0.2);
+	}
+
+	.compact-unit {
+		font-size: calc(0.4rem * var(--importance, 1));
+		opacity: 0.5;
+		margin-left: 1px;
+	}
+
+	/* Compact Wind */
+	.compact-wind {
+		gap: 2px;
+	}
+
+	.compact-wind-arrow {
+		width: calc(12px * var(--importance, 1));
+		height: calc(12px * var(--importance, 1));
+		transition: transform 0.5s ease-out, width 0.3s ease, height 0.3s ease;
 		opacity: 0.8;
 	}
 
-	.wind-icon {
-		font-size: var(--wind-value-size, 1.2rem);
-	}
-
-	.wind-label {
-		font-size: var(--wind-label-size, 0.55rem);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		opacity: 0.7;
-	}
-
-	.wind-display {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.wind-gust-value {
-		position: absolute;
-		/* Position at the arrow tip - rotates with wind direction */
-		--angle: var(--wind-direction, 0deg);
-		--radius: calc(var(--wind-value-size, 1.4rem) * 1.5);
-		top: 50%;
-		left: 50%;
-		transform: 
-			translateX(-50%) 
-			translateY(-50%)
-			rotate(var(--angle))
-			translateY(calc(-1 * var(--radius)))
-			rotate(calc(-1 * var(--angle)));
-		font-weight: 200;
-		font-size: calc(var(--wind-value-size, 1.4rem) * 0.8);
-		line-height: 1;
-		color: var(--warning, #f59e0b);
-	}
-
-	.wind-compass {
-		position: relative;
-		width: calc(var(--wind-value-size, 1.4rem) * 2.2);
-		height: calc(var(--wind-value-size, 1.4rem) * 2.2);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.compass-arrow {
-		width: 100%;
-		height: 100%;
-		transform: rotate(var(--wind-direction, 0deg));
-		transition: transform 0.5s ease-out;
-		color: var(--foreground);
-	}
-
-	.compass-arrow .arrow-head {
-		opacity: 0.9;
-	}
-
-	.wind-speed {
-		position: absolute;
-		/* Position at the arrow tail - opposite of arrow tip */
-		--angle: var(--wind-direction, 0deg);
-		--radius: calc(var(--wind-value-size, 1.4rem) * 1.6);
-		top: 50%;
-		left: 50%;
-		transform: 
-			translateX(-50%) 
-			translateY(-50%)
-			rotate(var(--angle))
-			translateY(var(--radius))
-			rotate(calc(-1 * var(--angle)));
-		display: flex;
-		align-items: baseline;
-		gap: 0.1rem;
-	}
-
-	.wind-speed-value {
-		font-weight: 200;
-		font-size: var(--wind-value-size, 1.4rem);
-		line-height: 1;
-	}
-
-	.wind-speed-unit {
-		font-size: var(--wind-unit-size, 0.7rem);
-		opacity: 0.6;
-	}
-
-	/* ======== PRESSURE SECTION ======== */
-	.pressure-section {
-		display: flex;
+	/* Compact Pressure */
+	.compact-pressure {
 		flex-direction: column;
 		align-items: center;
-		gap: 0.3rem;
+		gap: 1px;
 	}
 
-	.pressure-header {
+	.compact-pressure-top {
 		display: flex;
 		align-items: baseline;
-		gap: 0.25rem;
 	}
 
-	.pressure-value {
-		font-weight: 100;
-		font-size: var(--pressure-size, 1.8rem);
+	.compact-pressure-graph {
+		width: calc(36px * var(--importance, 1));
+		height: calc(12px * var(--importance, 1));
+		opacity: 0.8;
 	}
 
-	.pressure-unit {
-		font-size: var(--pressure-unit-size, 0.8rem);
-		opacity: 0.7;
+	/* Compact Humidity */
+	.compact-humidity {
+		gap: 2px;
 	}
 
-	.pressure-graph {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		margin-top: 0.3rem;
-		gap: 0.15rem;
-	}
-
-	.pressure-sparkline {
-		overflow: visible;
-	}
-
-	.pressure-graph-labels {
-		display: flex;
-		justify-content: space-between;
-		width: 100%;
-		font-size: 0.5rem;
-		opacity: 0.5;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-
-	.pressure-warning {
-		font-size: 0.55rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		margin-top: 0.1rem;
-		padding: 0.15rem 0.4rem;
-		border-radius: 0.25rem;
-		font-weight: 500;
+	.compact-droplet {
+		width: calc(10px * var(--importance, 1));
+		height: calc(14px * var(--importance, 1));
+		transition: width 0.3s ease, height 0.3s ease;
 	}
 
 	.temp-graph-svg {
@@ -2394,6 +2191,12 @@
 		transform: translate(-50%, -50%);
 		z-index: 1;
 		opacity: 0.7;
+	}
+
+	.graph-high-label {
+		font-size: 0.7rem;
+		font-weight: 500;
+		pointer-events: none;
 	}
 
 	.humidity {
