@@ -84,7 +84,13 @@
 		: days <= 90 ? '3m'
 		: '1y';
 
-	$: isPositive = priceChangePercent >= 0;
+	// Displayed price reacts to chart hover
+	$: displayPrice = isHovering && hoverIndex >= 0 ? hoverPrice : currentPrice;
+	$: displayChangePercent = isHovering && hoverIndex >= 0 && chartPrices.length > 1
+		? (chartPrices[0][1] !== 0 ? ((hoverPrice - chartPrices[0][1]) / chartPrices[0][1]) * 100 : 0)
+		: priceChangePercent;
+
+	$: isPositive = displayChangePercent >= 0;
 
 	$: vsSymbol = VS_CURRENCIES.find(c => c.id === vsCurrency)?.symbol || '$';
 
@@ -343,10 +349,10 @@
 			</button>
 
 			<div class="price-block">
-				<span class="current-price">{vsSymbol}{formatPrice(currentPrice)}</span>
+				<span class="current-price" class:hovering={isHovering && hoverIndex >= 0}>{vsSymbol}{formatPrice(displayPrice)}</span>
 				<span class="price-change" class:positive={isPositive} class:negative={!isPositive}>
-					{formatPercent(priceChangePercent)}
-					<span class="change-label">{displayChangeLabel}</span>
+					{formatPercent(displayChangePercent)}
+					<span class="change-label">{isHovering && hoverIndex >= 0 ? hoverTime : displayChangeLabel}</span>
 				</span>
 			</div>
 		</div>
@@ -733,6 +739,10 @@
 		font-weight: 800;
 		color: var(--text-primary);
 		letter-spacing: -0.02em;
+		transition: opacity 0.15s ease;
+	}
+	.current-price.hovering {
+		opacity: 0.85;
 	}
 
 	.price-change {
