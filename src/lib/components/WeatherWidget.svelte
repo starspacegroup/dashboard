@@ -1478,48 +1478,48 @@
 			<svg class="moon-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
 				<defs>
 					<!-- Subtle radial gradient for the lit surface -->
-					<radialGradient id="moonSurface" cx="45%" cy="40%" r="55%">
+					<radialGradient id="moonSurface-{widget.id}" cx="45%" cy="40%" r="55%">
 						<stop offset="0%"  stop-color="#e8e4df" />
 						<stop offset="60%" stop-color="#d5d0c8" />
 						<stop offset="100%" stop-color="#c2bbb0" />
 					</radialGradient>
 					<!-- Soft outer glow -->
-					<radialGradient id="moonGlow" cx="50%" cy="50%" r="50%">
+					<radialGradient id="moonGlow-{widget.id}" cx="50%" cy="50%" r="50%">
 						<stop offset="80%" stop-color="transparent" />
 						<stop offset="100%" stop-color="rgba(210, 205, 195, 0.12)" />
 					</radialGradient>
 					<!-- Hint of mare shading -->
-					<radialGradient id="mare1" cx="38%" cy="35%" r="18%">
+					<radialGradient id="mare1-{widget.id}" cx="38%" cy="35%" r="18%">
 						<stop offset="0%" stop-color="rgba(160,152,140,0.25)" />
 						<stop offset="100%" stop-color="transparent" />
 					</radialGradient>
-					<radialGradient id="mare2" cx="55%" cy="58%" r="14%">
+					<radialGradient id="mare2-{widget.id}" cx="55%" cy="58%" r="14%">
 						<stop offset="0%" stop-color="rgba(155,148,138,0.2)" />
 						<stop offset="100%" stop-color="transparent" />
 					</radialGradient>
-					<radialGradient id="mare3" cx="60%" cy="32%" r="10%">
+					<radialGradient id="mare3-{widget.id}" cx="60%" cy="32%" r="10%">
 						<stop offset="0%" stop-color="rgba(150,143,133,0.18)" />
 						<stop offset="100%" stop-color="transparent" />
 					</radialGradient>
-					<clipPath id="moonClip">
+					<clipPath id="moonClip-{widget.id}">
 						<circle cx="50" cy="50" r="50" />
 					</clipPath>
 				</defs>
 
 				<!-- Surface -->
-				<circle cx="50" cy="50" r="50" fill="url(#moonSurface)" />
+				<circle cx="50" cy="50" r="50" fill="url(#moonSurface-{widget.id})" />
 				<!-- Mare hints -->
-				<circle cx="50" cy="50" r="50" fill="url(#mare1)" />
-				<circle cx="50" cy="50" r="50" fill="url(#mare2)" />
-				<circle cx="50" cy="50" r="50" fill="url(#mare3)" />
+				<circle cx="50" cy="50" r="50" fill="url(#mare1-{widget.id})" />
+				<circle cx="50" cy="50" r="50" fill="url(#mare2-{widget.id})" />
+				<circle cx="50" cy="50" r="50" fill="url(#mare3-{widget.id})" />
 
 				<!-- Phase shadow -->
 				{#if moonShadowPath}
-					<path d={moonShadowPath} fill="rgba(15, 12, 22, 0.92)" clip-path="url(#moonClip)" />
+					<path d={moonShadowPath} fill="rgba(15, 12, 22, 0.92)" clip-path="url(#moonClip-{widget.id})" />
 				{/if}
 
 				<!-- Soft glow halo -->
-				<circle cx="50" cy="50" r="50" fill="url(#moonGlow)" />
+				<circle cx="50" cy="50" r="50" fill="url(#moonGlow-{widget.id})" />
 			</svg>
 		</div>
 
@@ -1813,15 +1813,15 @@
 			>
 				<svg class="moon-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
 					<defs>
-						<radialGradient id="loadMoonSurface" cx="45%" cy="40%" r="55%">
+						<radialGradient id="loadMoonSurface-{widget.id}" cx="45%" cy="40%" r="55%">
 							<stop offset="0%"  stop-color="#e8e4df" />
 							<stop offset="60%" stop-color="#d5d0c8" />
 							<stop offset="100%" stop-color="#c2bbb0" />
 						</radialGradient>
-						<clipPath id="loadMoonClip"><circle cx="50" cy="50" r="50" /></clipPath>
+						<clipPath id="loadMoonClip-{widget.id}"><circle cx="50" cy="50" r="50" /></clipPath>
 					</defs>
-					<circle cx="50" cy="50" r="50" fill="url(#loadMoonSurface)" />
-					<path d="M 50,0 A 47,50 0 0,0 50,100 A 50,50 0 0,1 50,0 Z" fill="rgba(15, 12, 22, 0.92)" clip-path="url(#loadMoonClip)" />
+					<circle cx="50" cy="50" r="50" fill="url(#loadMoonSurface-{widget.id})" />
+					<path d="M 50,0 A 47,50 0 0,0 50,100 A 50,50 0 0,1 50,0 Z" fill="rgba(15, 12, 22, 0.92)" clip-path="url(#loadMoonClip-{widget.id})" />
 				</svg>
 			</div>
 			
