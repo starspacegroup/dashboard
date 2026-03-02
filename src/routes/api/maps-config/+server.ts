@@ -6,7 +6,7 @@ const { GOOGLE_MAPS_API_KEY = '' } = env;
 
 export const GET: RequestHandler = async ({ locals }) => {
   // Require authentication
-  const session = await locals.getSession();
+  const session = await locals.auth();
   if (!session?.user) {
     return json({ error: 'Authentication required' }, { status: 401 });
   }

@@ -60,7 +60,7 @@ function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 500
 
 export const GET: RequestHandler = async ({ url, locals }) => {
   // Require authentication
-  const session = await locals.getSession();
+  const session = await locals.auth();
   if (!session?.user) {
     return json({ error: 'Authentication required' }, { status: 401 });
   }

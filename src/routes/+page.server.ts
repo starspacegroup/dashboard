@@ -128,7 +128,7 @@ interface ExtendedSession {
 }
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
-	const session = await locals.getSession() as ExtendedSession | null;
+	const session = await locals.auth() as ExtendedSession | null;
 
 	if (!session?.user) {
 		throw redirect(303, '/signin');

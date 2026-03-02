@@ -6,13 +6,14 @@ declare global {
 	namespace App {
 		// interface Error {}
 		interface Locals {
-			getSession: () => Promise<{
+			auth: () => Promise<{
 				user?: {
 					name?: string | null;
 					email?: string | null;
 					image?: string | null;
 					login?: string;
 				};
+				accessToken?: string;
 			} | null>;
 		}
 		// interface PageData {}
