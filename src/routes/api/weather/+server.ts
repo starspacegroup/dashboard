@@ -51,6 +51,13 @@ function getWeatherFromWMO(code: number, isNight: boolean = false): { condition:
   return { ...weather, icon };
 }
 
+/** Fetch with a timeout — rejects if the request takes longer than `ms` milliseconds. */
+function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 5000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 export const GET: RequestHandler = async ({ url, locals }) => {
   // Require authentication
   const session = await locals.getSession();
@@ -515,7 +522,9 @@ async function fetchAstronomicalData(lat: number, lon: number, date: Date): Prom
   };
 
   try {
-    const response = await fetch(sunUrl);
+    const response = await fetchWithTimeout(sunUrl, {
+      headers: { 'User-Agent': 'StarspaceDashboard/1.0' }
+    }, 5000);
     if (response.ok) {
       const data = await response.json();
       if (data.status === 'OK' && data.results) {
@@ -789,11 +798,11 @@ async function getLocationName(lat: string, lon: string): Promise<string> {
     // Open-Meteo doesn't have a direct reverse geocoding API
     // Use Nominatim (OpenStreetMap) for reverse geocoding - it's free and doesn't require API key
     const geoUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`;
-    const response = await fetch(geoUrl, {
+    const response = await fetchWithTimeout(geoUrl, {
       headers: {
         'User-Agent': 'StarspaceDashboard/1.0'
       }
-    });
+    }, 5000);
 
     if (response.ok) {
       const data = await response.json();

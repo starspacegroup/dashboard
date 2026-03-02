@@ -425,8 +425,13 @@
 		: timeOffsetData.temperature;
 
 	// Keep widget title in sync with current temp and unit
-	$: if (cityName && displayTemp !== undefined) {
-		widgets.updateTitle(widget.id, `${displayTemp}°${isCelsius ? 'C' : 'F'} - ${cityName}`);
+	$: {
+		const newTitle = (cityName && displayTemp !== undefined)
+			? `${displayTemp}°${isCelsius ? 'C' : 'F'} - ${cityName}`
+			: '';
+		if (newTitle && newTitle !== widget.title) {
+			widgets.updateTitle(widget.id, newTitle);
+		}
 	}
 
 	// High/Low for next 24 hours
@@ -561,7 +566,12 @@
 				? `/api/weather?lat=${lat}&lon=${lon}`
 				: '/api/weather';
 			
-			const response = await fetch(url);
+			// Add a 15-second client-side timeout to prevent hanging forever
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), 15000);
+			
+			const response = await fetch(url, { signal: controller.signal });
+			clearTimeout(timeout);
 			
 			if (!response.ok) {
 				const errorText = await response.text();
@@ -578,6 +588,20 @@
 			applyWeatherData(data);
 		} catch (error) {
 			console.error('Error fetching weather from API:', error);
+			
+			// If we don't have data yet, try to use stale cache as absolute fallback
+			if (!hasLocationData) {
+				const staleCache = localStorage.getItem(WEATHER_CACHE_KEY);
+				if (staleCache) {
+					try {
+						const data: WeatherData = JSON.parse(staleCache);
+						applyWeatherData(data);
+						console.log('Using stale weather cache as fallback');
+					} catch {
+						// Cache is corrupt, nothing we can do
+					}
+				}
+			}
 		}
 	}
 

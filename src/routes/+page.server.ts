@@ -158,97 +158,131 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			'User-Agent': 'Dashboard-App'
 		};
 
-		// Fetch user's organizations
-		const orgsResponse = await fetch('https://api.github.com/user/orgs', { headers });
-
-		let organizationProjects: OrganizationProjects[] = [];
-
-		if (orgsResponse.ok) {
-			const organizations: GitHubOrganization[] = await orgsResponse.json();
-
-			// Fetch repositories for each organization
-			const orgProjectsPromises = organizations.map(async (org) => {
-				try {
-					const reposResponse = await fetch(
-						`https://api.github.com/orgs/${org.login}/repos?sort=updated&per_page=20`,
-						{ headers }
-					);
-
-					if (reposResponse.ok) {
-						const repositories: GitHubRepository[] = await reposResponse.json();
-						return {
-							organization: org,
-							repositories
-						};
-					}
-				} catch (error) {
-					console.error(`Failed to fetch repos for org ${org.login}:`, error);
+		// ── Helper: parse a PR search response into GitHubPullRequest[] ──
+		function parsePRItems(items: Record<string, unknown>[]): GitHubPullRequest[] {
+			const prs: GitHubPullRequest[] = [];
+			for (const item of items) {
+				const repoUrl = item.repository_url as string | undefined;
+				const repoMatch = repoUrl?.match(/\/repos\/([^/]+)\/([^/]+)$/);
+				if (repoMatch) {
+					const user = item.user as Record<string, unknown> | undefined;
+					prs.push({
+						id: item.node_id as string,
+						number: item.number as number,
+						title: item.title as string,
+						url: item.html_url as string,
+						state: (item.state as string).toUpperCase(),
+						createdAt: item.created_at as string,
+						updatedAt: item.updated_at as string,
+						author: user ? {
+							login: user.login as string,
+							avatarUrl: user.avatar_url as string | undefined
+						} : undefined,
+						repository: {
+							name: repoMatch[2],
+							owner: { login: repoMatch[1] }
+						},
+						isDraft: (item.draft as boolean) || false
+					});
 				}
-				return {
-					organization: org,
-					repositories: []
-				};
-			});
-
-			organizationProjects = await Promise.all(orgProjectsPromises);
+			}
+			return prs;
 		}
 
-		// Also fetch user's personal repositories
-		const userReposResponse = await fetch('https://api.github.com/user/repos?sort=updated&per_page=10', {
-			headers
-		});
-
-		let githubProjects: GitHubRepository[] = [];
-		if (userReposResponse.ok) {
-			githubProjects = await userReposResponse.json();
+		// ── Helper: fetch a single PR search query ──
+		async function fetchPRSearch(query: string): Promise<GitHubPullRequest[]> {
+			try {
+				const res = await fetch(
+					`https://api.github.com/search/issues?q=${encodeURIComponent(query)}&sort=updated&order=desc&per_page=100`,
+					{
+						headers: {
+							'Authorization': `Bearer ${accessToken}`,
+							'Accept': 'application/vnd.github.v3+json',
+							'User-Agent': 'Dashboard-App'
+						}
+					}
+				);
+				if (res.ok) {
+					const result = await res.json();
+					return parsePRItems(result.items || []);
+				}
+				console.error('[ERROR] PR search failed:', res.status);
+			} catch (error) {
+				console.error('[ERROR] PR search error:', error);
+			}
+			return [];
 		}
 
-		// Fetch GitHub Projects using GraphQL API
-		const allGithubProjects: GitHubProject[] = [];
+		// ── Helper: fetch Copilot metrics for one org ──
+		async function fetchCopilotMetricsForOrg(orgName: string): Promise<OrganizationMetrics | null> {
+			try {
+				const sinceDate = new Date();
+				sinceDate.setDate(sinceDate.getDate() - 28);
+				const sinceDateStr = sinceDate.toISOString().split('T')[0];
 
-		// GraphQL query to fetch user's projects
-		const projectsQuery = `
-			query {
-				viewer {
-					projectsV2(first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
-						nodes {
-							id
-							number
-							title
-							url
-							shortDescription
-							public
-							closed
-							updatedAt
-							owner {
-								... on User {
-									login
-									avatarUrl
-								}
-								... on Organization {
-									login
-									avatarUrl
+				const metricsResponse = await fetch(
+					`https://api.github.com/orgs/${orgName}/copilot/metrics?since=${sinceDateStr}`,
+					{
+						headers: {
+							'Authorization': `Bearer ${accessToken}`,
+							'Accept': 'application/vnd.github+json',
+							'X-GitHub-Api-Version': '2022-11-28',
+							'User-Agent': 'Dashboard-App'
+						}
+					}
+				);
+
+				if (metricsResponse.ok) {
+					const metrics: CopilotMetric[] = await metricsResponse.json();
+					return { organization: orgName, metrics };
+				} else if (metricsResponse.status === 403) {
+					return { organization: orgName, metrics: [], error: 'No permission to view Copilot metrics' };
+				} else if (metricsResponse.status === 422) {
+					return { organization: orgName, metrics: [], error: 'Copilot Metrics API is disabled for this organization' };
+				}
+				// 404 = not enabled → skip
+			} catch (error) {
+				console.error(`[ERROR] Copilot metrics error for ${orgName}:`, error);
+			}
+			return null;
+		}
+
+		// ── Helper: fetch GraphQL projects ──
+		async function fetchGraphQLProjects(): Promise<GitHubProject[]> {
+			const projectsQuery = `
+				query {
+					viewer {
+						projectsV2(first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+							nodes {
+								id
+								number
+								title
+								url
+								shortDescription
+								public
+								closed
+								updatedAt
+								owner {
+									... on User { login avatarUrl }
+									... on Organization { login avatarUrl }
 								}
 							}
 						}
-					}
-					organizations(first: 50) {
-						nodes {
-							login
-							projectsV2(first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
-								nodes {
-									id
-									number
-									title
-									url
-									shortDescription
-									public
-									closed
-									updatedAt
-									owner {
-										... on Organization {
-											login
-											avatarUrl
+						organizations(first: 50) {
+							nodes {
+								login
+								projectsV2(first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+									nodes {
+										id
+										number
+										title
+										url
+										shortDescription
+										public
+										closed
+										updatedAt
+										owner {
+											... on Organization { login avatarUrl }
 										}
 									}
 								}
@@ -256,280 +290,143 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 						}
 					}
 				}
-			}
-		`;
+			`;
 
-		try {
-			const graphqlResponse = await fetch('https://api.github.com/graphql', {
-				method: 'POST',
-				headers: {
-					'Authorization': `Bearer ${accessToken}`,
-					'Content-Type': 'application/json',
-					'User-Agent': 'Dashboard-App'
-				},
-				body: JSON.stringify({ query: projectsQuery })
-			});
+			try {
+				const graphqlResponse = await fetch('https://api.github.com/graphql', {
+					method: 'POST',
+					headers: {
+						'Authorization': `Bearer ${accessToken}`,
+						'Content-Type': 'application/json',
+						'User-Agent': 'Dashboard-App'
+					},
+					body: JSON.stringify({ query: projectsQuery })
+				});
 
-			if (graphqlResponse.ok) {
+				if (!graphqlResponse.ok) {
+					const errorText = await graphqlResponse.text();
+					console.error('[ERROR] GraphQL Response not OK:', graphqlResponse.status, errorText);
+					return [];
+				}
+
 				const result = await graphqlResponse.json();
-
-				// Check for errors in the response
 				if (result.errors) {
 					console.error('GraphQL Errors:', result.errors);
 				}
 
+				const projects: GitHubProject[] = [];
+
 				// Extract user's personal projects
 				if (result.data?.viewer?.projectsV2?.nodes) {
-					const userProjects = result.data.viewer.projectsV2.nodes.map((project: Record<string, unknown> & { owner?: Record<string, unknown>; }) => ({
-						id: project.id,
-						number: project.number,
-						title: project.title,
-						url: project.url,
-						shortDescription: project.shortDescription,
-						public: project.public,
-						closed: project.closed,
-						ownerType: 'User',
-						ownerLogin: project.owner?.login || 'Unknown',
-						ownerAvatarUrl: project.owner?.avatarUrl,
-						updatedAt: project.updatedAt
-					}));
-					allGithubProjects.push(...userProjects);
+					for (const project of result.data.viewer.projectsV2.nodes) {
+						projects.push({
+							id: project.id,
+							number: project.number,
+							title: project.title,
+							url: project.url,
+							shortDescription: project.shortDescription,
+							public: project.public,
+							closed: project.closed,
+							ownerType: 'User',
+							ownerLogin: project.owner?.login || 'Unknown',
+							ownerAvatarUrl: project.owner?.avatarUrl,
+							updatedAt: project.updatedAt
+						});
+					}
 				}
 
 				// Extract organization projects
 				if (result.data?.viewer?.organizations?.nodes) {
 					for (const org of result.data.viewer.organizations.nodes) {
 						if (org.projectsV2?.nodes) {
-							const orgProjects = org.projectsV2.nodes.map((project: Record<string, unknown> & { owner?: Record<string, unknown>; }) => ({
-								id: project.id,
-								number: project.number,
-								title: project.title,
-								url: project.url,
-								shortDescription: project.shortDescription,
-								public: project.public,
-								closed: project.closed,
-								ownerType: 'Organization',
-								ownerLogin: project.owner?.login || org.login,
-								ownerAvatarUrl: project.owner?.avatarUrl,
-								updatedAt: project.updatedAt
-							}));
-							allGithubProjects.push(...orgProjects);
-						}
-					}
-				}
-			} else {
-				const errorText = await graphqlResponse.text();
-				console.error('[ERROR] GraphQL Response not OK:', graphqlResponse.status, errorText);
-			}
-		} catch (error) {
-			console.error('[ERROR] Failed to fetch GitHub Projects:', error);
-			if (error instanceof Error) {
-				console.error('[ERROR] Error message:', error.message);
-				console.error('[ERROR] Error stack:', error.stack);
-			}
-		}
-
-		// Fetch Pull Requests using GitHub Search API
-		const assignedPRs: GitHubPullRequest[] = [];
-		const createdPRs: GitHubPullRequest[] = [];
-		const reviewRequestedPRs: GitHubPullRequest[] = [];
-
-		try {
-			// Fetch assigned PRs
-			const assignedResponse = await fetch('https://api.github.com/search/issues?q=type:pr+state:open+assignee:@me&sort=updated&order=desc&per_page=100', {
-				headers: {
-					'Authorization': `Bearer ${accessToken}`,
-					'Accept': 'application/vnd.github.v3+json',
-					'User-Agent': 'Dashboard-App'
-				}
-			});
-
-			if (assignedResponse.ok) {
-				const assignedResult = await assignedResponse.json();
-				console.log('[DEBUG] Assigned PRs response:', assignedResult.total_count, 'found');
-
-				for (const item of assignedResult.items || []) {
-					const repoMatch = item.repository_url?.match(/\/repos\/([^/]+)\/([^/]+)$/);
-					if (repoMatch) {
-						assignedPRs.push({
-							id: item.node_id,
-							number: item.number,
-							title: item.title,
-							url: item.html_url,
-							state: item.state.toUpperCase(),
-							createdAt: item.created_at,
-							updatedAt: item.updated_at,
-							author: item.user ? {
-								login: item.user.login,
-								avatarUrl: item.user.avatar_url
-							} : undefined,
-							repository: {
-								name: repoMatch[2],
-								owner: {
-									login: repoMatch[1]
-								}
-							},
-							isDraft: item.draft || false
-						});
-					}
-				}
-			} else {
-				console.error('[ERROR] Assigned PRs fetch failed:', assignedResponse.status);
-			}
-
-			// Fetch created PRs
-			const createdResponse = await fetch('https://api.github.com/search/issues?q=type:pr+state:open+author:@me&sort=updated&order=desc&per_page=100', {
-				headers: {
-					'Authorization': `Bearer ${accessToken}`,
-					'Accept': 'application/vnd.github.v3+json',
-					'User-Agent': 'Dashboard-App'
-				}
-			});
-
-			if (createdResponse.ok) {
-				const createdResult = await createdResponse.json();
-				console.log('[DEBUG] Created PRs response:', createdResult.total_count, 'found');
-
-				for (const item of createdResult.items || []) {
-					const repoMatch = item.repository_url?.match(/\/repos\/([^/]+)\/([^/]+)$/);
-					if (repoMatch) {
-						createdPRs.push({
-							id: item.node_id,
-							number: item.number,
-							title: item.title,
-							url: item.html_url,
-							state: item.state.toUpperCase(),
-							createdAt: item.created_at,
-							updatedAt: item.updated_at,
-							author: item.user ? {
-								login: item.user.login,
-								avatarUrl: item.user.avatar_url
-							} : undefined,
-							repository: {
-								name: repoMatch[2],
-								owner: {
-									login: repoMatch[1]
-								}
-							},
-							isDraft: item.draft || false
-						});
-					}
-				}
-			} else {
-				console.error('[ERROR] Created PRs fetch failed:', createdResponse.status);
-			}
-
-			// Fetch review-requested PRs
-			const reviewRequestedResponse = await fetch('https://api.github.com/search/issues?q=type:pr+state:open+review-requested:@me&sort=updated&order=desc&per_page=100', {
-				headers: {
-					'Authorization': `Bearer ${accessToken}`,
-					'Accept': 'application/vnd.github.v3+json',
-					'User-Agent': 'Dashboard-App'
-				}
-			});
-
-			if (reviewRequestedResponse.ok) {
-				const reviewRequestedResult = await reviewRequestedResponse.json();
-				console.log('[DEBUG] Review-requested PRs response:', reviewRequestedResult.total_count, 'found');
-
-				for (const item of reviewRequestedResult.items || []) {
-					const repoMatch = item.repository_url?.match(/\/repos\/([^/]+)\/([^/]+)$/);
-					if (repoMatch) {
-						reviewRequestedPRs.push({
-							id: item.node_id,
-							number: item.number,
-							title: item.title,
-							url: item.html_url,
-							state: item.state.toUpperCase(),
-							createdAt: item.created_at,
-							updatedAt: item.updated_at,
-							author: item.user ? {
-								login: item.user.login,
-								avatarUrl: item.user.avatar_url
-							} : undefined,
-							repository: {
-								name: repoMatch[2],
-								owner: {
-									login: repoMatch[1]
-								}
-							},
-							isDraft: item.draft || false
-						});
-					}
-				}
-			} else {
-				console.error('[ERROR] Review-requested PRs fetch failed:', reviewRequestedResponse.status);
-			}
-
-			console.log('[DEBUG] Final Assigned PRs count:', assignedPRs.length);
-			console.log('[DEBUG] Final Created PRs count:', createdPRs.length);
-			console.log('[DEBUG] Final Review-requested PRs count:', reviewRequestedPRs.length);
-		} catch (error) {
-			console.error('[ERROR] Failed to fetch Pull Requests:', error);
-		}
-
-		// Fetch Copilot usage metrics for organizations
-		const copilotMetrics: OrganizationMetrics[] = [];
-
-		try {
-			// Get list of organizations the user belongs to
-			const orgsForCopilot = organizationProjects.map(op => op.organization.login);
-
-			// Fetch Copilot metrics for each organization
-			for (const orgName of orgsForCopilot) {
-				try {
-					// Calculate date 28 days ago for the since parameter
-					const sinceDate = new Date();
-					sinceDate.setDate(sinceDate.getDate() - 28);
-					const sinceDateStr = sinceDate.toISOString().split('T')[0];
-
-					const metricsResponse = await fetch(
-						`https://api.github.com/orgs/${orgName}/copilot/metrics?since=${sinceDateStr}`,
-						{
-							headers: {
-								'Authorization': `Bearer ${accessToken}`,
-								'Accept': 'application/vnd.github+json',
-								'X-GitHub-Api-Version': '2022-11-28',
-								'User-Agent': 'Dashboard-App'
+							for (const project of org.projectsV2.nodes) {
+								projects.push({
+									id: project.id,
+									number: project.number,
+									title: project.title,
+									url: project.url,
+									shortDescription: project.shortDescription,
+									public: project.public,
+									closed: project.closed,
+									ownerType: 'Organization',
+									ownerLogin: project.owner?.login || org.login,
+									ownerAvatarUrl: project.owner?.avatarUrl,
+									updatedAt: project.updatedAt
+								});
 							}
 						}
-					);
-
-					if (metricsResponse.ok) {
-						const metrics: CopilotMetric[] = await metricsResponse.json();
-						copilotMetrics.push({
-							organization: orgName,
-							metrics
-						});
-						console.log(`[DEBUG] Copilot metrics for ${orgName}:`, metrics.length, 'days of data');
-					} else if (metricsResponse.status === 403) {
-						console.log(`[DEBUG] No Copilot access for org ${orgName} (403 Forbidden)`);
-						copilotMetrics.push({
-							organization: orgName,
-							metrics: [],
-							error: 'No permission to view Copilot metrics'
-						});
-					} else if (metricsResponse.status === 404) {
-						console.log(`[DEBUG] Copilot not enabled for org ${orgName} (404)`);
-					} else if (metricsResponse.status === 422) {
-						console.log(`[DEBUG] Copilot Metrics API disabled for org ${orgName} (422)`);
-						copilotMetrics.push({
-							organization: orgName,
-							metrics: [],
-							error: 'Copilot Metrics API is disabled for this organization'
-						});
-					} else {
-						console.error(`[ERROR] Copilot metrics fetch failed for ${orgName}:`, metricsResponse.status);
 					}
-				} catch (orgError) {
-					console.error(`[ERROR] Failed to fetch Copilot metrics for ${orgName}:`, orgError);
 				}
-			}
 
-			console.log('[DEBUG] Total organizations with Copilot metrics:', copilotMetrics.length);
-		} catch (error) {
-			console.error('[ERROR] Failed to fetch Copilot metrics:', error);
+				return projects;
+			} catch (error) {
+				console.error('[ERROR] Failed to fetch GitHub Projects:', error);
+				return [];
+			}
 		}
+
+		// ── 1) Kick off the org list fetch (needed before org repos & copilot) ──
+		const orgsResponse = await fetch('https://api.github.com/user/orgs', { headers });
+		let organizations: GitHubOrganization[] = [];
+		if (orgsResponse.ok) {
+			organizations = await orgsResponse.json();
+		}
+
+		// ── 2) Fire ALL independent fetches in parallel ──
+		const [
+			orgReposResults,
+			userReposResponse,
+			allGithubProjects,
+			assignedPRs,
+			createdPRs,
+			reviewRequestedPRs,
+			copilotMetricsResults
+		] = await Promise.all([
+			// Org repos (parallel per org)
+			Promise.all(
+				organizations.map(async (org): Promise<OrganizationProjects> => {
+					try {
+						const reposResponse = await fetch(
+							`https://api.github.com/orgs/${org.login}/repos?sort=updated&per_page=20`,
+							{ headers }
+						);
+						if (reposResponse.ok) {
+							const repositories: GitHubRepository[] = await reposResponse.json();
+							return { organization: org, repositories };
+						}
+					} catch (error) {
+						console.error(`Failed to fetch repos for org ${org.login}:`, error);
+					}
+					return { organization: org, repositories: [] };
+				})
+			),
+
+			// User repos
+			fetch('https://api.github.com/user/repos?sort=updated&per_page=10', { headers }),
+
+			// GraphQL projects
+			fetchGraphQLProjects(),
+
+			// PR searches (all three in parallel)
+			fetchPRSearch('type:pr state:open assignee:@me'),
+			fetchPRSearch('type:pr state:open author:@me'),
+			fetchPRSearch('type:pr state:open review-requested:@me'),
+
+			// Copilot metrics (parallel per org)
+			Promise.all(organizations.map(org => fetchCopilotMetricsForOrg(org.login)))
+		]);
+
+		// ── 3) Resolve simple results ──
+		const organizationProjects: OrganizationProjects[] = orgReposResults;
+
+		let githubProjects: GitHubRepository[] = [];
+		if (userReposResponse.ok) {
+			githubProjects = await userReposResponse.json();
+		}
+
+		const copilotMetrics: OrganizationMetrics[] = copilotMetricsResults.filter(
+			(m): m is OrganizationMetrics => m !== null
+		);
 
 		return {
 			user: session.user,

@@ -430,6 +430,9 @@ function createWidgetStore() {
 		},
 		updateTitle: (id: string, title: string) => {
 			update((widgets) => {
+				// Skip update if title hasn't changed to prevent infinite reactive loops
+				const existing = widgets.find((w) => w.id === id);
+				if (existing && existing.title === title) return widgets;
 				const updatedWidgets = widgets.map((widget) =>
 					widget.id === id ? { ...widget, title } : widget
 				);
