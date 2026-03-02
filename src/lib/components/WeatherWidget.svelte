@@ -154,6 +154,7 @@
 	let timezone = '';
 	let timezoneOffset = 0; // Offset in seconds from UTC
 	let isCelsius = true;
+	let cityName = '';
 	let sunPosition = { x: -100, y: -100 };
 	let moonPosition = { x: -100, y: -100 };
 	let earthGradient = '';
@@ -423,6 +424,11 @@
 		? Math.round((timeOffsetData.temperature - 32) * 5 / 9)
 		: timeOffsetData.temperature;
 
+	// Keep widget title in sync with current temp and unit
+	$: if (cityName && displayTemp !== undefined) {
+		widgets.updateTitle(widget.id, `${displayTemp}°${isCelsius ? 'C' : 'F'} - ${cityName}`);
+	}
+
 	// High/Low for next 24 hours
 	$: tempHighLow = (() => {
 		if (next24HoursData.length === 0) return null;
@@ -631,10 +637,9 @@
 		// Mark that we have location data
 		hasLocationData = true;
 		
-		// Update widget title to include city name
+		// Update city name for widget title
 		if (data.location) {
-			const cityName = data.location.split(',')[0].trim(); // Get just the city name
-			widgets.updateTitle(widget.id, `Weather - ${cityName}`);
+			cityName = data.location.split(',')[0].trim(); // Get just the city name
 		}
 		
 		// Store raw condition for weather animations
