@@ -8,6 +8,7 @@
 	import GithubPullRequestsWidget from '$lib/components/GithubPullRequestsWidget.svelte';
 	import DataTableWidget from '$lib/components/DataTableWidget.svelte';
 	import CopilotUsageWidget from '$lib/components/CopilotUsageWidget.svelte';
+	import CryptoWidget from '$lib/components/CryptoWidget.svelte';
 	import ColumnLayout from '$lib/components/ColumnLayout.svelte';
 	import { widgets, sections } from '$lib/stores/widgets';
 	import { commands } from '$lib/stores/commands';
@@ -25,7 +26,8 @@
 		GithubProjectsWidget,
 		GithubPullRequestsWidget,
 		DataTableWidget,
-		CopilotUsageWidget
+		CopilotUsageWidget,
+		CryptoWidget
 	};
 
 	let isWidgetPickerOpen = false;

@@ -1,6 +1,6 @@
 export interface Widget {
 	id: string;
-	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table' | 'copilot-usage';
+	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table' | 'copilot-usage' | 'crypto';
 	title: string;
 	section: number; // Which section this widget belongs to
 	order: number; // Order within the section
@@ -24,6 +24,11 @@ export interface WidgetConfig {
 		timezoneOffset?: number; // Offset from UTC in seconds
 	};
 	temperatureUnit?: 'celsius' | 'fahrenheit';
+	crypto?: {
+		coinId: string; // CoinGecko coin ID (e.g., 'bitcoin')
+		vsCurrency: string; // Target currency (e.g., 'usd')
+		days: number; // Chart timeframe in days (1, 7, 30, 90, 365)
+	};
 }
 
 export interface Section {

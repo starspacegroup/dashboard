@@ -68,6 +68,12 @@
 			title: 'GitHub Copilot Usage',
 			description: 'View Copilot usage metrics and analytics',
 			icon: '🤖'
+		},
+		{
+			type: 'crypto',
+			title: 'Crypto Price',
+			description: 'Track cryptocurrency prices with interactive charts',
+			icon: '📈'
 		}
 	];
 

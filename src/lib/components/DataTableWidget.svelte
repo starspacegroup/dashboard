@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
+	import { moonPhase as moonPhaseStore } from '$lib/stores/moonPhase';
 
 	const WEATHER_CACHE_KEY = 'dashboard-weather-data';
 
@@ -45,10 +46,9 @@
 	let sunset = 0;
 	let moonrise = 0;
 	let moonset = 0;
+	let moonScale = 1;
 	let timezone = '';
 	let timezoneOffset = 0;
-	let moonPhase = 0;
-	let moonScale = 1;
 	let currentTimestamp = Date.now();
 	let sunPosition = { x: -100, y: -100 };
 	let moonPosition = { x: -100, y: -100 };
@@ -93,7 +93,6 @@
 					sunset = data.sunset || 0;
 					moonrise = data.moonrise || 0;
 					moonset = data.moonset || 0;
-					moonPhase = data.moonPhase || 0;
 					timezone = data.timezone || '';
 					timezoneOffset = data.timezoneOffset || 0;
 				} catch (error) {
@@ -131,21 +130,6 @@
 			month: 'long',
 			day: 'numeric'
 		});
-	}
-
-	function getMoonPhaseName(phase: number): string {
-		if (phase < 0.03 || phase > 0.97) return 'New Moon';
-		if (phase < 0.22) return 'Waxing Crescent';
-		if (phase < 0.28) return 'First Quarter';
-		if (phase < 0.47) return 'Waxing Gibbous';
-		if (phase < 0.53) return 'Full Moon';
-		if (phase < 0.72) return 'Waning Gibbous';
-		if (phase < 0.78) return 'Last Quarter';
-		return 'Waning Crescent';
-	}
-
-	function getMoonIllumination(phase: number): number {
-		return Math.abs(Math.cos(Math.PI * 2 * phase)) * 100;
 	}
 
 	// Calculate dew point trend path for SVG
@@ -294,7 +278,7 @@
 				{/if}
 				<tr>
 					<td>Moon Phase</td>
-					<td>{getMoonPhaseName(moonPhase)} - {getMoonIllumination(moonPhase).toFixed(0)}% illuminated</td>
+					<td>{$moonPhaseStore.phaseName} - {$moonPhaseStore.illuminationPercent}% illuminated</td>
 				</tr>
 				<tr>
 					<td>Moon Scale</td>

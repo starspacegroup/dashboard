@@ -5,6 +5,7 @@
 	import type { Widget } from '$lib/types/widget';
 	import { widgets } from '$lib/stores/widgets';
 	import { weatherSettings } from '$lib/stores/weatherSettings';
+	import { moonPhase as moonPhaseStore, computeMoonPhase } from '$lib/stores/moonPhase';
 
 	export let widget: Widget;
 
@@ -1482,123 +1483,7 @@
 		};
 	}
 
-	// Calculate moon phase based on date
-	// Returns a value from 0 to 1 representing the lunar cycle
-	// 0 = New Moon, 0.25 = First Quarter, 0.5 = Full Moon, 0.75 = Last Quarter, 1 = New Moon
-	function calculateMoonPhase(date: Date): number {
-		// Known new moon: January 6, 2000, 18:14 UTC
-		const knownNewMoon = new Date('2000-01-06T18:14:00Z').getTime();
-		const lunarCycle = 29.53058770576; // days
-		
-		const currentTime = date.getTime();
-		const daysSinceNewMoon = (currentTime - knownNewMoon) / (1000 * 60 * 60 * 24);
-		const phase = (daysSinceNewMoon % lunarCycle) / lunarCycle;
-		
-		return phase;
-	}
 
-	function getMoonPhaseName(phase: number): string {
-		// Phase is 0 to 1:
-		// 0 and 1 = new moon
-		// 0.25 = first quarter moon
-		// 0.5 = full moon
-		// 0.75 = last quarter moon
-		// Periods in between are waxing crescent, waxing gibbous, waning gibbous, and waning crescent
-		if (phase === 0 || phase === 1) return 'New Moon';
-		if (phase < 0.25) return 'Waxing Crescent';
-		if (phase === 0.25) return 'First Quarter';
-		if (phase < 0.5) return 'Waxing Gibbous';
-		if (phase === 0.5) return 'Full Moon';
-		if (phase < 0.75) return 'Waning Gibbous';
-		if (phase === 0.75) return 'Last Quarter';
-		if (phase < 1) return 'Waning Crescent';
-		return 'New Moon';
-	}
-
-	function getMoonIllumination(phase: number): number {
-		// Calculate approximate illumination percentage
-		// 0 = 0% (new moon)
-		// 0.25 = 50% (first quarter)
-		// 0.5 = 100% (full moon)
-		// 0.75 = 50% (last quarter)
-		// 1 = 0% (new moon)
-		if (phase <= 0.5) {
-			// Waxing: 0 to 100%
-			return phase * 2 * 100;
-		} else {
-			// Waning: 100% to 0
-			return (1 - phase) * 2 * 100;
-		}
-	}
-
-	function calculateMoonShadowPath(phase: number): string {
-		// Create an accurate moon phase visualization using SVG path
-		// The terminator (day/night boundary) is an ellipse that shifts across the moon
-		const size = 100; // Use viewBox size of 100x100 for easy percentage calculations
-		const radius = 50;
-		const centerX = 50;
-		const centerY = 50;
-		
-		// Calculate illumination (0 to 1)
-		const illumination = getMoonIllumination(phase) / 100;
-		
-		// For waxing phases (0 to 0.5), light comes from the right
-		// For waning phases (0.5 to 1), light comes from the left
-		const isWaxing = phase < 0.5;
-		
-		// Calculate the x-offset of the terminator ellipse
-		// At 0% illumination: offset = -radius (fully left, showing nothing)
-		// At 50% illumination: offset = 0 (center, showing half)
-		// At 100% illumination: offset = radius (fully right, showing everything)
-		const offset = (illumination - 0.5) * 2 * radius;
-		
-		// Create the shadow path using an ellipse for the terminator
-		// The shadow covers everything from the dark side
-		let path: string;
-		
-		if (illumination < 0.01) {
-			// New moon - fully dark
-			path = `M ${centerX - radius},${centerY} 
-					A ${radius},${radius} 0 1,1 ${centerX - radius},${centerY + 0.01} Z`;
-		} else if (illumination > 0.99) {
-			// Full moon - no shadow
-			path = '';
-		} else {
-			// Calculate the ellipse semi-minor axis based on illumination
-			// This creates the curved terminator line
-			const ellipseWidth = Math.abs(offset);
-			
-			if (isWaxing) {
-				// Waxing: shadow on the left, light on the right
-				if (illumination < 0.5) {
-					// Less than half lit - shadow is convex
-					path = `M ${centerX},${centerY - radius}
-							A ${radius},${radius} 0 0,0 ${centerX},${centerY + radius}
-							A ${ellipseWidth},${radius} 0 0,1 ${centerX},${centerY - radius} Z`;
-				} else {
-					// More than half lit - shadow is concave
-					path = `M ${centerX},${centerY - radius}
-							A ${radius},${radius} 0 0,0 ${centerX},${centerY + radius}
-							A ${ellipseWidth},${radius} 0 0,0 ${centerX},${centerY - radius} Z`;
-				}
-			} else {
-				// Waning: shadow on the right, light on the left
-				if (illumination < 0.5) {
-					// Less than half lit - shadow is convex
-					path = `M ${centerX},${centerY - radius}
-							A ${radius},${radius} 0 0,1 ${centerX},${centerY + radius}
-							A ${ellipseWidth},${radius} 0 0,1 ${centerX},${centerY - radius} Z`;
-				} else {
-					// More than half lit - shadow is concave
-					path = `M ${centerX},${centerY - radius}
-							A ${radius},${radius} 0 0,1 ${centerX},${centerY + radius}
-							A ${ellipseWidth},${radius} 0 0,0 ${centerX},${centerY - radius} Z`;
-				}
-			}
-		}
-		
-		return path;
-	}
 
 	// Reactive calculations for sun/moon positions and night mode
 	// Track testDateOffset, currentTimestamp, and timezone to trigger recalculation
@@ -1623,8 +1508,12 @@
 		const moonData = getMoonPosition(testDate);
 		moonPosition = { x: moonData.x, y: moonData.y };
 		moonScale = moonData.scale;
-		moonPhase = calculateMoonPhase(testDate);
-		moonShadowPath = calculateMoonShadowPath(moonPhase);
+
+		// Use the global store for current time; recompute only when time-travelling
+		const mpd = testDateOffset === 0 ? $moonPhaseStore : computeMoonPhase(testDate);
+		moonPhase = mpd.phase;
+		moonIllumination = mpd.fraction * 100;
+		moonShadowPath = mpd.shadowPath;
 		
 		// For determining day/night, use the location's hour via the helper
 		const locationSeconds = getSecondsSinceMidnightInLocationTime(testDate);
@@ -1659,13 +1548,50 @@
 			"
 		>
 			<svg class="moon-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-				<!-- Moon surface (full circle) -->
-				<circle cx="50" cy="50" r="50" fill="#d4c5b0" />
+				<defs>
+					<!-- Subtle radial gradient for the lit surface -->
+					<radialGradient id="moonSurface" cx="45%" cy="40%" r="55%">
+						<stop offset="0%"  stop-color="#e8e4df" />
+						<stop offset="60%" stop-color="#d5d0c8" />
+						<stop offset="100%" stop-color="#c2bbb0" />
+					</radialGradient>
+					<!-- Soft outer glow -->
+					<radialGradient id="moonGlow" cx="50%" cy="50%" r="50%">
+						<stop offset="80%" stop-color="transparent" />
+						<stop offset="100%" stop-color="rgba(210, 205, 195, 0.12)" />
+					</radialGradient>
+					<!-- Hint of mare shading -->
+					<radialGradient id="mare1" cx="38%" cy="35%" r="18%">
+						<stop offset="0%" stop-color="rgba(160,152,140,0.25)" />
+						<stop offset="100%" stop-color="transparent" />
+					</radialGradient>
+					<radialGradient id="mare2" cx="55%" cy="58%" r="14%">
+						<stop offset="0%" stop-color="rgba(155,148,138,0.2)" />
+						<stop offset="100%" stop-color="transparent" />
+					</radialGradient>
+					<radialGradient id="mare3" cx="60%" cy="32%" r="10%">
+						<stop offset="0%" stop-color="rgba(150,143,133,0.18)" />
+						<stop offset="100%" stop-color="transparent" />
+					</radialGradient>
+					<clipPath id="moonClip">
+						<circle cx="50" cy="50" r="50" />
+					</clipPath>
+				</defs>
 
-				<!-- Moon shadow (accurate phase) -->
+				<!-- Surface -->
+				<circle cx="50" cy="50" r="50" fill="url(#moonSurface)" />
+				<!-- Mare hints -->
+				<circle cx="50" cy="50" r="50" fill="url(#mare1)" />
+				<circle cx="50" cy="50" r="50" fill="url(#mare2)" />
+				<circle cx="50" cy="50" r="50" fill="url(#mare3)" />
+
+				<!-- Phase shadow -->
 				{#if moonShadowPath}
-					<path d={moonShadowPath} fill="rgba(20, 15, 25, 0.95)" />
+					<path d={moonShadowPath} fill="rgba(15, 12, 22, 0.92)" clip-path="url(#moonClip)" />
 				{/if}
+
+				<!-- Soft glow halo -->
+				<circle cx="50" cy="50" r="50" fill="url(#moonGlow)" />
 			</svg>
 		</div>
 
@@ -1958,9 +1884,16 @@
 				"
 			>
 				<svg class="moon-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-					<circle cx="50" cy="50" r="50" fill="#d4c5b0" />
-					<!-- Waning crescent shadow (~97% shadow for 3% illumination) -->
-					<path d="M 50,0 A 47,50 0 0,0 50,100 A 50,50 0 0,1 50,0 Z" fill="rgba(20, 15, 25, 0.95)" />
+					<defs>
+						<radialGradient id="loadMoonSurface" cx="45%" cy="40%" r="55%">
+							<stop offset="0%"  stop-color="#e8e4df" />
+							<stop offset="60%" stop-color="#d5d0c8" />
+							<stop offset="100%" stop-color="#c2bbb0" />
+						</radialGradient>
+						<clipPath id="loadMoonClip"><circle cx="50" cy="50" r="50" /></clipPath>
+					</defs>
+					<circle cx="50" cy="50" r="50" fill="url(#loadMoonSurface)" />
+					<path d="M 50,0 A 47,50 0 0,0 50,100 A 50,50 0 0,1 50,0 Z" fill="rgba(15, 12, 22, 0.92)" clip-path="url(#loadMoonClip)" />
 				</svg>
 			</div>
 			
@@ -2040,6 +1973,7 @@
 
 	.moon {
 		overflow: visible;
+		filter: drop-shadow(0 0 4px rgba(210, 205, 195, 0.25));
 	}
 
 	.moon-svg {
@@ -2740,37 +2674,7 @@
 			rgba(255, 200, 100, 0.08) 30%,
 			transparent 60%
 		);
-		animation: sunPulse 2s ease-in-out infinite;
 		z-index: 100;
-	}
-
-	@keyframes sunPulse {
-		0%, 100% {
-			transform: scale(1);
-			opacity: 0.5;
-		}
-		50% {
-			transform: scale(1.15);
-			opacity: 1;
-		}
-	}
-
-	/* Box shadow effects for weather (subtle enhancement) */
-	.earth.weather-clear {
-		animation: clearGlow 8s ease-in-out infinite;
-	}
-
-	@keyframes clearGlow {
-		0%, 100% {
-			box-shadow: 
-				0 8px 32px var(--shadow),
-				inset 0 0 60px rgba(255, 200, 100, 0.03);
-		}
-		50% {
-			box-shadow: 
-				0 8px 32px var(--shadow),
-				inset 0 0 80px rgba(255, 220, 120, 0.06);
-		}
 	}
 
 	.earth.weather-clouds {
