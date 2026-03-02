@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 
 // Server-side cache for crypto data
@@ -23,8 +24,18 @@ function setCache(key: string, data: unknown) {
   cache.set(key, { data, timestamp: Date.now() });
 }
 
-// CoinGecko free API base (no key required, but rate-limited)
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
+
+/** Build headers, including the Demo API key when available.
+ *  Reads env at call-time so it works on Cloudflare Pages
+ *  (env vars aren't available at module top-level there). */
+function cgHeaders(): HeadersInit {
+  const key = env.COINGECKO_API_KEY;
+  if (key) {
+    return { 'x-cg-demo-api-key': key };
+  }
+  return {};
+}
 
 export const GET: RequestHandler = async ({ url, locals }) => {
   // Require authentication
@@ -60,7 +71,9 @@ async function handleSearch(url: URL) {
   const cached = getCached(cacheKey);
   if (cached) return json(cached);
 
-  const res = await fetch(`${COINGECKO_BASE}/search?query=${encodeURIComponent(query)}`);
+  const res = await fetch(`${COINGECKO_BASE}/search?query=${encodeURIComponent(query)}`, {
+    headers: cgHeaders()
+  });
   if (!res.ok) {
     const text = await res.text();
     console.error('CoinGecko search error:', res.status, text);
@@ -99,7 +112,8 @@ async function handleChart(url: URL) {
   if (cached) return json(cached);
 
   const res = await fetch(
-    `${COINGECKO_BASE}/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=${encodeURIComponent(vsCurrency)}&days=${encodeURIComponent(days)}&precision=2`
+    `${COINGECKO_BASE}/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=${encodeURIComponent(vsCurrency)}&days=${encodeURIComponent(days)}&precision=2`,
+    { headers: cgHeaders() }
   );
   if (!res.ok) {
     const text = await res.text();
