@@ -10,7 +10,7 @@
 	const DEFAULT_COIN = 'bitcoin';
 	const DEFAULT_VS = 'usd';
 	const DEFAULT_DAYS = 7;
-	const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 min (matches server cache)
+	const REFRESH_INTERVAL = 60 * 1000; // 1 min auto-refresh
 	const POPULAR_COINS = [
 		{ id: 'bitcoin', symbol: 'BTC', name: 'Bitcoin' },
 		{ id: 'ethereum', symbol: 'ETH', name: 'Ethereum' },
