@@ -45,14 +45,17 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   }
 
   const action = url.searchParams.get('action');
+  const skipCache = url.searchParams.get('skipCache') === '1';
 
   try {
     if (action === 'search') {
       return await handleSearch(url);
+    } else if (action === 'price') {
+      return await handlePrice(url, skipCache);
     } else if (action === 'chart') {
-      return await handleChart(url);
+      return await handleChart(url, skipCache);
     } else {
-      return json({ error: 'Invalid action. Use: search, chart' }, { status: 400 });
+      return json({ error: 'Invalid action. Use: search, price, chart' }, { status: 400 });
     }
   } catch (error) {
     console.error('Crypto API error:', error);
@@ -95,10 +98,49 @@ async function handleSearch(url: URL) {
   return json(result);
 }
 
-/** Get chart data (market_chart) — the only data endpoint needed.
- *  Returns prices array only. The widget derives current price,
- *  high/low, and change % directly from the price series. */
-async function handleChart(url: URL) {
+/** Get current spot price for a coin. Uses /simple/price so the
+ *  displayed price is always the real-time value, independent of
+ *  whichever chart timeframe is selected. */
+async function handlePrice(url: URL, skipCache: boolean) {
+  const coinId = url.searchParams.get('coinId');
+  const vsCurrency = url.searchParams.get('vs') || 'usd';
+
+  if (!coinId) {
+    return json({ error: 'Missing coinId parameter' }, { status: 400 });
+  }
+
+  const cacheKey = `price:${coinId}:${vsCurrency}`;
+  if (!skipCache) {
+    const cached = getCached(cacheKey);
+    if (cached) return json(cached);
+  }
+
+  const res = await fetch(
+    `${COINGECKO_BASE}/simple/price?ids=${encodeURIComponent(coinId)}&vs_currencies=${encodeURIComponent(vsCurrency)}&include_24hr_change=true`,
+    { headers: cgHeaders() }
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    console.error('CoinGecko price error:', res.status, text);
+    return json({ error: 'CoinGecko API error' }, { status: res.status });
+  }
+
+  const data = await res.json();
+  const coinData = data[coinId] || {};
+  const result = {
+    price: coinData[vsCurrency] ?? 0,
+    change24h: coinData[`${vsCurrency}_24h_change`] ?? 0
+  };
+
+  setCache(cacheKey, result);
+  return json(result);
+}
+
+/** Get chart data (market_chart) for a specific timeframe.
+ *  The widget uses this purely for the chart visualisation, high/low,
+ *  and period change %. The "current price" is fetched separately
+ *  via the price action so it stays consistent across timeframes. */
+async function handleChart(url: URL, skipCache: boolean) {
   const coinId = url.searchParams.get('coinId');
   const vsCurrency = url.searchParams.get('vs') || 'usd';
   const days = url.searchParams.get('days') || '7';
@@ -108,8 +150,10 @@ async function handleChart(url: URL) {
   }
 
   const cacheKey = `chart:${coinId}:${vsCurrency}:${days}`;
-  const cached = getCached(cacheKey);
-  if (cached) return json(cached);
+  if (!skipCache) {
+    const cached = getCached(cacheKey);
+    if (cached) return json(cached);
+  }
 
   const res = await fetch(
     `${COINGECKO_BASE}/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=${encodeURIComponent(vsCurrency)}&days=${encodeURIComponent(days)}&precision=2`,

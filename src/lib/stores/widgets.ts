@@ -429,10 +429,16 @@ function createWidgetStore() {
 			});
 		},
 		updateTitle: (id: string, title: string) => {
+			// Check BEFORE calling update to avoid triggering store subscribers unnecessarily.
+			// Svelte's safe_not_equal treats all objects as changed, even the same reference,
+			// so returning the same array inside update() still notifies subscribers.
+			let currentWidgets: Widget[] = [];
+			const unsub = subscribe((w) => { currentWidgets = w; });
+			unsub();
+			const existing = currentWidgets.find((w) => w.id === id);
+			if (existing && existing.title === title) return;
+
 			update((widgets) => {
-				// Skip update if title hasn't changed to prevent infinite reactive loops
-				const existing = widgets.find((w) => w.id === id);
-				if (existing && existing.title === title) return widgets;
 				const updatedWidgets = widgets.map((widget) =>
 					widget.id === id ? { ...widget, title } : widget
 				);

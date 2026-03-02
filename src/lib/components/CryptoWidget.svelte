@@ -53,9 +53,13 @@
 	let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 	let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
-	// Price data — all derived from chart series
+	// Spot price — fetched independently from chart data so it never
+	// jumps when the user switches timeframes.
 	let currentPrice = 0;
-	let priceChangePercent = 0;
+	let price24hChange = 0;
+
+	// Chart-derived stats (depend on selected timeframe)
+	let chartChangePercent = 0;
 	let high = 0;
 	let low = 0;
 	let coinName = '';
@@ -84,15 +88,26 @@
 		: days <= 90 ? '3m'
 		: '1y';
 
-	// Displayed price reacts to chart hover
+	let isRefreshing = false;
+
+	// The change % shown in the header: when hovering we compute it
+	// from the first chart point; otherwise use the chart period change.
 	$: displayPrice = isHovering && hoverIndex >= 0 ? hoverPrice : currentPrice;
 	$: displayChangePercent = isHovering && hoverIndex >= 0 && chartPrices.length > 1
 		? (chartPrices[0][1] !== 0 ? ((hoverPrice - chartPrices[0][1]) / chartPrices[0][1]) * 100 : 0)
-		: priceChangePercent;
+		: chartChangePercent;
 
 	$: isPositive = displayChangePercent >= 0;
 
 	$: vsSymbol = VS_CURRENCIES.find(c => c.id === vsCurrency)?.symbol || '$';
+
+	// ─── Dynamic Widget Title ─────────────────────────
+	$: if (coinSymbol && currentPrice > 0) {
+		const titleStr = `${coinSymbol}${vsCurrency.toUpperCase()} — ${vsSymbol}${formatPrice(currentPrice)}`;
+		if (titleStr !== widget.title) {
+			widgets.updateTitle(widget.id, titleStr);
+		}
+	}
 
 	// ─── Chart SVG computation ───────────────────────────
 	$: chartPoints = computeChartPoints(chartPrices, chartWidth, chartHeight);
@@ -119,12 +134,44 @@
 		}));
 	}
 
-	// ─── Data Fetching — single API call per refresh ────
-	async function fetchData() {
-		isLoading = true;
-		error = '';
+	// ─── Data Fetching ─────────────────────────────────
+	// Price and chart are separate concerns:
+	// • fetchPrice()  — current spot price (stable across timeframes)
+	// • fetchChart()  — historical series (depends on selected timeframe)
+	// • fetchAll()    — both in parallel (initial load, coin/currency change)
+	// • refreshData() — both with cache bypass (refresh button)
+
+	/** Fetch the real-time spot price from /simple/price */
+	async function fetchPrice(skipCache = false) {
 		try {
-			const res = await fetch(`/api/crypto?action=chart&coinId=${encodeURIComponent(coinId)}&vs=${encodeURIComponent(vsCurrency)}&days=${days}`);
+			const params = new URLSearchParams({
+				action: 'price',
+				coinId,
+				vs: vsCurrency
+			});
+			if (skipCache) params.set('skipCache', '1');
+			const res = await fetch(`/api/crypto?${params}`);
+			if (!res.ok) throw new Error('Failed to fetch price');
+			const data = await res.json();
+			currentPrice = data.price ?? 0;
+			price24hChange = data.change24h ?? 0;
+		} catch (err) {
+			console.error('Error fetching crypto price:', err);
+			// Don't overwrite error if chart already set it
+		}
+	}
+
+	/** Fetch chart data for the selected timeframe */
+	async function fetchChart(skipCache = false) {
+		try {
+			const params = new URLSearchParams({
+				action: 'chart',
+				coinId,
+				vs: vsCurrency,
+				days: String(days)
+			});
+			if (skipCache) params.set('skipCache', '1');
+			const res = await fetch(`/api/crypto?${params}`);
 			if (!res.ok) throw new Error('Failed to fetch chart');
 			const data = await res.json();
 			chartPrices = data.prices || [];
@@ -132,28 +179,45 @@
 				const vals = chartPrices.map((p: [number, number]) => p[1]);
 				chartMin = Math.min(...vals);
 				chartMax = Math.max(...vals);
-				// Derive displayed values from the price series
-				currentPrice = vals[vals.length - 1];
 				high = chartMax;
 				low = chartMin;
 				const startPrice = vals[0];
-				priceChangePercent = startPrice !== 0 ? ((currentPrice - startPrice) / startPrice) * 100 : 0;
-			}
-			// Coin name/symbol from selected popular coin or config
-			const match = POPULAR_COINS.find(c => c.id === coinId);
-			if (match) {
-				coinName = match.name;
-				coinSymbol = match.symbol;
-			} else if (!coinName) {
-				// Use coinId as fallback until a search result sets it
-				coinName = coinId.charAt(0).toUpperCase() + coinId.slice(1);
-				coinSymbol = coinId.toUpperCase().slice(0, 5);
+				chartChangePercent = startPrice !== 0
+					? ((vals[vals.length - 1] - startPrice) / startPrice) * 100
+					: 0;
 			}
 		} catch (err) {
-			console.error('Error fetching crypto data:', err);
-			error = 'Failed to load data';
+			console.error('Error fetching crypto chart:', err);
+			error = 'Failed to load chart data';
 		}
+	}
+
+	/** Resolve coin name/symbol from popular list or search results */
+	function resolveCoinMeta() {
+		const match = POPULAR_COINS.find(c => c.id === coinId);
+		if (match) {
+			coinName = match.name;
+			coinSymbol = match.symbol;
+		} else if (!coinName) {
+			coinName = coinId.charAt(0).toUpperCase() + coinId.slice(1);
+			coinSymbol = coinId.toUpperCase().slice(0, 5);
+		}
+	}
+
+	/** Fetch both price + chart in parallel (initial load / coin change) */
+	async function fetchAll(skipCache = false) {
+		isLoading = true;
+		error = '';
+		resolveCoinMeta();
+		await Promise.all([fetchPrice(skipCache), fetchChart(skipCache)]);
 		isLoading = false;
+	}
+
+	/** Refresh button — bypasses server cache and reloads everything */
+	async function refreshData() {
+		isRefreshing = true;
+		await fetchAll(true);
+		isRefreshing = false;
 	}
 
 	async function searchCoins(query: string) {
@@ -190,19 +254,20 @@
 		searchQuery = '';
 		searchResults = [];
 		saveConfig();
-		fetchData();
+		fetchAll(); // coin changed → need new price + chart
 	}
 
 	function selectTimeframe(d: number) {
 		days = d;
 		saveConfig();
-		fetchData();
+		// Only re-fetch chart — current price is independent of timeframe
+		fetchChart();
 	}
 
 	function selectCurrency(vs: string) {
 		vsCurrency = vs;
 		saveConfig();
-		fetchData();
+		fetchAll(); // currency changed → need new price + chart
 	}
 
 	function saveConfig() {
@@ -298,8 +363,8 @@
 	// ─── Lifecycle ───────────────────────────────────────
 	onMount(() => {
 		if (browser) {
-			fetchData();
-			refreshTimer = setInterval(fetchData, REFRESH_INTERVAL);
+			fetchAll();
+			refreshTimer = setInterval(() => fetchAll(), REFRESH_INTERVAL);
 		}
 	});
 
@@ -332,7 +397,7 @@
 		<div class="error-state">
 			<span class="error-icon">⚠</span>
 			<p>{error}</p>
-			<button class="retry-btn" on:click={fetchData}>Retry</button>
+			<button class="retry-btn" on:click={() => fetchAll()}>Retry</button>
 		</div>
 	{:else}
 		<!-- ─── Header ─────────────────────────────────── -->
@@ -355,6 +420,20 @@
 					<span class="change-label">{isHovering && hoverIndex >= 0 ? hoverTime : displayChangeLabel}</span>
 				</span>
 			</div>
+
+			<button
+				class="reload-btn"
+				class:spinning={isRefreshing}
+				on:click={refreshData}
+				disabled={isRefreshing}
+				aria-label="Refresh {coinName} price"
+				title="Refresh price"
+			>
+				<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M1 1v5h5" />
+					<path d="M3.51 10a5.5 5.5 0 1 0 1.12-5.95L1 7.5" />
+				</svg>
+			</button>
 		</div>
 
 		<!-- ─── Coin Search Dropdown ───────────────────── -->
@@ -523,7 +602,7 @@
 			</div>
 			<div class="stat">
 				<span class="stat-label">Change</span>
-				<span class="stat-value" class:positive={isPositive} class:negative={!isPositive}>{formatPercent(priceChangePercent)}</span>
+				<span class="stat-value" class:positive={chartChangePercent >= 0} class:negative={chartChangePercent < 0}>{formatPercent(chartChangePercent)}</span>
 			</div>
 			<div class="stat">
 				<span class="stat-label">Open</span>
@@ -763,6 +842,44 @@
 		font-weight: 500;
 		opacity: 0.7;
 		font-size: 0.65rem;
+	}
+
+	/* ─── Reload Button ───────────────────────────────── */
+	.reload-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--surface);
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition: all var(--transition-fast) var(--ease-out);
+		flex-shrink: 0;
+		align-self: center;
+	}
+
+	.reload-btn:hover {
+		border-color: var(--primary-color);
+		color: var(--primary-color);
+		background: var(--surface-hover);
+	}
+
+	.reload-btn:disabled {
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
+	.reload-btn.spinning svg {
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 
 	/* ─── Coin Search Dropdown ────────────────────────── */
