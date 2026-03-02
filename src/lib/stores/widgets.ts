@@ -437,7 +437,7 @@ function createWidgetStore() {
 				return updatedWidgets;
 			});
 		},
-		updateWidgetConfig: (id: string, config: any) => {
+		updateWidgetConfig: (id: string, config: Record<string, unknown>) => {
 			update((widgets) => {
 				const updatedWidgets = widgets.map((widget) =>
 					widget.id === id ? { ...widget, config: { ...widget.config, ...config } } : widget

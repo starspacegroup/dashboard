@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
-	import { page } from '$app/stores';
 	import type { Widget } from '$lib/types/widget';
 	import { widgets } from '$lib/stores/widgets';
 	import { weatherSettings } from '$lib/stores/weatherSettings';
@@ -15,7 +14,6 @@
 	// Server caches weather for 10 min, so no point refreshing more often
 	const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes in milliseconds
 	const GLOBAL_UNIT_PREFERENCE_KEY = 'dashboard-temp-unit-global';
-	const ZIP_CODE_KEY = 'dashboard-zip-code';
 
 	interface WeatherData {
 		temperature: number;
@@ -65,7 +63,6 @@
 	let currentTime = '';
 	let currentDate = '';
 	let temperature = 72;
-	let feelsLike = 72;
 	let humidity = 65;
 	let dewPoint = 50;
 	let pressure = 1013.25; // Default sea level pressure in hPa
@@ -81,9 +78,6 @@
 	// Wind direction: 0=N, 90=E, 180=S, 270=W (where wind comes FROM)
 	// Particles travel in the direction the wind BLOWS (opposite of where it comes from)
 	$: windDirectionRadians = (windDirection * Math.PI) / 180;
-	
-	// Direction wind BLOWS TO in degrees (add 180° to flip from FROM to TO)
-	$: windBlowsToAngle = (windDirection + 180) % 360;
 	
 	// Calculate X and Y components of wind direction (for where wind BLOWS TO)
 	// Using standard math coordinates: 0° = up, 90° = right, 180° = down, 270° = left
@@ -152,30 +146,18 @@
 		: [];
 	
 	let hourlyData: HourlyData[] = [];
-	let isLoading = true;
 	let hasLocationData = false;
 	let sunrise = 0;
 	let sunset = 0;
-	let solarNoon = 0;
-	let dayLength = 0;
-	let civilTwilightBegin = 0;
-	let civilTwilightEnd = 0;
-	let nauticalTwilightBegin = 0;
-	let nauticalTwilightEnd = 0;
-	let astronomicalTwilightBegin = 0;
-	let astronomicalTwilightEnd = 0;
 	let moonrise = 0;
 	let moonset = 0;
-	let moonIllumination = 0;
 	let timezone = '';
 	let timezoneOffset = 0; // Offset in seconds from UTC
 	let isCelsius = true;
-	let isNight = false;
 	let sunPosition = { x: -100, y: -100 };
 	let moonPosition = { x: -100, y: -100 };
 	let earthGradient = '';
 	let textColor = 'var(--text-primary)';
-	let moonPhase = 0; // 0 = new moon, 0.5 = full moon, 1 = new moon again
 	let moonScale = 1; // Scale factor for moon size (1.0 to 1.9)
 	let currentTimestamp = Date.now(); // Track current time for reactive updates
 	let moonShadowPath = ''; // SVG path for accurate moon shadow
@@ -194,16 +176,8 @@
 	$: topSpacing = Math.max(0.5, 0.9 * textScale); // 0.9rem base, min 0.5rem
 	$: dateMargin = Math.max(0.15, 0.25 * textScale); // 0.25rem base, min 0.15rem
 	$: locationMargin = Math.max(0.25, 0.5 * textScale); // 0.5rem base, min 0.25rem
-	$: pressureSize = Math.max(0.9, 1.8 * textScale); // 1.8rem base, min 0.9rem
-	$: pressureUnitSize = Math.max(0.5, 0.8 * textScale); // 0.8rem base, min 0.5rem
-	$: pressureTrendSize = Math.max(0.7, 1.4 * textScale); // 1.4rem base, min 0.7rem
 	$: pressureGraphWidth = Math.max(80, 120 * textScale); // Graph width scales with widget
 	$: pressureGraphHeight = Math.max(24, 36 * textScale); // Graph height scales with widget
-	
-	// Wind info sizing
-	$: windValueSize = Math.max(0.9, 1.4 * textScale); // Wind speed value size
-	$: windUnitSize = Math.max(0.5, 0.7 * textScale); // Unit size
-	$: windLabelSize = Math.max(0.45, 0.55 * textScale); // Label size
 
 	// Dynamic importance scaling for bottom info row
 	// Wind: higher speeds = more important (scale 0.85 to 1.4)
@@ -328,15 +302,7 @@
 		return { path: pathData, minPressure: minP, maxPressure: maxP, dropWarning, points, segments, severityColor, rateOfChange: maxShiftRate };
 	})();
 	
-	// Coordinates (if available)
-	let latitude: number | null = null;
-	let longitude: number | null = null;
-	let lastUpdate = 0;
 	let description = '';
-	
-	// Zip code override
-	let savedZipCode = '';
-	let zipCodeInput = '';
 	
 	// Time test mode
 	let testDateOffset = 0; // Minutes offset from current time (negative = past)
@@ -357,7 +323,6 @@
 	const LOADING_SUNSET = 17 * 3600 + 52 * 60; // 5:52 PM in seconds
 	const LOADING_MOONRISE = 5 * 3600 + 12 * 60; // 5:12 AM in seconds
 	const LOADING_MOONSET = 15 * 3600 + 47 * 60; // 3:47 PM in seconds
-	const LOADING_MOON_PHASE = 0.03; // Waning crescent, ~3% illuminated
 
 	// Track if initial weather load has occurred (to avoid duplicate loads)
 	let hasInitiallyLoaded = false;
@@ -473,13 +438,6 @@
 	// Reactive humidity display - uses time offset data when time traveling
 	$: displayHumidity = timeOffsetData.humidity;
 
-	// Save unit preference and toggle
-	function setUnit(useCelsius: boolean) {
-		isCelsius = useCelsius;
-		// Note: This updates the visual display only
-		// To persist, user should use widget settings
-	}
-
 	// Settings handlers
 	export function openSettings() {
 		weatherSettings.open(
@@ -490,9 +448,9 @@
 		);
 	}
 
-	function handleSettingsSave(location: any, temperatureUnit?: 'celsius' | 'fahrenheit') {
+	function handleSettingsSave(location: { lat: number; lon: number } | null, temperatureUnit?: 'celsius' | 'fahrenheit') {
 		// Prepare config update
-		const configUpdate: any = {};
+		const configUpdate: Record<string, unknown> = {};
 		
 		if (location) {
 			configUpdate.location = location;
@@ -575,7 +533,7 @@
 					const position = await locationPromise;
 					const { latitude, longitude } = position.coords;
 					await fetchWeatherFromAPI(latitude, longitude);
-				} catch (geoError) {
+				} catch (_geoError) {
 					// Geolocation failed, timed out, or denied
 					// Fall back to default location (Lewiston, ME)
 					console.log('Geolocation unavailable, using default location');
@@ -588,7 +546,6 @@
 			}
 		} catch (error) {
 			console.error('Error fetching weather:', error);
-			isLoading = false;
 		}
 	}
 
@@ -608,21 +565,13 @@
 
 			const data: WeatherData = await response.json();
 			
-			// Save coordinates if provided
-			if (lat && lon) {
-				latitude = lat;
-				longitude = lon;
-			}
-			
 			// Save to localStorage
 			localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(data));
 			
 			// Apply the data
 			applyWeatherData(data);
-			isLoading = false;
 		} catch (error) {
 			console.error('Error fetching weather from API:', error);
-			isLoading = false;
 		}
 	}
 
@@ -647,7 +596,6 @@
 
 	function applyWeatherData(data: WeatherData) {
 		temperature = data.temperature;
-		feelsLike = data.feelsLike ?? data.temperature;
 		humidity = data.humidity;
 		dewPoint = data.dewPoint || 0;
 		pressure = data.pressure || 1013.25;
@@ -662,28 +610,13 @@
 		// Sun data from sunrise-sunset.org API
 		sunrise = data.sunrise || 0;
 		sunset = data.sunset || 0;
-		solarNoon = data.solarNoon || 0;
-		dayLength = data.dayLength || 0;
-		civilTwilightBegin = data.civilTwilightBegin || 0;
-		civilTwilightEnd = data.civilTwilightEnd || 0;
-		nauticalTwilightBegin = data.nauticalTwilightBegin || 0;
-		nauticalTwilightEnd = data.nauticalTwilightEnd || 0;
-		astronomicalTwilightBegin = data.astronomicalTwilightBegin || 0;
-		astronomicalTwilightEnd = data.astronomicalTwilightEnd || 0;
 		
 		// Moon data from astronomical calculations
 		moonrise = data.moonrise || 0;
 		moonset = data.moonset || 0;
-		if (data.moonPhase !== undefined) {
-			moonPhase = data.moonPhase;
-		}
-		if (data.moonIllumination !== undefined) {
-			moonIllumination = data.moonIllumination;
-		}
 		
 		timezone = data.timezone || '';
 		timezoneOffset = data.timezoneOffset || 0;
-		lastUpdate = data.timestamp || Date.now();
 		
 		// Save timezone to widget config for immediate time display on future loads
 		if (widget.config?.location && (data.timezone || data.timezoneOffset)) {
@@ -756,34 +689,6 @@
 	$: temperaturePath = next24HoursData.length > 0
 		? generateGraphPath(next24HoursData.map(h => h.temperature), earthSize, 80)
 		: '';
-
-	// Calculate max temperature info for the graph high label
-	$: graphHighInfo = (() => {
-		if (next24HoursData.length === 0) return null;
-		const temps = next24HoursData.map(h => h.temperature);
-		const maxTemp = Math.max(...temps);
-		const minTemp = Math.min(...temps);
-		const maxIndex = temps.indexOf(maxTemp);
-		const valueRange = maxTemp - minTemp || 10;
-		// Calculate x position (same logic as generateGraphPath)
-		const x = (maxIndex / (temps.length - 1)) * earthSize;
-		// Calculate y position (top of graph, with small offset)
-		const normalizedValue = (maxTemp - minTemp) / valueRange;
-		const y = 80 - normalizedValue * 80;
-		// Display value in user's preferred unit
-		const displayValue = isCelsius ? maxTemp : maxTemp;
-		return { temp: Math.round(displayValue), x, y: Math.max(y - 4, 10) };
-	})();
-
-	// Generate SVG path for dew point graph (scales with earth size)
-	$: dewPointPath = hourlyData.length > 0 && hourlyData.some(h => h.dewPoint !== undefined && h.dewPoint !== 0)
-		? generateGraphPath(hourlyData.map(h => h.dewPoint || 0), earthSize, 60)
-		: '';
-
-	function formatHour(timestamp: number): string {
-		const date = new Date(timestamp * 1000);
-		return date.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true });
-	}
 
 	function getTemperatureColor(temp: number): string {
 		// 32°F or lower = white
@@ -1000,7 +905,7 @@
 				const weekday = adjustedTime.toLocaleString('en-US', { weekday: 'long', timeZone: timezone });
 				currentDate = `${year} ${month} ${day} (${weekday})`;
 				return;
-			} catch (e) {
+			} catch (_e) {
 				// Fall back to offset calculation if timezone string is invalid
 				console.warn('Invalid timezone string, falling back to offset:', timezone);
 			}
@@ -1123,7 +1028,6 @@
 	$: {
 		const now = new Date();
 		const hours = now.getHours() + now.getMinutes() / 60;
-		const timeRatio = hours / 24;
 		
 		// Determine if it's day or night
 		if (hours >= 6 && hours < 18) {
@@ -1142,7 +1046,7 @@
 				const minutes = parseInt(date.toLocaleString('en-US', { minute: 'numeric', timeZone: timezone }));
 				const seconds = parseInt(date.toLocaleString('en-US', { second: 'numeric', timeZone: timezone }));
 				return hours * 3600 + minutes * 60 + seconds;
-			} catch (e) {
+			} catch (_e) {
 				// Fall through to offset calculation
 			}
 		}
@@ -1192,8 +1096,6 @@
 		
 		if (secondsSinceMidnight >= sunriseTime && secondsSinceMidnight <= sunsetTime) {
 			// Sun is visible - daylight hours
-			// Calculate solar noon as the midpoint between sunrise and sunset
-			const solarNoonTime = (sunriseTime + sunsetTime) / 2;
 			const dayDuration = sunsetTime - sunriseTime;
 			const dayProgress = (secondsSinceMidnight - sunriseTime) / dayDuration;
 			
@@ -1511,14 +1413,11 @@
 
 		// Use the global store for current time; recompute only when time-travelling
 		const mpd = testDateOffset === 0 ? $moonPhaseStore : computeMoonPhase(testDate);
-		moonPhase = mpd.phase;
-		moonIllumination = mpd.fraction * 100;
 		moonShadowPath = mpd.shadowPath;
 		
 		// For determining day/night, use the location's hour via the helper
 		const locationSeconds = getSecondsSinceMidnightInLocationTime(testDate);
 		const displayHour = Math.floor(locationSeconds / 3600);
-		isNight = displayHour < 6 || displayHour >= 18;
 		
 		// Update Earth colors based on time and weather
 		const colorData = calculateEarthColor(displayHour, condition);

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import { commands, type Command } from '$lib/stores/commands';
 	import { fly, fade } from 'svelte/transition';
 

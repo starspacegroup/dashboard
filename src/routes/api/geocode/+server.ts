@@ -46,7 +46,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     const data = await response.json();
 
     // Transform the results to a cleaner format
-    const results = (data.results || []).map((place: any) => {
+    const results = (data.results || []).map((place: Record<string, string>) => {
       const state = place.admin1 || ''; // admin1 is usually the state/province
       const country = place.country_code?.toUpperCase() || place.country || '';
 

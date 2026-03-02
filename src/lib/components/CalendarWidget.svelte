@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { widgets } from '$lib/stores/widgets';
-	import type { Widget } from '$lib/types/widget';
 
 	type ViewMode = 'days' | 'months' | 'years' | 'decades';
 

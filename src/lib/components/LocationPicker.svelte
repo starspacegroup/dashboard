@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
-
 	export let selectedLocation: Location | null = null;
 	export let onLocationSelect: (location: Location | null) => void;
 	export let savedLocation: Location | null = null;

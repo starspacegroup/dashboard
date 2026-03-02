@@ -210,9 +210,6 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       );
     }
 
-    // Get current time index in the hourly arrays
-    const currentHourISO = now.toISOString().slice(0, 13) + ':00';
-
     // Current weather data
     const isNight = data.current.is_day === 0;
     const weatherInfo = getWeatherFromWMO(data.current.weather_code, isNight);
@@ -418,11 +415,23 @@ function calculatePressureTrend(times: string[], pressures: number[]): { directi
   return { direction, change: changeRounded };
 }
 
+interface HourlyDataPoint {
+  time: number;
+  temperature: number;
+  feelsLike: number;
+  humidity: number;
+  dewPoint: number;
+  pressure: number;
+  condition: string;
+  icon: string;
+  interpolated?: boolean;
+}
+
 // Interpolate hourly data to 30-minute resolution
-function interpolateToHalfHour(hourlyData: any[]): any[] {
+function interpolateToHalfHour(hourlyData: HourlyDataPoint[]): HourlyDataPoint[] {
   if (hourlyData.length < 2) return hourlyData;
 
-  const interpolated: any[] = [];
+  const interpolated: HourlyDataPoint[] = [];
 
   for (let i = 0; i < hourlyData.length; i++) {
     const current = hourlyData[i];
@@ -556,10 +565,6 @@ function calculateMoonData(lat: number, lon: number, date: Date): {
 
   function toJulian(date: Date): number {
     return date.valueOf() / DAY_MS - 0.5 + J1970;
-  }
-
-  function fromJulian(j: number): Date {
-    return new Date((j + 0.5 - J1970) * DAY_MS);
   }
 
   function toDays(date: Date): number {

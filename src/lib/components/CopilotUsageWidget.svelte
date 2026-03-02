@@ -215,7 +215,7 @@
 				<div class="chart-section">
 					<h4 class="section-title">Activity (Last 14 Days)</h4>
 					<div class="chart">
-						{#each chartData as point, i}
+						{#each chartData as point}
 							<div class="chart-bar-group">
 								<div class="bars">
 									<div
@@ -271,7 +271,7 @@
 				<div class="chart-section">
 					<h4 class="section-title">Suggestions vs Acceptances</h4>
 					<div class="chart">
-						{#each chartData as point, i}
+						{#each chartData as point}
 							<div class="chart-bar-group">
 								<div class="bars">
 									<div

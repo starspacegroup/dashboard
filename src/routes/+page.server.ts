@@ -280,7 +280,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 
 				// Extract user's personal projects
 				if (result.data?.viewer?.projectsV2?.nodes) {
-					const userProjects = result.data.viewer.projectsV2.nodes.map((project: any) => ({
+					const userProjects = result.data.viewer.projectsV2.nodes.map((project: Record<string, unknown> & { owner?: Record<string, unknown>; }) => ({
 						id: project.id,
 						number: project.number,
 						title: project.title,
@@ -300,7 +300,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				if (result.data?.viewer?.organizations?.nodes) {
 					for (const org of result.data.viewer.organizations.nodes) {
 						if (org.projectsV2?.nodes) {
-							const orgProjects = org.projectsV2.nodes.map((project: any) => ({
+							const orgProjects = org.projectsV2.nodes.map((project: Record<string, unknown> & { owner?: Record<string, unknown>; }) => ({
 								id: project.id,
 								number: project.number,
 								title: project.title,
@@ -349,7 +349,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				console.log('[DEBUG] Assigned PRs response:', assignedResult.total_count, 'found');
 
 				for (const item of assignedResult.items || []) {
-					const repoMatch = item.repository_url?.match(/\/repos\/([^\/]+)\/([^\/]+)$/);
+					const repoMatch = item.repository_url?.match(/\/repos\/([^/]+)\/([^/]+)$/);
 					if (repoMatch) {
 						assignedPRs.push({
 							id: item.node_id,
@@ -391,7 +391,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				console.log('[DEBUG] Created PRs response:', createdResult.total_count, 'found');
 
 				for (const item of createdResult.items || []) {
-					const repoMatch = item.repository_url?.match(/\/repos\/([^\/]+)\/([^\/]+)$/);
+					const repoMatch = item.repository_url?.match(/\/repos\/([^/]+)\/([^/]+)$/);
 					if (repoMatch) {
 						createdPRs.push({
 							id: item.node_id,
@@ -433,7 +433,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				console.log('[DEBUG] Review-requested PRs response:', reviewRequestedResult.total_count, 'found');
 
 				for (const item of reviewRequestedResult.items || []) {
-					const repoMatch = item.repository_url?.match(/\/repos\/([^\/]+)\/([^\/]+)$/);
+					const repoMatch = item.repository_url?.match(/\/repos\/([^/]+)\/([^/]+)$/);
 					if (repoMatch) {
 						reviewRequestedPRs.push({
 							id: item.node_id,

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
-	import { theme } from '$lib/stores/theme';
 
 	const ZIP_CODE_KEY = 'dashboard-zip-code';
 	const WEATHER_CACHE_KEY = 'dashboard-weather-data';
@@ -219,7 +218,7 @@
 					}
 					return;
 				}
-			} catch (e) {
+			} catch (_e) {
 				// Could not parse cached weather data
 			}
 		}

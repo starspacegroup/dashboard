@@ -119,7 +119,7 @@
 	const TOUCH_HOLD_DURATION = 300; // ms to hold before drag starts
 	let touchHoldTimer: ReturnType<typeof setTimeout> | null = null;
 	let touchStartPos = { x: 0, y: 0 };
-	let isTouchDragging = false;
+	let _isTouchDragging = false;
 	
 	onDestroy(() => {
 		stopAutoScroll();
@@ -277,7 +277,7 @@
 		isDragging = false;
 		isDraggingAny.set(false);
 		currentDropPosition = null;
-		isTouchDragging = false;
+		_isTouchDragging = false;
 	}
 
 	function handleMouseDown(e: MouseEvent) {
@@ -305,7 +305,7 @@
 		
 		// Start a timer for tap-hold
 		touchHoldTimer = setTimeout(() => {
-			isTouchDragging = true;
+			_isTouchDragging = true;
 			startDrag(touch.clientX, touch.clientY);
 			
 			// Provide haptic feedback if available

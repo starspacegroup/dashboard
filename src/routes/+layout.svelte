@@ -9,7 +9,6 @@
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import { weatherSettings } from '$lib/stores/weatherSettings';
 	import { onMount } from 'svelte';
-	import type { Theme } from '$lib/stores/theme';
 
 	export let data;
 

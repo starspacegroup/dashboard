@@ -65,7 +65,7 @@
 					const data = JSON.parse(cachedData);
 					if (data.latitude !== undefined) latitude = data.latitude;
 					if (data.longitude !== undefined) longitude = data.longitude;
-				} catch (e) {
+				} catch (_e) {
 					// Ignore parse errors
 				}
 			}

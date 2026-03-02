@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { theme } from '$lib/stores/theme';
 	import type { Theme } from '$lib/stores/theme';
-	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import SettingsModal from './SettingsModal.svelte';
 
-	export let user: any;
+	interface UserInfo {
+		name?: string | null;
+		login?: string;
+		image?: string | null;
+		avatar_url?: string;
+	}
+
+	export let user: UserInfo;
 
 	let isOpen = false;
 	let dropdownElement: HTMLDivElement;

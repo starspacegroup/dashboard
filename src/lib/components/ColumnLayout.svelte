@@ -4,9 +4,10 @@
 	import WidgetPicker from '$lib/components/WidgetPicker.svelte';
 	import LayoutPicker from '$lib/components/LayoutPicker.svelte';
 	import type { Widget as WidgetType } from '$lib/types/widget';
+	import type { ComponentType } from 'svelte';
 	
-	export let widgetComponents: Record<string, any>;
-	export let data: any;
+	export let widgetComponents: Record<string, ComponentType>;
+	export let data: Record<string, unknown>;
 	export let isWidgetPickerOpen = false;
 	export let isLayoutPickerOpen = false;
 	export let onWidgetPickerClose: () => void;
@@ -16,10 +17,6 @@
 	
 	// Use internal or external state
 	$: effectiveWidgetPickerOpen = isWidgetPickerOpen || internalWidgetPickerOpen;
-	
-	function openWidgetPicker() {
-		internalWidgetPickerOpen = true;
-	}
 	
 	function closeWidgetPicker() {
 		internalWidgetPickerOpen = false;
@@ -32,9 +29,9 @@
 	
 	let containerRef: HTMLDivElement;
 	let draggedSectionId: number | null = null;
-	let isDraggingFromHandle = false;
 	
 	// Store weather widget component references
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let weatherWidgetRefs: Record<string, any> = {};
 	
 	function openWeatherSettings(widgetId: string) {
@@ -73,28 +70,6 @@
 		return a.gridColumn - b.gridColumn;
 	});
 	
-	function handleSectionDragStart(sectionId: number, event: DragEvent) {
-		// Only allow drag if it's from the handle
-		if (!isDraggingFromHandle) {
-			event.preventDefault();
-			return;
-		}
-		draggedSectionId = sectionId;
-		isDraggingAny.set(true);
-		if (event.dataTransfer) {
-			event.dataTransfer.effectAllowed = 'move';
-			event.dataTransfer.setData('text/plain', sectionId.toString());
-		}
-	}
-	
-	function handleDragHandleMouseDown() {
-		isDraggingFromHandle = true;
-	}
-	
-	function handleDragHandleMouseUp() {
-		isDraggingFromHandle = false;
-	}
-	
 	function handleSectionDragOver(event: DragEvent) {
 		event.preventDefault();
 		if (event.dataTransfer) {
@@ -111,26 +86,6 @@
 		}
 		draggedSectionId = null;
 		isDraggingAny.set(false);
-	}
-	
-	function handleSectionDragEnd() {
-		draggedSectionId = null;
-		isDraggingAny.set(false);
-		isDraggingFromHandle = false;
-	}
-	
-	function increaseSpan(sectionId: number) {
-		const section = $sections.find(s => s.id === sectionId);
-		if (section) {
-			sections.resizeSection(sectionId, section.gridColumnSpan + 1);
-		}
-	}
-	
-	function decreaseSpan(sectionId: number) {
-		const section = $sections.find(s => s.id === sectionId);
-		if (section) {
-			sections.resizeSection(sectionId, section.gridColumnSpan - 1);
-		}
 	}
 	
 	function handleWidgetDrop(event: CustomEvent<{targetSection: number, targetOrder: number, widgetId: string}>) {

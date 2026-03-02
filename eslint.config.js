@@ -11,8 +11,19 @@ export default [
 		languageOptions: {
 			globals: {
 				...globals.browser,
-				...globals.node
+				...globals.node,
+				google: 'readonly',
+				PermissionState: 'readonly',
+				EventListener: 'readonly'
 			}
+		},
+		rules: {
+			'@typescript-eslint/no-unused-vars': ['error', {
+				argsIgnorePattern: '^_',
+				varsIgnorePattern: '^_',
+				destructuredArrayIgnorePattern: '^_',
+				caughtErrorsIgnorePattern: '^_'
+			}]
 		}
 	},
 	{
@@ -21,6 +32,9 @@ export default [
 			parserOptions: {
 				parser: ts.parser
 			}
+		},
+		rules: {
+			'@typescript-eslint/no-unused-expressions': 'off'
 		}
 	},
 	{

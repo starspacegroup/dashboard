@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
 	import { fly, fade } from 'svelte/transition';
 	import { widgets, sections } from '$lib/stores/widgets';
 	import type { Widget } from '$lib/types/widget';
