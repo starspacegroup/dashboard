@@ -174,12 +174,12 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     forecastUrl.searchParams.set('longitude', longitude);
     forecastUrl.searchParams.set('current', 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,is_day,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m');
     forecastUrl.searchParams.set('hourly', 'temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,weather_code,is_day,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m');
-    forecastUrl.searchParams.set('daily', 'sunrise,sunset');
+    forecastUrl.searchParams.set('daily', 'sunrise,sunset,weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max');
     forecastUrl.searchParams.set('temperature_unit', 'fahrenheit');
     forecastUrl.searchParams.set('wind_speed_unit', 'mph');
     forecastUrl.searchParams.set('timezone', 'auto');
     forecastUrl.searchParams.set('past_days', '1');
-    forecastUrl.searchParams.set('forecast_days', '2');
+    forecastUrl.searchParams.set('forecast_days', '10');
 
     let response: Response;
     try {
@@ -268,6 +268,28 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     // Interpolate to 30-minute resolution
     const interpolatedHourly = interpolateToHalfHour(hourlyData);
 
+    // Process daily forecast data (skip past day, take today + 9 days)
+    const dailyForecast = [];
+    if (data.daily && data.daily.time) {
+      for (let i = 1; i < data.daily.time.length && dailyForecast.length < 9; i++) {
+        const dayWeather = getWeatherFromWMO(data.daily.weather_code[i]);
+        dailyForecast.push({
+          date: data.daily.time[i],
+          tempMax: Math.round(data.daily.temperature_2m_max[i]),
+          tempMin: Math.round(data.daily.temperature_2m_min[i]),
+          condition: dayWeather.condition,
+          description: dayWeather.description,
+          icon: dayWeather.icon,
+          precipitationSum: Math.round((data.daily.precipitation_sum[i] || 0) * 10) / 10,
+          precipitationProbability: data.daily.precipitation_probability_max?.[i] ?? 0,
+          windMax: Math.round(data.daily.wind_speed_10m_max[i]),
+          gustMax: Math.round(data.daily.wind_gusts_10m_max[i]),
+          sunrise: data.daily.sunrise[i],
+          sunset: data.daily.sunset[i]
+        });
+      }
+    }
+
     // Get timezone offset in seconds
     const timezoneOffset = getTimezoneOffset(data.timezone);
 
@@ -289,6 +311,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       description: weatherInfo.description,
       icon: weatherInfo.icon,
       hourly: interpolatedHourly,
+      dailyForecast: dailyForecast,
       timezone: data.timezone,
       timezoneOffset: timezoneOffset
     };

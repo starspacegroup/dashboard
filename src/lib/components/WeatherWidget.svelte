@@ -60,6 +60,21 @@
 		icon: string;
 	}
 
+	interface DailyForecast {
+		date: string;
+		tempMax: number;
+		tempMin: number;
+		condition: string;
+		description: string;
+		icon: string;
+		precipitationSum: number;
+		precipitationProbability: number;
+		windMax: number;
+		gustMax: number;
+		sunrise: string;
+		sunset: string;
+	}
+
 	let currentTime = '';
 	let currentDate = '';
 	let temperature = 72;
@@ -146,6 +161,7 @@
 		: [];
 	
 	let hourlyData: HourlyData[] = [];
+	let dailyForecast: DailyForecast[] = [];
 	let hasLocationData = false;
 	let sunrise = 0;
 	let sunset = 0;
@@ -165,6 +181,7 @@
 	
 	// Responsive earth size (updated based on container size)
 	let earthSize = 320;
+	let containerWidth = 600;
 	let padding = 90; // Padding to prevent sun/moon clipping
 	let containerElement: HTMLDivElement;
 	
@@ -446,6 +463,86 @@
 		};
 	})();
 
+	// Limit forecast days based on container width
+	$: maxForecastDays = containerWidth < 400 ? 5 : 9;
+	$: visibleForecast = dailyForecast.slice(0, maxForecastDays);
+
+	// Forecast graph data: SVG paths + per-day display values
+	$: forecastGraph = (() => {
+		if (visibleForecast.length === 0) return { highPath: '', lowPath: '', highPoints: [] as {x: number, y: number, temp: number, tempF: number}[], lowPoints: [] as {x: number, y: number, temp: number, tempF: number}[], areaPath: '', min: 0, max: 100, range: 100, maxF: 100, minF: 0, dayRects: [] as {x: number, xDay: number, wDay: number, colW: number}[], svgW: 900, svgH: 140, ticks: [] as {temp: number, y: number}[], padLeft: 0 };
+		const highs = visibleForecast.map(d => isCelsius ? Math.round((d.tempMax - 32) * 5/9) : d.tempMax);
+		const lows = visibleForecast.map(d => isCelsius ? Math.round((d.tempMin - 32) * 5/9) : d.tempMin);
+		const allTemps = [...highs, ...lows];
+		const globalMax = Math.max(...allTemps);
+		const globalMin = Math.min(...allTemps);
+		const n = visibleForecast.length;
+		const svgW = 900;
+		const svgH = 140;
+		const padTop = 24;
+		const padBot = 24;
+		const padLeft = 55;
+		const graphH = svgH - padTop - padBot;
+		const colW = (svgW - padLeft) / n;
+
+		// Use actual data range with small padding for Y-axis
+		const tickRange = globalMax - globalMin || 1;
+		const yPadding = tickRange * 0.1;
+		const yMin = globalMin - yPadding;
+		const yMax = globalMax + yPadding;
+		const yRange = yMax - yMin || 1;
+
+		function toY(temp: number) {
+			return padTop + (1 - (temp - yMin) / yRange) * graphH;
+		}
+
+		// Only 2-3 ticks: high, low, and optionally a midpoint
+		const ticks: {temp: number, y: number}[] = [
+			{ temp: globalMax, y: toY(globalMax) },
+			...(tickRange >= 10 ? [{ temp: Math.round((globalMax + globalMin) / 2), y: toY(Math.round((globalMax + globalMin) / 2)) }] : []),
+			{ temp: globalMin, y: toY(globalMin) }
+		];
+
+		const highPoints = highs.map((t, i) => ({ x: padLeft + colW * (i + 0.5), y: toY(t), temp: t, tempF: visibleForecast[i].tempMax }));
+		const lowPoints = lows.map((t, i) => ({ x: padLeft + colW * (i + 0.5), y: toY(t), temp: t, tempF: visibleForecast[i].tempMin }));
+
+		// Daytime rects: sunrise-to-sunset as lighter areas
+		const dayRects = visibleForecast.map((day, i) => {
+			const sr = new Date(day.sunrise).getHours() + new Date(day.sunrise).getMinutes() / 60;
+			const ss = new Date(day.sunset).getHours() + new Date(day.sunset).getMinutes() / 60;
+			return {
+				x: padLeft + colW * i,
+				xDay: padLeft + colW * i + (sr / 24) * colW,
+				wDay: ((ss - sr) / 24) * colW,
+				colW
+			};
+		});
+
+		function toPath(pts: {x: number, y: number}[]) {
+			if (pts.length < 2) return '';
+			const segs = pts.map((p, i) => {
+				if (i === 0) return `M ${p.x} ${p.y}`;
+				const prev = pts[i - 1];
+				const cx = (prev.x + p.x) / 2;
+				return `C ${cx} ${prev.y}, ${cx} ${p.y}, ${p.x} ${p.y}`;
+			});
+			return segs.join(' ');
+		}
+
+		const highPath = toPath(highPoints);
+		const lowPath = toPath(lowPoints);
+
+		// Area between high and low lines
+		const areaPath = highPath + ` L ${lowPoints[lowPoints.length - 1].x} ${lowPoints[lowPoints.length - 1].y} ` + 
+			toPath([...lowPoints].reverse()).replace('M', 'L') + ' Z';
+
+		const highsF = visibleForecast.map(d => d.tempMax);
+		const lowsF = visibleForecast.map(d => d.tempMin);
+		const maxF = Math.max(...highsF);
+		const minF = Math.min(...lowsF);
+
+		return { highPath, lowPath, highPoints, lowPoints, areaPath, min: globalMin, max: globalMax, range: tickRange, maxF, minF, dayRects, svgW, svgH, ticks, padLeft };
+	})();
+
 	// Reactive humidity display - uses time offset data when time traveling
 	$: displayHumidity = timeOffsetData.humidity;
 
@@ -636,6 +733,7 @@
 		location = data.location;
 		description = data.description || '';
 		hourlyData = data.hourly || [];
+		dailyForecast = (data as WeatherData & { dailyForecast?: DailyForecast[] }).dailyForecast || [];
 		
 		// Sun data from sunrise-sunset.org API
 		sunrise = data.sunrise || 0;
@@ -763,6 +861,7 @@
 		
 		// Get the available width of the parent container
 		const availableWidth = containerElement.clientWidth;
+		containerWidth = availableWidth;
 		
 		// Calculate optimal earth size
 		// We want: earthSize + 2*padding = availableWidth
@@ -1793,6 +1892,136 @@
 		</div>
 	</div>
 	</div>
+
+	<!-- 9-Day Forecast Graph -->
+	{#if visibleForecast.length > 0}
+		<div class="forecast-container">
+			<!-- Forecast icons row -->
+			<div class="forecast-icons-row">
+				{#each visibleForecast as day}
+					{@const hasSignificantPrecip = day.precipitationProbability > 20 || day.precipitationSum > 0.5}
+					{@const isSnow = day.condition === 'snow'}
+					{@const isThunderstorm = day.condition === 'thunderstorm'}
+					{@const highWind = day.gustMax >= 30}
+					<div class="forecast-icon-cell">
+						{#if day.condition === 'clear'}
+							<svg viewBox="0 0 24 24" class="forecast-icon-lg sun-icon"><circle cx="12" cy="12" r="5" fill="#f59e0b"/><g stroke="#f59e0b" stroke-width="2"><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.78" y2="4.22"/></g></svg>
+						{:else if day.condition === 'clouds'}
+							<svg viewBox="0 0 24 24" class="forecast-icon-lg cloud-icon"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" fill="currentColor" opacity="0.5"/></svg>
+						{:else if day.condition === 'rain' || day.condition === 'drizzle'}
+							<svg viewBox="0 0 24 24" class="forecast-icon-lg rain-icon"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" fill="currentColor" opacity="0.4"/><line x1="7" y1="21" x2="7" y2="24" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round"/><line x1="12" y1="21" x2="12" y2="24" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round"/><line x1="17" y1="21" x2="17" y2="24" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round"/></svg>
+						{:else if day.condition === 'snow'}
+							<svg viewBox="0 0 24 24" class="forecast-icon-lg snow-icon"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" fill="currentColor" opacity="0.4"/><circle cx="7" cy="22" r="1.5" fill="#e0e7ff"/><circle cx="12" cy="22" r="1.5" fill="#e0e7ff"/><circle cx="17" cy="22" r="1.5" fill="#e0e7ff"/></svg>
+						{:else if day.condition === 'thunderstorm'}
+							<svg viewBox="0 0 24 24" class="forecast-icon-lg storm-icon"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" fill="currentColor" opacity="0.4"/><polygon points="13,16 9,22 12,22 11,26 15,20 12,20" fill="#fbbf24"/></svg>
+						{:else if day.condition === 'fog'}
+							<svg viewBox="0 0 24 24" class="forecast-icon-lg fog-icon"><line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/><line x1="5" y1="14" x2="19" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.3"/><line x1="7" y1="18" x2="17" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.2"/></svg>
+						{:else}
+							<svg viewBox="0 0 24 24" class="forecast-icon-lg cloud-icon"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" fill="currentColor" opacity="0.5"/></svg>
+						{/if}
+						{#if hasSignificantPrecip}
+							<span class="forecast-precip">
+								{day.precipitationProbability}%
+								{#if isSnow}❄{:else if isThunderstorm}⚡{:else}💧{/if}
+							</span>
+						{:else if highWind}
+							<span class="forecast-precip wind">{day.gustMax}💨</span>
+						{:else}
+							<span class="forecast-precip empty">&nbsp;</span>
+						{/if}
+					</div>
+				{/each}
+			</div>
+			<!-- Temperature line graph -->
+			<div class="forecast-graph">
+				<svg viewBox="0 0 {forecastGraph.svgW} {forecastGraph.svgH}" preserveAspectRatio="none" class="forecast-svg">
+					<defs>
+						<!-- Temperature-based gradient for high line -->
+						<linearGradient id="forecastHighGrad-{widget.id}" x1="0%" y1="0%" x2="100%" y2="0%">
+							{#each forecastGraph.highPoints as pt, index}
+								{@const offset = (index / Math.max(forecastGraph.highPoints.length - 1, 1)) * 100}
+								<stop offset="{offset}%" stop-color={getTemperatureColor(pt.tempF)} />
+							{/each}
+						</linearGradient>
+						<!-- Temperature-based gradient for low line -->
+						<linearGradient id="forecastLowGrad-{widget.id}" x1="0%" y1="0%" x2="100%" y2="0%">
+							{#each forecastGraph.lowPoints as pt, index}
+								{@const offset = (index / Math.max(forecastGraph.lowPoints.length - 1, 1)) * 100}
+								<stop offset="{offset}%" stop-color={getTemperatureColor(pt.tempF)} />
+							{/each}
+						</linearGradient>
+						<!-- Area fill gradient (top = high color, bottom = low color) -->
+						<linearGradient id="forecastAreaGrad-{widget.id}" x1="0" y1="0" x2="0" y2="1">
+							<stop offset="0%" stop-color={getTemperatureColor(forecastGraph.maxF)} stop-opacity="0.15"/>
+							<stop offset="100%" stop-color={getTemperatureColor(forecastGraph.minF)} stop-opacity="0.05"/>
+						</linearGradient>
+						<!-- Glow filter -->
+						<filter id="forecastGlow-{widget.id}" x="-20%" y="-50%" width="140%" height="200%">
+							<feGaussianBlur stdDeviation="3" result="blur"/>
+							<feMerge>
+								<feMergeNode in="blur"/>
+								<feMergeNode in="SourceGraphic"/>
+							</feMerge>
+						</filter>
+					</defs>
+					<!-- Day/night background: daytime portions are lighter -->
+					{#each forecastGraph.dayRects as dr}
+						<rect x={dr.xDay} y="0" width={dr.wDay} height={forecastGraph.svgH} fill="var(--text-primary)" opacity="0.07" />
+					{/each}
+					<!-- Y-axis tick lines (dotted) -->
+					{#each forecastGraph.ticks as tick}
+						<line x1={forecastGraph.padLeft} y1={tick.y} x2={forecastGraph.svgW} y2={tick.y} stroke="var(--text-secondary)" stroke-width="1" stroke-dasharray="4 4" opacity="0.3" />
+						<text x={forecastGraph.padLeft - 6} y={tick.y + 4} text-anchor="end" class="graph-axis-label" fill="var(--text-secondary)">{tick.temp}°</text>
+					{/each}
+					<!-- Day divider lines -->
+					{#each forecastGraph.dayRects as dr, i}
+						{#if i > 0}
+							<line x1={dr.x} y1="0" x2={dr.x} y2={forecastGraph.svgH} stroke="var(--border)" stroke-width="1" opacity="0.5" />
+						{/if}
+					{/each}
+					<!-- Shaded area between high and low -->
+					{#if forecastGraph.areaPath}
+						<path d={forecastGraph.areaPath} fill="url(#forecastAreaGrad-{widget.id})" />
+					{/if}
+					<!-- High temp glow -->
+					{#if forecastGraph.highPath}
+						<path d={forecastGraph.highPath} fill="none" stroke="url(#forecastHighGrad-{widget.id})" stroke-width="6" stroke-linecap="round" opacity="0.3" filter="url(#forecastGlow-{widget.id})" />
+					{/if}
+					<!-- Low temp glow -->
+					{#if forecastGraph.lowPath}
+						<path d={forecastGraph.lowPath} fill="none" stroke="url(#forecastLowGrad-{widget.id})" stroke-width="6" stroke-linecap="round" opacity="0.3" filter="url(#forecastGlow-{widget.id})" />
+					{/if}
+					<!-- High temp line -->
+					{#if forecastGraph.highPath}
+						<path d={forecastGraph.highPath} fill="none" stroke="url(#forecastHighGrad-{widget.id})" stroke-width="2.5" stroke-linecap="round" />
+					{/if}
+					<!-- Low temp line -->
+					{#if forecastGraph.lowPath}
+						<path d={forecastGraph.lowPath} fill="none" stroke="url(#forecastLowGrad-{widget.id})" stroke-width="2.5" stroke-linecap="round" />
+					{/if}
+					<!-- High temp dots -->
+					{#each forecastGraph.highPoints as pt}
+						<circle cx={pt.x} cy={pt.y} r="4" fill={getTemperatureColor(pt.tempF)} />
+					{/each}
+					<!-- Low temp dots -->
+					{#each forecastGraph.lowPoints as pt}
+						<circle cx={pt.x} cy={pt.y} r="4" fill={getTemperatureColor(pt.tempF)} />
+					{/each}
+				</svg>
+			</div>
+			<!-- Day columns -->
+			<div class="forecast-days-row">
+				{#each visibleForecast as day, i}
+					{@const dayDate = new Date(day.date + 'T12:00:00')}
+					{@const dayName = i === 0 ? 'Today' : dayDate.toLocaleDateString('en-US', { weekday: 'short' })}
+					<div class="forecast-col" class:today={i === 0}>
+						<span class="forecast-day-name">{dayName}</span>
+					</div>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
 	{:else}
 		<!-- Loading State - Animated Earth with orbiting Sun and Moon (Feb 22, 2042 at Giza, Egypt) -->
 		<div class="celestial-container loading" style="--earth-size: {earthSize}px; --padding: {padding}px;">
@@ -2747,6 +2976,119 @@
 	}
 	*/
 
+	/* 9-Day Forecast Graph */
+	.forecast-container {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		gap: 0;
+		padding: 0.5rem 0 0;
+	}
+
+	.forecast-graph {
+		width: 100%;
+		height: 120px;
+		padding: 0;
+		box-sizing: border-box;
+	}
+
+	.forecast-svg {
+		width: 100%;
+		height: 100%;
+		overflow: visible;
+	}
+
+	.graph-temp-label {
+		font-size: 13px;
+		font-weight: 700;
+		font-family: system-ui, -apple-system, sans-serif;
+	}
+
+	.graph-axis-label {
+		font-size: 28px;
+		font-weight: 600;
+		font-family: system-ui, -apple-system, sans-serif;
+	}
+
+	.forecast-days-row {
+		display: flex;
+		justify-content: space-between;
+		width: 100%;
+		padding: 0 0 0 6.11%;
+		box-sizing: border-box;
+	}
+
+	.forecast-col {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.15rem;
+		flex: 1;
+		min-width: 0;
+		padding: 0.35rem 0 0.25rem;
+		transition: background 0.15s ease;
+		border-left: 1px solid var(--border);
+	}
+
+	.forecast-col:first-child {
+		border-left: none;
+	}
+
+	.forecast-col:hover {
+		background: var(--surface-variant);
+	}
+
+	.forecast-col.today .forecast-day-name {
+		color: var(--primary-color);
+		font-weight: 600;
+	}
+
+	.forecast-day-name {
+		font-size: 0.7rem;
+		font-weight: 500;
+		color: var(--text-primary);
+		white-space: nowrap;
+	}
+
+	.forecast-icons-row {
+		display: flex;
+		width: 100%;
+		padding: 0 0 0 6.11%;
+		box-sizing: border-box;
+	}
+
+	.forecast-icon-cell {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		flex: 1;
+		min-width: 0;
+		gap: 0.1rem;
+	}
+
+	.forecast-icon-lg {
+		width: 28px;
+		height: 28px;
+		color: var(--text-secondary);
+	}
+
+	.forecast-icon-lg.sun-icon {
+		color: #f59e0b;
+	}
+
+	.forecast-precip {
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		text-align: center;
+		white-space: nowrap;
+		min-height: 0.9rem;
+	}
+
+	.forecast-precip.empty {
+		visibility: hidden;
+	}
+
 	/* Responsive adjustments */
 	@media (max-width: 768px) {
 		.time {
@@ -2755,6 +3097,19 @@
 
 		.temperature {
 			font-size: 4rem;
+		}
+
+		.forecast-day-name {
+			font-size: 0.6rem;
+		}
+
+		.forecast-icon-lg {
+			width: 22px;
+			height: 22px;
+		}
+
+		.forecast-graph {
+			height: 90px;
 		}
 	}
 </style>
