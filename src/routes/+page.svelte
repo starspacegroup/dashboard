@@ -13,6 +13,8 @@
 	import ColumnLayout from '$lib/components/ColumnLayout.svelte';
 	import { widgets, sections } from '$lib/stores/widgets';
 	import { commands } from '$lib/stores/commands';
+	import { invalidateAll } from '$app/navigation';
+	import { signOut } from '@auth/sveltekit/client';
 	import { onMount, onDestroy } from 'svelte';
 
 	export let data;
@@ -36,10 +38,22 @@
 
 	let isLayoutPickerOpen = false;
 
+	let refreshInterval: ReturnType<typeof setInterval>;
+
+	// If the server detected an expired/invalid token, sign out so the user re-authenticates
+	$: if (data.tokenError) {
+		signOut({ callbackUrl: '/signin' });
+	}
+
 	// Load data on mount
 	onMount(() => {
 		widgets.load();
 		sections.load();
+
+		// Refresh GitHub data every 5 minutes so widgets stay current
+		refreshInterval = setInterval(() => {
+			invalidateAll();
+		}, 5 * 60 * 1000);
 
 		// Add command to open widget picker
 		commands.addCommand({
@@ -65,9 +79,10 @@
 	});
 
 	onDestroy(() => {
-		// Clean up commands when component unmounts
+		// Clean up commands and refresh interval when component unmounts
 		commands.removeCommand('add-widget');
 		commands.removeCommand('change-layout');
+		if (refreshInterval) clearInterval(refreshInterval);
 	});
 
 	function closeWidgetPicker() {

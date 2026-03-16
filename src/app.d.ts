@@ -14,6 +14,7 @@ declare global {
 					login?: string;
 				};
 				accessToken?: string;
+				error?: string;
 			} | null>;
 		}
 		// interface PageData {}

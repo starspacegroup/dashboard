@@ -125,6 +125,7 @@ interface ExtendedSession {
 		login?: string;
 	};
 	accessToken?: string;
+	error?: string;
 }
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
@@ -138,8 +139,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		// Get the user's access token from the session
 		const accessToken = session.accessToken;
 
-		if (!accessToken) {
-			console.error('[ERROR] No access token in session!');
+		if (!accessToken || session.error) {
+			console.error('[ERROR] No access token or token error:', session.error || 'missing token');
 			return {
 				user: session.user,
 				githubProjects: [],
@@ -148,7 +149,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				assignedPRs: [],
 				createdPRs: [],
 				reviewRequestedPRs: [],
-				copilotMetrics: []
+				copilotMetrics: [],
+				tokenError: true
 			};
 		}
 
@@ -367,6 +369,23 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 
 		// ── 1) Kick off the org list fetch (needed before org repos & copilot) ──
 		const orgsResponse = await fetch('https://api.github.com/user/orgs', { headers });
+
+		// Check if token is valid - if first API call returns 401, token is expired/invalid
+		if (orgsResponse.status === 401) {
+			console.error('[ERROR] GitHub token is invalid/expired (401 from /user/orgs)');
+			return {
+				user: session.user,
+				githubProjects: [],
+				organizationProjects: [],
+				allGithubProjects: [],
+				assignedPRs: [],
+				createdPRs: [],
+				reviewRequestedPRs: [],
+				copilotMetrics: [],
+				tokenError: true
+			};
+		}
+
 		let organizations: GitHubOrganization[] = [];
 		if (orgsResponse.ok) {
 			organizations = await orgsResponse.json();
