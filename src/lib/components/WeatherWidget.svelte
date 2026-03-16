@@ -469,7 +469,7 @@
 
 	// Forecast graph data: SVG paths + per-day display values
 	$: forecastGraph = (() => {
-		if (visibleForecast.length === 0) return { highPath: '', lowPath: '', highPoints: [] as {x: number, y: number, temp: number, tempF: number}[], lowPoints: [] as {x: number, y: number, temp: number, tempF: number}[], areaPath: '', min: 0, max: 100, range: 100, maxF: 100, minF: 0, dayRects: [] as {x: number, xDay: number, wDay: number, colW: number}[], svgW: 900, svgH: 140, ticks: [] as {temp: number, y: number}[], padLeft: 0 };
+		if (visibleForecast.length === 0) return { highPath: '', lowPath: '', highPoints: [] as {x: number, y: number, temp: number, tempF: number}[], lowPoints: [] as {x: number, y: number, temp: number, tempF: number}[], areaPath: '', min: 0, max: 100, range: 100, maxF: 100, minF: 0, dayRects: [] as {x: number, xDay: number, wDay: number, colW: number}[], svgW: 900, svgH: 140, ticks: [] as {temp: number, y: number, pct: number}[] };
 		const highs = visibleForecast.map(d => isCelsius ? Math.round((d.tempMax - 32) * 5/9) : d.tempMax);
 		const lows = visibleForecast.map(d => isCelsius ? Math.round((d.tempMin - 32) * 5/9) : d.tempMin);
 		const allTemps = [...highs, ...lows];
@@ -480,9 +480,8 @@
 		const svgH = 140;
 		const padTop = 24;
 		const padBot = 24;
-		const padLeft = 55;
 		const graphH = svgH - padTop - padBot;
-		const colW = (svgW - padLeft) / n;
+		const colW = svgW / n;
 
 		// Use actual data range with small padding for Y-axis
 		const tickRange = globalMax - globalMin || 1;
@@ -496,22 +495,22 @@
 		}
 
 		// Only 2-3 ticks: high, low, and optionally a midpoint
-		const ticks: {temp: number, y: number}[] = [
-			{ temp: globalMax, y: toY(globalMax) },
-			...(tickRange >= 10 ? [{ temp: Math.round((globalMax + globalMin) / 2), y: toY(Math.round((globalMax + globalMin) / 2)) }] : []),
-			{ temp: globalMin, y: toY(globalMin) }
+		const ticks: {temp: number, y: number, pct: number}[] = [
+			{ temp: globalMax, y: toY(globalMax), pct: toY(globalMax) / svgH * 100 },
+			...(tickRange >= 10 ? [{ temp: Math.round((globalMax + globalMin) / 2), y: toY(Math.round((globalMax + globalMin) / 2)), pct: toY(Math.round((globalMax + globalMin) / 2)) / svgH * 100 }] : []),
+			{ temp: globalMin, y: toY(globalMin), pct: toY(globalMin) / svgH * 100 }
 		];
 
-		const highPoints = highs.map((t, i) => ({ x: padLeft + colW * (i + 0.5), y: toY(t), temp: t, tempF: visibleForecast[i].tempMax }));
-		const lowPoints = lows.map((t, i) => ({ x: padLeft + colW * (i + 0.5), y: toY(t), temp: t, tempF: visibleForecast[i].tempMin }));
+		const highPoints = highs.map((t, i) => ({ x: colW * (i + 0.5), y: toY(t), temp: t, tempF: visibleForecast[i].tempMax }));
+		const lowPoints = lows.map((t, i) => ({ x: colW * (i + 0.5), y: toY(t), temp: t, tempF: visibleForecast[i].tempMin }));
 
 		// Daytime rects: sunrise-to-sunset as lighter areas
 		const dayRects = visibleForecast.map((day, i) => {
 			const sr = new Date(day.sunrise).getHours() + new Date(day.sunrise).getMinutes() / 60;
 			const ss = new Date(day.sunset).getHours() + new Date(day.sunset).getMinutes() / 60;
 			return {
-				x: padLeft + colW * i,
-				xDay: padLeft + colW * i + (sr / 24) * colW,
+				x: colW * i,
+				xDay: colW * i + (sr / 24) * colW,
 				wDay: ((ss - sr) / 24) * colW,
 				colW
 			};
@@ -540,7 +539,7 @@
 		const maxF = Math.max(...highsF);
 		const minF = Math.min(...lowsF);
 
-		return { highPath, lowPath, highPoints, lowPoints, areaPath, min: globalMin, max: globalMax, range: tickRange, maxF, minF, dayRects, svgW, svgH, ticks, padLeft };
+		return { highPath, lowPath, highPoints, lowPoints, areaPath, min: globalMin, max: globalMax, range: tickRange, maxF, minF, dayRects, svgW, svgH, ticks };
 	})();
 
 	// Reactive humidity display - uses time offset data when time traveling
@@ -1933,7 +1932,13 @@
 				{/each}
 			</div>
 			<!-- Temperature line graph -->
-			<div class="forecast-graph">
+			<div class="forecast-graph-wrapper">
+				<div class="forecast-y-labels">
+					{#each forecastGraph.ticks as tick}
+						<span class="forecast-y-label" style="top: {tick.pct}%">{tick.temp}°</span>
+					{/each}
+				</div>
+				<div class="forecast-graph">
 				<svg viewBox="0 0 {forecastGraph.svgW} {forecastGraph.svgH}" preserveAspectRatio="none" class="forecast-svg">
 					<defs>
 						<!-- Temperature-based gradient for high line -->
@@ -1970,8 +1975,7 @@
 					{/each}
 					<!-- Y-axis tick lines (dotted) -->
 					{#each forecastGraph.ticks as tick}
-						<line x1={forecastGraph.padLeft} y1={tick.y} x2={forecastGraph.svgW} y2={tick.y} stroke="var(--text-secondary)" stroke-width="1" stroke-dasharray="4 4" opacity="0.3" />
-						<text x={forecastGraph.padLeft - 6} y={tick.y + 4} text-anchor="end" class="graph-axis-label" fill="var(--text-secondary)">{tick.temp}°</text>
+						<line x1="0" y1={tick.y} x2={forecastGraph.svgW} y2={tick.y} stroke="var(--text-secondary)" stroke-width="1" stroke-dasharray="4 4" opacity="0.3" />
 					{/each}
 					<!-- Day divider lines -->
 					{#each forecastGraph.dayRects as dr, i}
@@ -2008,6 +2012,7 @@
 						<circle cx={pt.x} cy={pt.y} r="4" fill={getTemperatureColor(pt.tempF)} />
 					{/each}
 				</svg>
+			</div>
 			</div>
 			<!-- Day columns -->
 			<div class="forecast-days-row">
@@ -2985,8 +2990,33 @@
 		padding: 0.5rem 0 0;
 	}
 
-	.forecast-graph {
+	.forecast-graph-wrapper {
+		display: flex;
+		align-items: stretch;
 		width: 100%;
+	}
+
+	.forecast-y-labels {
+		position: relative;
+		width: 2.5rem;
+		min-width: 2.5rem;
+		height: 120px;
+	}
+
+	.forecast-y-label {
+		position: absolute;
+		right: 0.35rem;
+		transform: translateY(-50%);
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		font-family: system-ui, -apple-system, sans-serif;
+		white-space: nowrap;
+	}
+
+	.forecast-graph {
+		flex: 1;
+		min-width: 0;
 		height: 120px;
 		padding: 0;
 		box-sizing: border-box;
@@ -3005,16 +3035,17 @@
 	}
 
 	.graph-axis-label {
-		font-size: 28px;
-		font-weight: 600;
+		font-size: 42px;
+		font-weight: 700;
 		font-family: system-ui, -apple-system, sans-serif;
+		display: none;
 	}
 
 	.forecast-days-row {
 		display: flex;
 		justify-content: space-between;
 		width: 100%;
-		padding: 0 0 0 6.11%;
+		padding: 0 0 0 2.5rem;
 		box-sizing: border-box;
 	}
 
@@ -3044,7 +3075,7 @@
 	}
 
 	.forecast-day-name {
-		font-size: 0.7rem;
+		font-size: 0.8rem;
 		font-weight: 500;
 		color: var(--text-primary);
 		white-space: nowrap;
@@ -3053,7 +3084,7 @@
 	.forecast-icons-row {
 		display: flex;
 		width: 100%;
-		padding: 0 0 0 6.11%;
+		padding: 0 0 0 2.5rem;
 		box-sizing: border-box;
 	}
 
