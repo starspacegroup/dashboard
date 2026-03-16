@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import LocationPicker from './LocationPicker.svelte';
+	import { analyticsConnection, isAnalyticsConnected } from '$lib/stores/analyticsConnection';
 
 	export let isOpen = false;
 	export let onClose: () => void;
@@ -25,6 +26,7 @@
 	let locationPermission: PermissionState | null = null;
 	let isRequestingLocation = false;
 	let globalTemperatureUnit: 'celsius' | 'fahrenheit' = 'fahrenheit';
+	let isConnectingAnalytics = false;
 
 	// Load saved location and temperature unit on mount
 	onMount(() => {
@@ -197,6 +199,44 @@
 		currentY = 0;
 	}
 
+	// ─── Google Analytics OAuth ─────────────────────────
+	function connectAnalytics() {
+		isConnectingAnalytics = true;
+		const popup = window.open(
+			'/api/analytics/auth',
+			'ga-oauth',
+			'width=500,height=650,menubar=no,toolbar=no,location=no'
+		);
+
+		function onMessage(e: MessageEvent) {
+			if (e.data?.type !== 'ga-oauth-callback') return;
+			window.removeEventListener('message', onMessage);
+			isConnectingAnalytics = false;
+
+			if (e.data.refreshToken) {
+				analyticsConnection.connect(e.data.refreshToken);
+			}
+		}
+
+		window.addEventListener('message', onMessage);
+
+		const checkClosed = setInterval(() => {
+			if (popup?.closed) {
+				clearInterval(checkClosed);
+				isConnectingAnalytics = false;
+				window.removeEventListener('message', onMessage);
+			}
+		}, 500);
+	}
+
+	function disconnectAnalytics() {
+		analyticsConnection.disconnect();
+		// Notify any active analytics widgets to clear their state
+		if (browser) {
+			window.dispatchEvent(new CustomEvent('analytics-disconnected'));
+		}
+	}
+
 	// Close on escape key
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && isOpen) {
@@ -328,6 +368,51 @@
 						>
 							°C
 						</button>
+					</div>
+				</div>
+
+				<!-- Google Analytics Section -->
+				<div class="settings-section">
+					<h3 class="section-title">Google Analytics</h3>
+					<p class="section-description">
+						Connect your Google account to enable the Analytics widget on your dashboard.
+					</p>
+
+					<div class="permission-controls">
+						{#if $isAnalyticsConnected}
+							<div class="permission-status permission-granted">
+								<span class="status-icon">✓</span>
+								<div class="status-info">
+									<div class="status-label">Google Analytics Connected</div>
+									<div class="status-description">You can now add Analytics widgets to your dashboard</div>
+								</div>
+							</div>
+							<button class="button button-danger" on:click={disconnectAnalytics}>
+								Disconnect
+							</button>
+						{:else}
+							<div class="permission-status permission-prompt">
+								<span class="status-icon">
+									<svg viewBox="0 0 18 18" width="16" height="16" fill="none">
+										<path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="currentColor"/>
+										<path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="currentColor"/>
+										<path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042L3.964 10.71z" fill="currentColor"/>
+										<path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="currentColor"/>
+									</svg>
+								</span>
+								<div class="status-info">
+									<div class="status-label">Not Connected</div>
+									<div class="status-description">Sign in with Google to view GA4 data</div>
+								</div>
+							</div>
+							<button
+								class="button button-primary"
+								on:click={connectAnalytics}
+								disabled={isConnectingAnalytics}
+							>
+								{isConnectingAnalytics ? 'Connecting…' : 'Connect Account'}
+							</button>
+						{/if}
 					</div>
 				</div>
 

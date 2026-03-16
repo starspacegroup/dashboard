@@ -3,11 +3,14 @@
 	import { browser } from '$app/environment';
 	import type { Widget } from '$lib/types/widget';
 	import { widgets } from '$lib/stores/widgets';
+	import { analyticsConnection } from '$lib/stores/analyticsConnection';
 
 	export let widget: Widget;
 
 	// ─── Config ──────────────────────────────────────────
 	const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 min auto-refresh
+	const REALTIME_POLL_INTERVAL = 30 * 1000; // 30s realtime polling
+	const REALTIME_HISTORY_MAX = 60; // keep last 60 data points (~30 min)
 
 	const METRIC_OPTIONS: { id: string; label: string; shortLabel: string; format: 'number' | 'percent' | 'duration' }[] = [
 		{ id: 'sessions', label: 'Sessions', shortLabel: 'Sessions', format: 'number' },
@@ -43,7 +46,12 @@
 	let propertyName = widget.config?.analytics?.propertyName ?? '';
 	let selectedMetrics: string[] = widget.config?.analytics?.metrics ?? ['sessions', 'totalUsers'];
 	let days = widget.config?.analytics?.days ?? 7;
-	let refreshToken = widget.config?.analytics?.refreshToken ?? '';
+	let refreshToken = '';
+
+	// Subscribe to the shared analytics connection store
+	const unsubConnection = analyticsConnection.subscribe((conn) => {
+		refreshToken = conn.refreshToken;
+	});
 
 	let isLoading = false;
 	let error = '';
@@ -53,7 +61,6 @@
 	let settingsMetrics = [...selectedMetrics];
 
 	// OAuth / property picker state
-	let isConnecting = false;
 	let gaProperties: { propertyId: string; displayName: string; accountDisplayName: string }[] = [];
 	let loadingProperties = false;
 	let propertiesError = '';
@@ -63,6 +70,16 @@
 	let rows: Record<string, string | number>[] = [];
 	let totals: Record<string, number> = {};
 	let realtimeUsers = 0;
+
+	// Live graph state
+	let viewMode: 'history' | 'live' = 'history';
+	let realtimeHistory: { time: Date; value: number }[] = [];
+	let realtimeTimer: ReturnType<typeof setInterval> | null = null;
+	let liveChartContainer: HTMLDivElement;
+	let liveChartWidth = 0;
+	let liveChartHeight = 0;
+	let liveHovering = false;
+	let liveHoverIndex = -1;
 
 	// Chart interaction
 	let chartContainer: HTMLDivElement;
@@ -77,6 +94,12 @@
 	$: if (selectedMetrics.length > 0 && !selectedMetrics.includes(activeChartMetric)) {
 		activeChartMetric = selectedMetrics[0];
 	}
+
+	// ─── Y-axis data for active metric ────
+	$: activeMetricValues = rows.map(r => Number(r[activeChartMetric] || 0));
+	$: yMin = activeMetricValues.length > 0 ? Math.min(...activeMetricValues) : 0;
+	$: yMax = activeMetricValues.length > 0 ? Math.max(...activeMetricValues) : 0;
+	$: yMid = (yMin + yMax) / 2;
 
 	// ─── Chart SVG computation (reactive, pixel-based like CryptoWidget) ────
 	$: chartPoints = computeChartPoints(activeChartMetric, rows, chartWidth, chartHeight);
@@ -115,6 +138,114 @@
 	function getHoverY(metricId: string, idx: number): number {
 		const pts = computeChartPoints(metricId, rows, chartWidth, chartHeight);
 		return pts[idx]?.y ?? 0;
+	}
+
+	// ─── Live chart SVG computation ─────────────────────
+	$: liveChartPoints = computeLiveChartPoints(realtimeHistory, liveChartWidth, liveChartHeight);
+	$: liveLinePath = liveChartPoints.length > 1
+		? 'M' + liveChartPoints.map(p => `${p.x},${p.y}`).join(' L')
+		: '';
+	$: liveAreaPath = liveLinePath && liveChartPoints.length > 1
+		? `${liveLinePath} L${liveChartPoints[liveChartPoints.length - 1].x},${liveChartHeight} L${liveChartPoints[0].x},${liveChartHeight} Z`
+		: '';
+
+	function computeLiveChartPoints(data: { time: Date; value: number }[], w: number, h: number) {
+		if (data.length < 2 || w <= 0 || h <= 0) return [];
+		const vals = data.map(d => d.value);
+		const min = Math.min(...vals);
+		const max = Math.max(...vals);
+		const range = max - min || 1;
+		const padding = 6;
+		const usableH = h - padding * 2;
+		return vals.map((v, i) => ({
+			x: (i / (vals.length - 1)) * w,
+			y: padding + usableH - ((v - min) / range) * usableH,
+			value: v,
+			time: data[i].time
+		}));
+	}
+
+	function measureLiveChart() {
+		if (!liveChartContainer) return;
+		const rect = liveChartContainer.getBoundingClientRect();
+		liveChartWidth = rect.width;
+		liveChartHeight = rect.height;
+	}
+
+	function handleLiveChartMouseMove(e: MouseEvent) {
+		if (!liveChartContainer || realtimeHistory.length < 2) return;
+		measureLiveChart();
+		const rect = liveChartContainer.getBoundingClientRect();
+		const x = e.clientX - rect.left;
+		const idx = Math.round((x / liveChartWidth) * (realtimeHistory.length - 1));
+		liveHoverIndex = Math.max(0, Math.min(realtimeHistory.length - 1, idx));
+		liveHovering = true;
+	}
+
+	function handleLiveChartTouchMove(e: TouchEvent) {
+		if (!liveChartContainer || realtimeHistory.length < 2 || !e.touches[0]) return;
+		measureLiveChart();
+		const rect = liveChartContainer.getBoundingClientRect();
+		const x = e.touches[0].clientX - rect.left;
+		const idx = Math.round((x / liveChartWidth) * (realtimeHistory.length - 1));
+		liveHoverIndex = Math.max(0, Math.min(realtimeHistory.length - 1, idx));
+		liveHovering = true;
+	}
+
+	function handleLiveChartLeave() {
+		liveHovering = false;
+		liveHoverIndex = -1;
+	}
+
+	function formatLiveTime(date: Date): string {
+		return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+	}
+
+	function pushRealtimeHistory(value: number) {
+		realtimeHistory = [...realtimeHistory, { time: new Date(), value }].slice(-REALTIME_HISTORY_MAX);
+	}
+
+	async function fetchRealtimeHistory() {
+		if (!propertyId || !refreshToken) return;
+		try {
+			const params = new URLSearchParams({ action: 'realtime-history', propertyId });
+			const res = await fetch(`/api/analytics?${params}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ refreshToken })
+			});
+			if (res.ok) {
+				const data = await res.json();
+				if (data.history && data.history.length > 0) {
+					realtimeHistory = data.history.map((h: { timestamp: string; activeUsers: number }) => ({
+						time: new Date(h.timestamp),
+						value: h.activeUsers
+					}));
+					// Update current realtime users to the latest value
+					realtimeUsers = realtimeHistory[realtimeHistory.length - 1].value;
+					await tick();
+					measureLiveChart();
+				}
+			}
+		} catch {
+			// Silently ignore - will fall back to incremental polling
+		}
+	}
+
+	function startRealtimePolling() {
+		stopRealtimePolling();
+		realtimeTimer = setInterval(async () => {
+			await fetchRealtime();
+			pushRealtimeHistory(realtimeUsers);
+			measureLiveChart();
+		}, REALTIME_POLL_INTERVAL);
+	}
+
+	function stopRealtimePolling() {
+		if (realtimeTimer) {
+			clearInterval(realtimeTimer);
+			realtimeTimer = null;
+		}
 	}
 
 	// ─── Data fetching ──────────────────────────────────
@@ -192,10 +323,10 @@
 		}
 	}
 
-	// Persist config
+	// Persist config (no longer stores refreshToken per widget)
 	function saveConfig() {
 		widgets.updateWidgetConfig(widget.id, {
-			analytics: { propertyId, propertyName, metrics: selectedMetrics, days, refreshToken }
+			analytics: { propertyId, propertyName, metrics: selectedMetrics, days }
 		});
 	}
 
@@ -223,42 +354,9 @@
 		fetchRealtime();
 	}
 
-	// ─── OAuth ───────────────────────────────────────────
+	// ─── OAuth (removed – connection is managed in Settings) ───
 
-	function connectGoogle() {
-		isConnecting = true;
-		const popup = window.open(
-			'/api/analytics/auth',
-			'ga-oauth',
-			'width=500,height=650,menubar=no,toolbar=no,location=no'
-		);
-
-		function onMessage(e: MessageEvent) {
-			if (e.data?.type !== 'ga-oauth-callback') return;
-			window.removeEventListener('message', onMessage);
-			isConnecting = false;
-
-			if (e.data.refreshToken) {
-				refreshToken = e.data.refreshToken;
-				saveConfig();
-				fetchProperties();
-			}
-		}
-
-		window.addEventListener('message', onMessage);
-
-		// Fallback: clear connecting state if popup is closed manually
-		const checkClosed = setInterval(() => {
-			if (popup?.closed) {
-				clearInterval(checkClosed);
-				isConnecting = false;
-				window.removeEventListener('message', onMessage);
-			}
-		}, 500);
-	}
-
-	function disconnectGoogle() {
-		refreshToken = '';
+	function handleAnalyticsDisconnected() {
 		propertyId = '';
 		propertyName = '';
 		gaProperties = [];
@@ -334,6 +432,47 @@
 		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 	}
 
+	function formatYAxisValue(metricId: string, value: number): string {
+		const info = getMetricInfo(metricId);
+		if (!info) return String(Math.round(value));
+		switch (info.format) {
+			case 'percent':
+				return `${(value * 100).toFixed(0)}%`;
+			case 'duration': {
+				const mins = Math.floor(value / 60);
+				return mins > 0 ? `${mins}m` : `${Math.round(value)}s`;
+			}
+			default:
+				if (value >= 10000) return `${(value / 1000).toFixed(0)}k`;
+				if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+				return String(Math.round(value));
+		}
+	}
+
+	function computeXAxisLabels(data: Record<string, string | number>[]): { label: string; position: number; align: 'left' | 'center' | 'right' }[] {
+		if (data.length === 0) return [];
+		if (data.length === 1) {
+			return [{ label: formatChartDate(String(data[0].date)), position: 50, align: 'center' }];
+		}
+		// Show every day when 7 or fewer data points; otherwise sample evenly
+		const maxLabels = data.length <= 7 ? data.length : data.length <= 14 ? 7 : 7;
+		const result: { label: string; position: number; align: 'left' | 'center' | 'right' }[] = [];
+		for (let i = 0; i < maxLabels; i++) {
+			const dataIdx = Math.round(i * (data.length - 1) / (maxLabels - 1));
+			const position = (dataIdx / (data.length - 1)) * 100;
+			// First label aligns left, last aligns right, rest center
+			const align = i === 0 ? 'left' : i === maxLabels - 1 ? 'right' : 'center';
+			result.push({
+				label: formatChartDate(String(data[dataIdx].date)),
+				position,
+				align
+			});
+		}
+		return result;
+	}
+
+	$: xAxisLabels = computeXAxisLabels(rows);
+
 	function getMetricColor(metricId: string): string {
 		const idx = selectedMetrics.indexOf(metricId);
 		return CHART_COLORS[idx >= 0 ? idx % CHART_COLORS.length : 0];
@@ -373,53 +512,74 @@
 		hoverIndex = -1;
 	}
 
+	// ─── Live Mode ─────────────────────────────────────
+
+	async function switchToLive() {
+		viewMode = 'live';
+		if (realtimeHistory.length < 2) {
+			await fetchRealtimeHistory();
+		}
+		startRealtimePolling();
+	}
+
 	// ─── Lifecycle ──────────────────────────────────────
 
 	onMount(() => {
-		if (browser && propertyId) {
+		if (browser) {
+			// Migrate: if widget had a stored refreshToken, move it to the shared store
+			const legacyToken = widget.config?.analytics?.refreshToken;
+			if (legacyToken && !refreshToken) {
+				analyticsConnection.connect(legacyToken);
+				// Clear the per-widget token
+				widgets.updateWidgetConfig(widget.id, {
+					analytics: { ...widget.config?.analytics, refreshToken: undefined }
+				});
+			}
+		}
+		if (browser && propertyId && refreshToken) {
 			fetchReport();
-			fetchRealtime();
+			fetchRealtimeHistory().then(() => {
+				startRealtimePolling();
+			});
 			startAutoRefresh();
 		}
 		if (browser) {
-			const ro = new ResizeObserver(() => measureChart());
+			window.addEventListener('analytics-disconnected', handleAnalyticsDisconnected);
+			const ro = new ResizeObserver(() => {
+				measureChart();
+				measureLiveChart();
+			});
 			if (chartContainer) ro.observe(chartContainer);
-			return () => ro.disconnect();
+			if (liveChartContainer) ro.observe(liveChartContainer);
+			return () => {
+				ro.disconnect();
+			};
 		}
 	});
 
 	onDestroy(() => {
 		stopAutoRefresh();
+		stopRealtimePolling();
+		unsubConnection();
+		if (browser) {
+			window.removeEventListener('analytics-disconnected', handleAnalyticsDisconnected);
+		}
 	});
 
 	// React to timeframe changes
-	$: if (browser && propertyId && days) {
+	$: if (browser && propertyId && days && refreshToken) {
 		saveConfig();
 		fetchReport(true);
+	}
+
+	// Dynamically update widget title with URL and live count
+	$: if (browser && propertyName && realtimeUsers !== undefined) {
+		widgets.updateTitle(widget.id, `${propertyName} · ${realtimeUsers} live`);
 	}
 </script>
 
 <div class="analytics-widget">
-	{#if !refreshToken}
-		<div class="empty-state">
-			<svg class="empty-icon-svg" viewBox="0 0 48 48" fill="none">
-				<rect x="6" y="24" width="8" height="18" rx="2" fill="var(--primary-color)" opacity="0.3" />
-				<rect x="20" y="16" width="8" height="26" rx="2" fill="var(--primary-color)" opacity="0.5" />
-				<rect x="34" y="8" width="8" height="34" rx="2" fill="var(--primary-color)" opacity="0.8" />
-			</svg>
-			<p class="empty-title">Connect Google Analytics</p>
-			<p class="empty-hint">Sign in to view your GA4 data</p>
-			<button class="setup-button" on:click={connectGoogle} disabled={isConnecting}>
-				<svg viewBox="0 0 18 18" width="16" height="16" fill="none">
-					<path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="var(--text-primary)"/>
-					<path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="var(--text-primary)"/>
-					<path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042L3.964 10.71z" fill="var(--text-primary)"/>
-					<path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="var(--text-primary)"/>
-				</svg>
-				{isConnecting ? 'Connecting…' : 'Connect Account'}
-			</button>
-		</div>
-	{:else if !propertyId}
+	{#if !propertyId}
 		<div class="empty-state">
 			<svg class="empty-icon-svg" viewBox="0 0 48 48" fill="none">
 				<rect x="6" y="24" width="8" height="18" rx="2" fill="var(--primary-color)" opacity="0.3" />
@@ -441,18 +601,9 @@
 			<button class="retry-button" on:click={() => fetchReport(true)}>Retry</button>
 		</div>
 	{:else}
-		<!-- Top bar: property name + realtime + actions -->
+		<!-- Top bar: actions -->
 		<div class="top-bar">
-			<div class="top-bar-left">
-				{#if propertyName}
-					<span class="property-name">{propertyName}</span>
-				{/if}
-				<div class="realtime-badge" title="Active users right now">
-					<span class="realtime-dot"></span>
-					<span class="realtime-count">{realtimeUsers}</span>
-					<span class="realtime-label">live</span>
-				</div>
-			</div>
+			<div></div>
 			<div class="top-bar-right">
 				<button class="icon-btn" on:click={openSettings} title="Settings">
 					<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor">
@@ -467,161 +618,281 @@
 			</div>
 		</div>
 
-		<!-- Metric cards -->
-		<div class="metric-cards">
-			{#each selectedMetrics as metricId, idx}
-				{@const info = getMetricInfo(metricId)}
-				{@const value = totals[metricId] ?? 0}
-				{@const color = CHART_COLORS[idx % CHART_COLORS.length]}
-				<button
-					class="metric-card"
-					class:active={activeChartMetric === metricId}
-					on:click={() => (activeChartMetric = metricId)}
-					style="--card-color: {color};"
-				>
-					<div class="metric-card-bar" style="background: {color};"></div>
-					<span class="metric-card-value">{formatValue(metricId, value)}</span>
-					<span class="metric-card-label">{info?.shortLabel ?? metricId}</span>
-				</button>
-			{/each}
-		</div>
-
-		<!-- Timeframe pills -->
+		<!-- Timeframe + Live pills -->
 		<div class="timeframe-bar">
+			<button
+				class="tf-pill live-pill"
+				class:active={viewMode === 'live'}
+				on:click={switchToLive}
+			>
+				<span class="live-dot"></span>
+				Live
+			</button>
 			{#each TIMEFRAME_OPTIONS as tf}
 				<button
 					class="tf-pill"
-					class:active={days === tf.days}
-					on:click={() => (days = tf.days)}
+					class:active={viewMode === 'history' && days === tf.days}
+					on:click={() => { viewMode = 'history'; days = tf.days; }}
 				>
 					{tf.label}
 				</button>
 			{/each}
 		</div>
 
-		<!-- Chart -->
-		{#if rows.length > 1}
-			<div
-				class="chart-wrap"
-				bind:this={chartContainer}
-				on:mousemove={handleChartMouseMove}
-				on:mouseleave={handleChartLeave}
-				on:touchmove|preventDefault={handleChartTouchMove}
-				on:touchend={handleChartLeave}
-				role="img"
-				aria-label="Analytics chart for {getMetricInfo(activeChartMetric)?.label}"
-			>
-				<svg width="100%" height="100%" class="chart-svg">
-					<!-- Gradient defs -->
-					{#each selectedMetrics as metricId, idx}
-						{@const color = CHART_COLORS[idx % CHART_COLORS.length]}
-						<defs>
-							<linearGradient id="grad-{metricId}" x1="0" y1="0" x2="0" y2="1">
-								<stop offset="0%" stop-color={color} stop-opacity={metricId === activeChartMetric ? 0.3 : 0.08} />
-								<stop offset="100%" stop-color={color} stop-opacity="0" />
-							</linearGradient>
-						</defs>
-					{/each}
-
-					<!-- Horizontal grid -->
-					{#each [0.25, 0.5, 0.75] as frac}
-						<line
-							x1="0" y1={chartHeight * frac}
-							x2={chartWidth} y2={chartHeight * frac}
-							class="grid-line"
-						/>
-					{/each}
-
-					<!-- Secondary metric areas and lines -->
-					{#each selectedMetrics as metricId, idx}
-						{#if metricId !== activeChartMetric}
-							{@const paths = getSecondaryPaths(metricId)}
-							<path d={paths.area} fill="url(#grad-{metricId})" />
-							<path
-								d={paths.line}
-								fill="none"
-								stroke={CHART_COLORS[idx % CHART_COLORS.length]}
-								stroke-width="1.5"
-								opacity="0.4"
-							/>
-						{/if}
-					{/each}
-
-					<!-- Active metric area & line (drawn last = on top) -->
-					<path d={chartAreaPath} fill="url(#grad-{activeChartMetric})" />
-					<path
-						d={chartLinePath}
-						fill="none"
-						stroke={getMetricColor(activeChartMetric)}
-						stroke-width="2.5"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					/>
-
-					<!-- Hover crosshair & dots -->
-					{#if isHovering && hoverIndex >= 0}
-						{@const xPos = rows.length > 1 ? (hoverIndex / (rows.length - 1)) * chartWidth : 0}
-						<line x1={xPos} y1="0" x2={xPos} y2={chartHeight} class="crosshair" />
-						{#each selectedMetrics as metricId, idx}
-							{@const yPos = getHoverY(metricId, hoverIndex)}
-							<circle
-								cx={xPos} cy={yPos} r="4.5"
-								fill={CHART_COLORS[idx % CHART_COLORS.length]}
-								stroke="var(--surface)"
-								stroke-width="2"
-							/>
-						{/each}
-					{/if}
-				</svg>
-
-				<!-- Hover tooltip -->
-				{#if isHovering && hoverIndex >= 0 && rows[hoverIndex]}
-					{@const hoverRow = rows[hoverIndex]}
-					{@const pct = rows.length > 1 ? (hoverIndex / (rows.length - 1)) * 100 : 50}
-					<div
-						class="chart-tooltip"
-						style="left: {pct}%; transform: translateX({pct > 75 ? '-90%' : pct < 25 ? '-10%' : '-50%'});"
-					>
-						<div class="tooltip-date">{formatChartDate(String(hoverRow.date))}</div>
-						{#each selectedMetrics as metricId, idx}
-							{@const metricVal = Number(hoverRow[metricId] || 0)}
-							<div class="tooltip-row">
-								<span class="tooltip-dot" style="background: {CHART_COLORS[idx % CHART_COLORS.length]};"></span>
-								<span class="tooltip-metric-label">{getMetricInfo(metricId)?.shortLabel}</span>
-								<span class="tooltip-metric-value">{formatValue(metricId, metricVal)}</span>
-							</div>
-						{/each}
-					</div>
-				{/if}
-			</div>
-
-			<!-- X-axis labels -->
-			<div class="x-axis">
-				<span>{formatChartDate(String(rows[0].date))}</span>
-				{#if rows.length > 4}
-					<span>{formatChartDate(String(rows[Math.floor(rows.length / 2)].date))}</span>
-				{/if}
-				<span>{formatChartDate(String(rows[rows.length - 1].date))}</span>
-			</div>
-		{:else}
-			<div class="empty-chart">
-				<p>Not enough data to display</p>
-			</div>
-		{/if}
-
-		<!-- Legend -->
-		{#if selectedMetrics.length > 1}
-			<div class="legend">
+		{#if viewMode === 'history'}
+			<!-- Metric cards -->
+			<div class="metric-cards">
 				{#each selectedMetrics as metricId, idx}
+					{@const info = getMetricInfo(metricId)}
+					{@const value = totals[metricId] ?? 0}
+					{@const color = CHART_COLORS[idx % CHART_COLORS.length]}
 					<button
-						class="legend-item"
+						class="metric-card"
 						class:active={activeChartMetric === metricId}
 						on:click={() => (activeChartMetric = metricId)}
+						style="--card-color: {color};"
 					>
-						<span class="legend-dot" style="background: {CHART_COLORS[idx % CHART_COLORS.length]};"></span>
-						{getMetricInfo(metricId)?.shortLabel}
+						<div class="metric-card-bar" style="background: {color};"></div>
+						<span class="metric-card-value">{formatValue(metricId, value)}</span>
+						<span class="metric-card-label">{info?.shortLabel ?? metricId}</span>
 					</button>
 				{/each}
+			</div>
+
+			<!-- Chart -->
+			{#if rows.length > 1}
+				<div class="chart-area">
+					<div class="y-axis-labels">
+						<span>{formatYAxisValue(activeChartMetric, yMax)}</span>
+						<span>{formatYAxisValue(activeChartMetric, yMid)}</span>
+						<span>{formatYAxisValue(activeChartMetric, yMin)}</span>
+					</div>
+					<div class="chart-inner">
+						<div
+							class="chart-wrap"
+							bind:this={chartContainer}
+							on:mousemove={handleChartMouseMove}
+							on:mouseleave={handleChartLeave}
+							on:touchmove|preventDefault={handleChartTouchMove}
+							on:touchend={handleChartLeave}
+							role="img"
+							aria-label="Analytics chart for {getMetricInfo(activeChartMetric)?.label}"
+						>
+					<svg width="100%" height="100%" class="chart-svg">
+						<!-- Gradient defs -->
+						{#each selectedMetrics as metricId, idx}
+							{@const color = CHART_COLORS[idx % CHART_COLORS.length]}
+							<defs>
+								<linearGradient id="grad-{metricId}" x1="0" y1="0" x2="0" y2="1">
+									<stop offset="0%" stop-color={color} stop-opacity={metricId === activeChartMetric ? 0.3 : 0.08} />
+									<stop offset="100%" stop-color={color} stop-opacity="0" />
+								</linearGradient>
+							</defs>
+						{/each}
+
+						<!-- Horizontal grid -->
+						{#each [0.25, 0.5, 0.75] as frac}
+							<line
+								x1="0" y1={chartHeight * frac}
+								x2={chartWidth} y2={chartHeight * frac}
+								class="grid-line"
+							/>
+						{/each}
+
+						<!-- Secondary metric areas and lines -->
+						{#each selectedMetrics as metricId, idx}
+							{#if metricId !== activeChartMetric}
+								{@const paths = getSecondaryPaths(metricId)}
+								<path d={paths.area} fill="url(#grad-{metricId})" />
+								<path
+									d={paths.line}
+									fill="none"
+									stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+									stroke-width="1.5"
+									opacity="0.4"
+								/>
+							{/if}
+						{/each}
+
+						<!-- Active metric area & line (drawn last = on top) -->
+						<path d={chartAreaPath} fill="url(#grad-{activeChartMetric})" />
+						<path
+							d={chartLinePath}
+							fill="none"
+							stroke={getMetricColor(activeChartMetric)}
+							stroke-width="2.5"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+
+						<!-- Hover crosshair & dots -->
+						{#if isHovering && hoverIndex >= 0}
+							{@const xPos = rows.length > 1 ? (hoverIndex / (rows.length - 1)) * chartWidth : 0}
+							<line x1={xPos} y1="0" x2={xPos} y2={chartHeight} class="crosshair" />
+							{#each selectedMetrics as metricId, idx}
+								{@const yPos = getHoverY(metricId, hoverIndex)}
+								<circle
+									cx={xPos} cy={yPos} r="4.5"
+									fill={CHART_COLORS[idx % CHART_COLORS.length]}
+									stroke="var(--surface)"
+									stroke-width="2"
+								/>
+							{/each}
+						{/if}
+					</svg>
+
+					<!-- Hover tooltip -->
+					{#if isHovering && hoverIndex >= 0 && rows[hoverIndex]}
+						{@const hoverRow = rows[hoverIndex]}
+						{@const pct = rows.length > 1 ? (hoverIndex / (rows.length - 1)) * 100 : 50}
+						<div
+							class="chart-tooltip"
+							style="left: {pct}%; transform: translateX({pct > 75 ? '-90%' : pct < 25 ? '-10%' : '-50%'});"
+						>
+							<div class="tooltip-date">{formatChartDate(String(hoverRow.date))}</div>
+							{#each selectedMetrics as metricId, idx}
+								{@const metricVal = Number(hoverRow[metricId] || 0)}
+								<div class="tooltip-row">
+									<span class="tooltip-dot" style="background: {CHART_COLORS[idx % CHART_COLORS.length]};"></span>
+									<span class="tooltip-metric-label">{getMetricInfo(metricId)?.shortLabel}</span>
+									<span class="tooltip-metric-value">{formatValue(metricId, metricVal)}</span>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+
+				<!-- X-axis labels -->
+				<div class="x-axis">
+					{#each xAxisLabels as tick}
+						<span
+							class="x-label"
+							style="left: {tick.position}%; {tick.align === 'left' ? 'transform: none;' : tick.align === 'right' ? 'transform: translateX(-100%);' : 'transform: translateX(-50%);'}"
+						>{tick.label}</span>
+					{/each}
+				</div>
+					</div>
+				</div>
+			{:else}
+				<div class="empty-chart">
+					<p>Not enough data to display</p>
+				</div>
+			{/if}
+
+			<!-- Legend -->
+			{#if selectedMetrics.length > 1}
+				<div class="legend">
+					{#each selectedMetrics as metricId, idx}
+						<button
+							class="legend-item"
+							class:active={activeChartMetric === metricId}
+							on:click={() => (activeChartMetric = metricId)}
+						>
+							<span class="legend-dot" style="background: {CHART_COLORS[idx % CHART_COLORS.length]};"></span>
+							{getMetricInfo(metricId)?.shortLabel}
+						</button>
+					{/each}
+				</div>
+			{/if}
+		{:else}
+			<!-- ─── Live View ─── -->
+			<div class="live-section">
+				<div class="live-header">
+					<div class="live-current">
+						<span class="live-current-value">{realtimeUsers}</span>
+						<span class="live-current-label">active users</span>
+					</div>
+					<span class="live-interval-hint">Updates every 30s</span>
+				</div>
+
+				{#if realtimeHistory.length > 1}
+					<div
+						class="chart-wrap"
+						bind:this={liveChartContainer}
+						on:mousemove={handleLiveChartMouseMove}
+						on:mouseleave={handleLiveChartLeave}
+						on:touchmove|preventDefault={handleLiveChartTouchMove}
+						on:touchend={handleLiveChartLeave}
+						role="img"
+						aria-label="Live active users chart"
+					>
+						<svg width="100%" height="100%" class="chart-svg">
+							<defs>
+								<linearGradient id="grad-live" x1="0" y1="0" x2="0" y2="1">
+									<stop offset="0%" stop-color="var(--success)" stop-opacity="0.3" />
+									<stop offset="100%" stop-color="var(--success)" stop-opacity="0" />
+								</linearGradient>
+							</defs>
+
+							<!-- Horizontal grid -->
+							{#each [0.25, 0.5, 0.75] as frac}
+								<line
+									x1="0" y1={liveChartHeight * frac}
+									x2={liveChartWidth} y2={liveChartHeight * frac}
+									class="grid-line"
+								/>
+							{/each}
+
+							<!-- Area & line -->
+							<path d={liveAreaPath} fill="url(#grad-live)" />
+							<path
+								d={liveLinePath}
+								fill="none"
+								stroke="var(--success)"
+								stroke-width="2.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+
+							<!-- Pulsing dot at latest point -->
+							{#if liveChartPoints.length > 0}
+								{@const lastPt = liveChartPoints[liveChartPoints.length - 1]}
+								<circle cx={lastPt.x} cy={lastPt.y} r="6" fill="var(--success)" opacity="0.3" class="pulse-ring" />
+								<circle cx={lastPt.x} cy={lastPt.y} r="4" fill="var(--success)" stroke="var(--surface)" stroke-width="2" />
+							{/if}
+
+							<!-- Hover crosshair & dot -->
+							{#if liveHovering && liveHoverIndex >= 0 && liveChartPoints[liveHoverIndex]}
+								{@const pt = liveChartPoints[liveHoverIndex]}
+								<line x1={pt.x} y1="0" x2={pt.x} y2={liveChartHeight} class="crosshair" />
+								<circle cx={pt.x} cy={pt.y} r="4.5" fill="var(--success)" stroke="var(--surface)" stroke-width="2" />
+							{/if}
+						</svg>
+
+						<!-- Hover tooltip -->
+						{#if liveHovering && liveHoverIndex >= 0 && realtimeHistory[liveHoverIndex]}
+							{@const entry = realtimeHistory[liveHoverIndex]}
+							{@const pct = realtimeHistory.length > 1 ? (liveHoverIndex / (realtimeHistory.length - 1)) * 100 : 50}
+							<div
+								class="chart-tooltip"
+								style="left: {pct}%; transform: translateX({pct > 75 ? '-90%' : pct < 25 ? '-10%' : '-50%'});"
+							>
+								<div class="tooltip-date">{formatLiveTime(entry.time)}</div>
+								<div class="tooltip-row">
+									<span class="tooltip-dot" style="background: var(--success);"></span>
+									<span class="tooltip-metric-label">Active</span>
+									<span class="tooltip-metric-value">{entry.value}</span>
+								</div>
+							</div>
+						{/if}
+					</div>
+
+					<!-- X-axis time labels -->
+					<div class="x-axis">
+						<span>{formatLiveTime(realtimeHistory[0].time)}</span>
+						{#if realtimeHistory.length > 4}
+							<span>{formatLiveTime(realtimeHistory[Math.floor(realtimeHistory.length / 2)].time)}</span>
+						{/if}
+						<span>{formatLiveTime(realtimeHistory[realtimeHistory.length - 1].time)}</span>
+					</div>
+				{:else}
+					<div class="empty-chart">
+						<div class="live-waiting">
+							<div class="spinner small"></div>
+							<p>Loading live data…</p>
+						</div>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	{/if}
@@ -638,61 +909,45 @@
 				</div>
 
 				<div class="settings-section">
-					<span class="settings-section-title">Google Account</span>
-					{#if refreshToken}
-						<div class="connected-row">
-							<span class="connected-badge">✓ Connected</span>
-							<button class="disconnect-btn" on:click={disconnectGoogle}>Disconnect</button>
+					<span class="settings-section-title">GA4 Property</span>
+					{#if loadingProperties}
+						<div class="prop-loading">
+							<div class="spinner small"></div>
+							Loading properties…
 						</div>
+					{:else if gaProperties.length > 0}
+						<select class="settings-select" bind:value={selectedPropertyId}>
+							<option value="">— Select a property —</option>
+							{#each gaProperties as prop}
+								<option value={prop.propertyId}>
+									{prop.displayName} ({prop.accountDisplayName})
+								</option>
+							{/each}
+						</select>
 					{:else}
-						<button class="connect-btn" on:click={connectGoogle} disabled={isConnecting}>
-							{isConnecting ? 'Connecting…' : 'Connect Google Account'}
-						</button>
+						{#if propertiesError}
+							<span class="settings-error">{propertiesError}</span>
+						{:else}
+							<span class="settings-hint">No properties found. Make sure your Google account has access to GA4 properties.</span>
+						{/if}
+						<button class="refresh-props-btn" on:click={fetchProperties}>Retry</button>
 					{/if}
 				</div>
 
-				{#if refreshToken}
-					<div class="settings-section">
-						<span class="settings-section-title">GA4 Property</span>
-						{#if loadingProperties}
-							<div class="prop-loading">
-								<div class="spinner small"></div>
-								Loading properties…
-							</div>
-						{:else if gaProperties.length > 0}
-							<select class="settings-select" bind:value={selectedPropertyId}>
-								<option value="">— Select a property —</option>
-								{#each gaProperties as prop}
-									<option value={prop.propertyId}>
-										{prop.displayName} ({prop.accountDisplayName})
-									</option>
-								{/each}
-							</select>
-						{:else}
-							{#if propertiesError}
-								<span class="settings-error">{propertiesError}</span>
-							{:else}
-								<span class="settings-hint">No properties found. Make sure your Google account has access to GA4 properties.</span>
-							{/if}
-							<button class="refresh-props-btn" on:click={fetchProperties}>Retry</button>
-						{/if}
+				<div class="settings-section">
+					<span class="settings-section-title">Metrics <span class="settings-meta">(up to 5)</span></span>
+					<div class="metrics-grid">
+						{#each METRIC_OPTIONS as metric}
+							<button
+								class="metric-chip"
+								class:selected={settingsMetrics.includes(metric.id)}
+								on:click={() => toggleSettingsMetric(metric.id)}
+							>
+								{metric.label}
+							</button>
+						{/each}
 					</div>
-
-					<div class="settings-section">
-						<span class="settings-section-title">Metrics <span class="settings-meta">(up to 5)</span></span>
-						<div class="metrics-grid">
-							{#each METRIC_OPTIONS as metric}
-								<button
-									class="metric-chip"
-									class:selected={settingsMetrics.includes(metric.id)}
-									on:click={() => toggleSettingsMetric(metric.id)}
-								>
-									{metric.label}
-								</button>
-							{/each}
-						</div>
-					</div>
-				{/if}
+				</div>
 
 				<div class="settings-actions">
 					<button class="cancel-btn" on:click={() => (showSettings = false)}>Cancel</button>
@@ -800,60 +1055,72 @@
 		justify-content: space-between;
 	}
 
-	.top-bar-left {
+	/* ─── Live section ─── */
+	.live-section {
 		display: flex;
-		align-items: center;
+		flex-direction: column;
 		gap: 0.6rem;
-		min-width: 0;
+		flex: 1;
 	}
 
-	.property-name {
+	.live-header {
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+	}
+
+	.live-current {
+		display: flex;
+		align-items: baseline;
+		gap: 0.4rem;
+	}
+
+	.live-current-value {
+		font-size: 2rem;
+		font-weight: 800;
+		color: var(--success);
+		line-height: 1;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.live-current-label {
 		font-size: 0.7rem;
-		font-weight: 500;
 		color: var(--text-secondary);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		font-weight: 500;
+	}
+
+	.live-interval-hint {
+		font-size: 0.6rem;
+		color: var(--text-secondary);
+		opacity: 0.6;
+	}
+
+	.live-waiting {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+		color: var(--text-secondary);
+		font-size: 0.8rem;
+	}
+
+	.live-waiting p {
+		margin: 0;
+	}
+
+	.pulse-ring {
+		animation: pulse-ring-anim 2s ease-in-out infinite;
+	}
+
+	@keyframes pulse-ring-anim {
+		0%, 100% { r: 6; opacity: 0.3; }
+		50% { r: 10; opacity: 0; }
 	}
 
 	.top-bar-right {
 		display: flex;
 		gap: 0.15rem;
 		flex-shrink: 0;
-	}
-
-	.realtime-badge {
-		display: flex;
-		align-items: center;
-		gap: 0.3rem;
-		font-size: 0.7rem;
-		font-weight: 600;
-		color: var(--success);
-		background: var(--surface-variant);
-		padding: 0.15rem 0.5rem;
-		border-radius: 1rem;
-	}
-
-	.realtime-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: var(--success);
-		animation: pulse-dot 2s ease-in-out infinite;
-		flex-shrink: 0;
-	}
-
-	.realtime-count {
-		font-variant-numeric: tabular-nums;
-	}
-
-	.realtime-label {
-		opacity: 0.7;
-	}
-
-	@keyframes pulse-dot {
-		0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--success); }
-		50% { opacity: 0.5; box-shadow: 0 0 0 3px transparent; }
 	}
 
 	.icon-btn {
@@ -976,7 +1243,61 @@
 		box-shadow: 0 1px 3px var(--shadow);
 	}
 
+	.live-pill {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+
+	.live-pill.active {
+		background: var(--success);
+	}
+
+	.live-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--success);
+		animation: pulse-dot 2s ease-in-out infinite;
+	}
+
+	.live-pill.active .live-dot {
+		background: var(--primary-color-text, #fff);
+	}
+
+	@keyframes pulse-dot {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.4; }
+	}
+
 	/* ─── Chart ─── */
+	.chart-area {
+		display: flex;
+		gap: 0.35rem;
+		flex-shrink: 0;
+	}
+
+	.y-axis-labels {
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		align-items: flex-end;
+		font-size: 0.55rem;
+		color: var(--text-secondary);
+		opacity: 0.7;
+		padding: 6px 0;
+		min-width: 2.2rem;
+		font-variant-numeric: tabular-nums;
+		flex-shrink: 0;
+	}
+
+	.chart-inner {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
 	.chart-wrap {
 		position: relative;
 		width: 100%;
@@ -1057,12 +1378,17 @@
 
 	/* ─── X-axis ─── */
 	.x-axis {
-		display: flex;
-		justify-content: space-between;
+		position: relative;
+		height: 1.1rem;
 		font-size: 0.6rem;
 		color: var(--text-secondary);
-		padding: 0 0.1rem;
 		opacity: 0.7;
+		margin-top: 0.15rem;
+	}
+
+	.x-label {
+		position: absolute;
+		white-space: nowrap;
 	}
 
 	/* ─── Legend ─── */
@@ -1199,53 +1525,6 @@
 		font-size: 0.7rem;
 		color: var(--error);
 		font-weight: 400;
-	}
-
-	.connected-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.connected-badge {
-		color: var(--success);
-		font-weight: 600;
-		font-size: 0.8rem;
-	}
-
-	.connect-btn {
-		padding: 0.5rem 1rem;
-		background: var(--primary-color);
-		color: var(--primary-color-text, #fff);
-		border: none;
-		border-radius: 0.5rem;
-		font-weight: 600;
-		font-size: 0.8rem;
-		cursor: pointer;
-	}
-
-	.connect-btn:hover:not(:disabled) {
-		background: var(--primary-color-hover);
-	}
-
-	.connect-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.disconnect-btn {
-		padding: 0.3rem 0.65rem;
-		background: var(--surface-variant);
-		color: var(--error);
-		border: 1px solid var(--border);
-		border-radius: 0.375rem;
-		font-size: 0.7rem;
-		font-weight: 600;
-		cursor: pointer;
-	}
-
-	.disconnect-btn:hover {
-		border-color: var(--error);
 	}
 
 	.settings-select {

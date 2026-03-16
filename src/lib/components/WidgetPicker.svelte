@@ -2,6 +2,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { widgets, sections } from '$lib/stores/widgets';
 	import type { Widget } from '$lib/types/widget';
+	import { isAnalyticsConnected } from '$lib/stores/analyticsConnection';
 
 	export let isOpen = false;
 	export let onClose: () => void;
@@ -11,6 +12,7 @@
 		title: string;
 		description: string;
 		icon: string;
+		requiresConnection?: boolean;
 	}
 
 	const availableWidgets: WidgetTemplate[] = [
@@ -76,9 +78,10 @@
 		},
 		{
 			type: 'google-analytics',
-			title: 'Google Analytics',
+			title: 'GA',
 			description: 'View GA4 property metrics with interactive graphs',
-			icon: '📊'
+			icon: '📊',
+			requiresConnection: true
 		}
 	];
 
@@ -88,12 +91,19 @@
 	let selectedSection = 0;
 	let sectionsList: number[] = [];
 
-	$: filteredWidgets = searchQuery.trim()
-		? availableWidgets.filter(widget =>
-			widget.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			widget.description.toLowerCase().includes(searchQuery.toLowerCase())
-		)
-		: availableWidgets;
+	$: filteredWidgets = (() => {
+		let list = availableWidgets.filter(w => {
+			if (w.requiresConnection && !$isAnalyticsConnected) return false;
+			return true;
+		});
+		if (searchQuery.trim()) {
+			list = list.filter(widget =>
+				widget.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				widget.description.toLowerCase().includes(searchQuery.toLowerCase())
+			);
+		}
+		return list;
+	})();
 
 	$: {
 		// Update sections list whenever sections change

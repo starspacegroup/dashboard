@@ -10,10 +10,13 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+const REALTIME_CACHE_DURATION = 30 * 1000; // 30 seconds for realtime data
 
 function getCached(key: string): unknown | null {
   const entry = cache.get(key);
-  if (entry && Date.now() - entry.timestamp < CACHE_DURATION) {
+  if (!entry) return null;
+  const ttl = key.startsWith('realtime') ? REALTIME_CACHE_DURATION : CACHE_DURATION;
+  if (Date.now() - entry.timestamp < ttl) {
     return entry.data;
   }
   cache.delete(key);
@@ -102,8 +105,10 @@ export const POST: RequestHandler = async ({ url, request, locals }) => {
       return await handleReport(url, skipCache, accessToken);
     } else if (action === 'realtime') {
       return await handleRealtime(url, accessToken);
+    } else if (action === 'realtime-history') {
+      return await handleRealtimeHistory(url, accessToken);
     } else {
-      return json({ error: 'Invalid action. Use: properties, report, realtime' }, { status: 400 });
+      return json({ error: 'Invalid action. Use: properties, report, realtime, realtime-history' }, { status: 400 });
     }
   } catch (error) {
     console.error('Analytics API error:', error);
@@ -212,7 +217,8 @@ async function handleReport(url: URL, skipCache: boolean, accessToken: string) {
     dimensions: [{ name: 'date' }],
     metrics: requestedMetrics.map((m) => ({ name: m })),
     orderBys: [{ dimension: { dimensionName: 'date', orderType: 'ALPHANUMERIC' } }],
-    keepEmptyRows: true
+    keepEmptyRows: true,
+    metricAggregations: ['TOTAL']
   };
 
   const res = await fetch(
@@ -236,6 +242,7 @@ async function handleReport(url: URL, skipCache: boolean, accessToken: string) {
   const raw = (await res.json()) as {
     rows?: { dimensionValues: { value: string; }[]; metricValues: { value: string; }[]; }[];
     metricHeaders?: { name: string; type: string; }[];
+    totals?: { metricValues: { value: string; }[]; }[];
   };
 
   const metricNames = raw.metricHeaders?.map((h) => h.name) || requestedMetrics;
@@ -251,18 +258,21 @@ async function handleReport(url: URL, skipCache: boolean, accessToken: string) {
     return entry;
   });
 
+  // Use GA4-computed totals for accurate weighted averages on rate metrics
   const totals: Record<string, number> = {};
-  const isRateMetric = (name: string) =>
-    ['bounceRate', 'engagementRate', 'averageSessionDuration', 'eventsPerSession', 'sessionsPerUser'].includes(name);
-
-  metricNames.forEach((name) => {
-    const values = rows.map((r) => r[name] as number);
-    if (isRateMetric(name)) {
-      totals[name] = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-    } else {
+  if (raw.totals && raw.totals.length > 0) {
+    const totalRow = raw.totals[0];
+    metricNames.forEach((name, i) => {
+      const val = totalRow.metricValues[i]?.value || '0';
+      totals[name] = val.includes('.') ? parseFloat(val) : parseInt(val, 10);
+    });
+  } else {
+    // Fallback: manual sum (accurate for count metrics)
+    metricNames.forEach((name) => {
+      const values = rows.map((r) => r[name] as number);
       totals[name] = values.reduce((a, b) => a + b, 0);
-    }
-  });
+    });
+  }
 
   const result = { rows, totals, metrics: metricNames, days: clampedDays };
   setCache(cacheKey, result);
@@ -311,6 +321,72 @@ async function handleRealtime(url: URL, accessToken: string) {
     : 0;
 
   const result = { activeUsers };
+  cache.set(cacheKey, { data: result, timestamp: Date.now() });
+  return json(result);
+}
+
+/** Fetch per-minute active users for the last 30 minutes via the Realtime API */
+async function handleRealtimeHistory(url: URL, accessToken: string) {
+  const propertyId = url.searchParams.get('propertyId');
+  if (!propertyId) {
+    return json({ error: 'Missing propertyId parameter' }, { status: 400 });
+  }
+
+  const cacheKey = `realtime-history:${propertyId}`;
+  const cached = getCached(cacheKey);
+  if (cached) return json(cached);
+
+  const body = {
+    dimensions: [{ name: 'minutesAgo' }],
+    metrics: [{ name: 'activeUsers' }],
+    minuteRanges: [{ startMinutesAgo: 29, endMinutesAgo: 0 }],
+    orderBys: [{ dimension: { dimensionName: 'minutesAgo', orderType: 'NUMERIC' }, desc: true }]
+  };
+
+  const res = await fetch(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(propertyId)}:runRealtimeReport`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    }
+  );
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    console.error('GA4 realtime-history error:', res.status, errBody);
+    return json({ error: `GA4 API error: ${res.status}` }, { status: 502 });
+  }
+
+  const raw = (await res.json()) as {
+    rows?: { dimensionValues: { value: string; }[]; metricValues: { value: string; }[]; }[];
+  };
+
+  // Build a map of minutesAgo -> activeUsers
+  const minuteMap = new Map<number, number>();
+  for (const row of raw.rows ?? []) {
+    const minutesAgo = parseInt(row.dimensionValues[0].value, 10);
+    const users = parseInt(row.metricValues[0].value, 10);
+    minuteMap.set(minutesAgo, users);
+  }
+
+  // Fill in all 30 minutes (29 down to 0), defaulting to 0 for missing minutes
+  const now = new Date();
+  const history: { minutesAgo: number; activeUsers: number; timestamp: string; }[] = [];
+  for (let m = 29; m >= 0; m--) {
+    const time = new Date(now.getTime() - m * 60 * 1000);
+    history.push({
+      minutesAgo: m,
+      activeUsers: minuteMap.get(m) ?? 0,
+      timestamp: time.toISOString()
+    });
+  }
+
+  const result = { history };
+  // Short cache (30 seconds) so it stays fresh
   cache.set(cacheKey, { data: result, timestamp: Date.now() });
   return json(result);
 }

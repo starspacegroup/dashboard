@@ -133,6 +133,25 @@
 	function getMaxValue(data: typeof chartData, key: 'activeUsers' | 'engagedUsers' | 'suggestions' | 'acceptances'): number {
 		return Math.max(...data.map(d => d[key]), 1);
 	}
+
+	// Shared scales for comparison charts — both bars MUST use the same max
+	// so visual heights are directly comparable
+	$: sharedUserMax = Math.max(getMaxValue(chartData, 'activeUsers'), getMaxValue(chartData, 'engagedUsers'));
+	$: sharedCompletionMax = Math.max(getMaxValue(chartData, 'suggestions'), getMaxValue(chartData, 'acceptances'));
+
+	// Hover state for bar charts
+	let hoveredBarGroup = -1;
+	let hoveredChartId = '';
+
+	function handleBarHover(chartId: string, index: number) {
+		hoveredChartId = chartId;
+		hoveredBarGroup = index;
+	}
+
+	function handleBarLeave() {
+		hoveredBarGroup = -1;
+		hoveredChartId = '';
+	}
 </script>
 
 <div class="copilot-usage-widget">
@@ -213,20 +232,34 @@
 				</div>
 
 				<div class="chart-section">
-					<h4 class="section-title">Activity (Last 14 Days)</h4>
+					<div class="chart-section-header">
+						<h4 class="section-title">Activity (Last 14 Days)</h4>
+						<span class="chart-max-hint">max {sharedUserMax}</span>
+					</div>
 					<div class="chart">
-						{#each chartData as point}
-							<div class="chart-bar-group">
+						{#each chartData as point, i}
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<div
+								class="chart-bar-group"
+								class:hovered={hoveredChartId === 'activity' && hoveredBarGroup === i}
+								on:mouseenter={() => handleBarHover('activity', i)}
+								on:mouseleave={handleBarLeave}
+							>
+								{#if hoveredChartId === 'activity' && hoveredBarGroup === i}
+									<div class="bar-tooltip">
+										<span class="bar-tooltip-date">{point.date}</span>
+										<span class="bar-tooltip-row"><span class="legend-color active"></span> Active: {point.activeUsers}</span>
+										<span class="bar-tooltip-row"><span class="legend-color engaged"></span> Engaged: {point.engagedUsers}</span>
+									</div>
+								{/if}
 								<div class="bars">
 									<div
 										class="bar active"
-										style="height: {(point.activeUsers / getMaxValue(chartData, 'activeUsers')) * 100}%"
-										title="Active: {point.activeUsers}"
+										style="height: {(point.activeUsers / sharedUserMax) * 100}%"
 									></div>
 									<div
 										class="bar engaged"
-										style="height: {(point.engagedUsers / getMaxValue(chartData, 'engagedUsers')) * 100}%"
-										title="Engaged: {point.engagedUsers}"
+										style="height: {(point.engagedUsers / sharedUserMax) * 100}%"
 									></div>
 								</div>
 								<span class="chart-label">{point.date}</span>
@@ -269,20 +302,35 @@
 				{/if}
 
 				<div class="chart-section">
-					<h4 class="section-title">Suggestions vs Acceptances</h4>
+					<div class="chart-section-header">
+						<h4 class="section-title">Suggestions vs Acceptances</h4>
+						<span class="chart-max-hint">max {sharedCompletionMax.toLocaleString()}</span>
+					</div>
 					<div class="chart">
-						{#each chartData as point}
-							<div class="chart-bar-group">
+						{#each chartData as point, i}
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<div
+								class="chart-bar-group"
+								class:hovered={hoveredChartId === 'completions' && hoveredBarGroup === i}
+								on:mouseenter={() => handleBarHover('completions', i)}
+								on:mouseleave={handleBarLeave}
+							>
+								{#if hoveredChartId === 'completions' && hoveredBarGroup === i}
+									<div class="bar-tooltip">
+										<span class="bar-tooltip-date">{point.date}</span>
+										<span class="bar-tooltip-row"><span class="legend-color suggestions"></span> Suggestions: {point.suggestions.toLocaleString()}</span>
+										<span class="bar-tooltip-row"><span class="legend-color acceptances"></span> Acceptances: {point.acceptances.toLocaleString()}</span>
+										<span class="bar-tooltip-row rate">Rate: {point.suggestions > 0 ? Math.round((point.acceptances / point.suggestions) * 100) : 0}%</span>
+									</div>
+								{/if}
 								<div class="bars">
 									<div
 										class="bar suggestions"
-										style="height: {(point.suggestions / getMaxValue(chartData, 'suggestions')) * 100}%"
-										title="Suggestions: {point.suggestions}"
+										style="height: {(point.suggestions / sharedCompletionMax) * 100}%"
 									></div>
 									<div
 										class="bar acceptances"
-										style="height: {(point.acceptances / getMaxValue(chartData, 'acceptances')) * 100}%"
-										title="Acceptances: {point.acceptances}"
+										style="height: {(point.acceptances / sharedCompletionMax) * 100}%"
 									></div>
 								</div>
 								<span class="chart-label">{point.date}</span>
@@ -523,6 +571,24 @@
 		margin-top: 1rem;
 	}
 
+	.chart-section-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		margin-bottom: 0.75rem;
+	}
+
+	.chart-section-header .section-title {
+		margin: 0;
+	}
+
+	.chart-max-hint {
+		font-size: 0.65rem;
+		color: var(--text-secondary);
+		opacity: 0.6;
+		font-variant-numeric: tabular-nums;
+	}
+
 	.chart {
 		display: flex;
 		align-items: flex-end;
@@ -537,6 +603,60 @@
 		flex-direction: column;
 		align-items: center;
 		min-width: 0;
+		position: relative;
+	}
+
+	.chart-bar-group.hovered .bars {
+		opacity: 1;
+	}
+
+	.chart-bar-group:not(.hovered) .bars {
+		transition: opacity 0.15s;
+	}
+
+	.bar-tooltip {
+		position: absolute;
+		bottom: calc(100% + 4px);
+		left: 50%;
+		transform: translateX(-50%);
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		padding: 0.4rem 0.55rem;
+		font-size: 0.65rem;
+		white-space: nowrap;
+		pointer-events: none;
+		box-shadow: 0 4px 16px var(--shadow-strong, rgba(0,0,0,0.2));
+		z-index: 10;
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+
+	.bar-tooltip-date {
+		font-weight: 700;
+		color: var(--text-primary);
+		font-size: 0.6rem;
+	}
+
+	.bar-tooltip-row {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		color: var(--text-secondary);
+	}
+
+	.bar-tooltip-row.rate {
+		color: var(--text-primary);
+		font-weight: 600;
+		border-top: 1px solid var(--border);
+		padding-top: 0.15rem;
+		margin-top: 0.05rem;
+	}
+
+	.bar-tooltip-row .legend-color {
+		width: 8px;
+		height: 8px;
 	}
 
 	.bars {
