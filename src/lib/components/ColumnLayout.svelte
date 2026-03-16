@@ -149,8 +149,8 @@
 								{:else if widget.type === 'copilot-usage'}
 									<svelte:component this={widgetComponents.CopilotUsageWidget} copilotMetrics={data.copilotMetrics || []} isLoggedIn={!!data.user} />
 								{:else if widget.type === 'crypto'}
-									<svelte:component this={widgetComponents.CryptoWidget} {widget} />
-								{/if}
+									<svelte:component this={widgetComponents.CryptoWidget} {widget} />							{:else if widget.type === 'google-analytics'}
+								<svelte:component this={widgetComponents.GoogleAnalyticsWidget} {widget} />								{/if}
 							</Widget>
 						</div>
 					{/each}

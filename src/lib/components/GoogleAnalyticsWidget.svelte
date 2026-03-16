@@ -1,0 +1,1361 @@
+<script lang="ts">
+	import { onMount, onDestroy, tick } from 'svelte';
+	import { browser } from '$app/environment';
+	import type { Widget } from '$lib/types/widget';
+	import { widgets } from '$lib/stores/widgets';
+
+	export let widget: Widget;
+
+	// ─── Config ──────────────────────────────────────────
+	const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 min auto-refresh
+
+	const METRIC_OPTIONS: { id: string; label: string; shortLabel: string; format: 'number' | 'percent' | 'duration' }[] = [
+		{ id: 'sessions', label: 'Sessions', shortLabel: 'Sessions', format: 'number' },
+		{ id: 'totalUsers', label: 'Total Users', shortLabel: 'Users', format: 'number' },
+		{ id: 'newUsers', label: 'New Users', shortLabel: 'New', format: 'number' },
+		{ id: 'activeUsers', label: 'Active Users', shortLabel: 'Active', format: 'number' },
+		{ id: 'screenPageViews', label: 'Page Views', shortLabel: 'Views', format: 'number' },
+		{ id: 'bounceRate', label: 'Bounce Rate', shortLabel: 'Bounce', format: 'percent' },
+		{ id: 'averageSessionDuration', label: 'Avg Session Duration', shortLabel: 'Duration', format: 'duration' },
+		{ id: 'engagementRate', label: 'Engagement Rate', shortLabel: 'Engage', format: 'percent' },
+		{ id: 'eventsPerSession', label: 'Events / Session', shortLabel: 'Events', format: 'number' },
+		{ id: 'sessionsPerUser', label: 'Sessions / User', shortLabel: 'Sess/User', format: 'number' },
+		{ id: 'conversions', label: 'Conversions', shortLabel: 'Conv', format: 'number' }
+	];
+
+	const TIMEFRAME_OPTIONS = [
+		{ days: 7, label: '7D' },
+		{ days: 14, label: '14D' },
+		{ days: 30, label: '30D' },
+		{ days: 90, label: '90D' }
+	];
+
+	const CHART_COLORS = [
+		'#7c3aed',
+		'#22c55e',
+		'#f97316',
+		'#3b82f6',
+		'#ef4444'
+	];
+
+	// ─── State ───────────────────────────────────────────
+	let propertyId = widget.config?.analytics?.propertyId ?? '';
+	let propertyName = widget.config?.analytics?.propertyName ?? '';
+	let selectedMetrics: string[] = widget.config?.analytics?.metrics ?? ['sessions', 'totalUsers'];
+	let days = widget.config?.analytics?.days ?? 7;
+	let refreshToken = widget.config?.analytics?.refreshToken ?? '';
+
+	let isLoading = false;
+	let error = '';
+	let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+	let showSettings = false;
+	let settingsMetrics = [...selectedMetrics];
+
+	// OAuth / property picker state
+	let isConnecting = false;
+	let gaProperties: { propertyId: string; displayName: string; accountDisplayName: string }[] = [];
+	let loadingProperties = false;
+	let propertiesError = '';
+	let selectedPropertyId = propertyId;
+
+	// Report data
+	let rows: Record<string, string | number>[] = [];
+	let totals: Record<string, number> = {};
+	let realtimeUsers = 0;
+
+	// Chart interaction
+	let chartContainer: HTMLDivElement;
+	let isHovering = false;
+	let hoverIndex = -1;
+	let chartWidth = 0;
+	let chartHeight = 0;
+
+	// Active metric for the main chart line (first selected by default)
+	let activeChartMetric = selectedMetrics[0] ?? 'sessions';
+
+	$: if (selectedMetrics.length > 0 && !selectedMetrics.includes(activeChartMetric)) {
+		activeChartMetric = selectedMetrics[0];
+	}
+
+	// ─── Chart SVG computation (reactive, pixel-based like CryptoWidget) ────
+	$: chartPoints = computeChartPoints(activeChartMetric, rows, chartWidth, chartHeight);
+	$: chartLinePath = chartPoints.length > 0
+		? 'M' + chartPoints.map(p => `${p.x},${p.y}`).join(' L')
+		: '';
+	$: chartAreaPath = chartLinePath && chartPoints.length > 0
+		? `${chartLinePath} L${chartPoints[chartPoints.length - 1].x},${chartHeight} L${chartPoints[0].x},${chartHeight} Z`
+		: '';
+
+	// Compute secondary metric paths
+	function getSecondaryPaths(metricId: string): { line: string; area: string } {
+		const pts = computeChartPoints(metricId, rows, chartWidth, chartHeight);
+		if (pts.length === 0) return { line: '', area: '' };
+		const line = 'M' + pts.map(p => `${p.x},${p.y}`).join(' L');
+		const area = `${line} L${pts[pts.length - 1].x},${chartHeight} L${pts[0].x},${chartHeight} Z`;
+		return { line, area };
+	}
+
+	function computeChartPoints(metricId: string, data: Record<string, string | number>[], w: number, h: number) {
+		if (!data.length || w <= 0 || h <= 0) return [];
+		const vals = data.map(r => (r[metricId] as number) || 0);
+		const min = Math.min(...vals);
+		const max = Math.max(...vals);
+		const range = max - min || 1;
+		const padding = 6;
+		const usableH = h - padding * 2;
+		return vals.map((v, i) => ({
+			x: (i / (vals.length - 1)) * w,
+			y: padding + usableH - ((v - min) / range) * usableH,
+			value: v,
+			date: String(data[i].date)
+		}));
+	}
+
+	function getHoverY(metricId: string, idx: number): number {
+		const pts = computeChartPoints(metricId, rows, chartWidth, chartHeight);
+		return pts[idx]?.y ?? 0;
+	}
+
+	// ─── Data fetching ──────────────────────────────────
+
+	async function fetchReport(skipCache = false) {
+		if (!propertyId || !refreshToken) return;
+		isLoading = true;
+		error = '';
+
+		try {
+			const params = new URLSearchParams({
+				action: 'report',
+				propertyId,
+				metrics: selectedMetrics.join(','),
+				days: String(days)
+			});
+			if (skipCache) params.set('skipCache', '1');
+
+			const res = await fetch(`/api/analytics?${params}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ refreshToken })
+			});
+			if (!res.ok) {
+				const body = await res.json();
+				throw new Error(body.error || `HTTP ${res.status}`);
+			}
+
+			const data = await res.json();
+			rows = data.rows ?? [];
+			totals = data.totals ?? {};
+			await tick();
+			measureChart();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to fetch analytics data';
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	async function fetchRealtime() {
+		if (!propertyId || !refreshToken) return;
+		try {
+			const params = new URLSearchParams({ action: 'realtime', propertyId });
+			const res = await fetch(`/api/analytics?${params}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ refreshToken })
+			});
+			if (res.ok) {
+				const data = await res.json();
+				realtimeUsers = data.activeUsers ?? 0;
+			}
+		} catch {
+			// Silently ignore realtime errors
+		}
+	}
+
+	async function refresh() {
+		await Promise.all([fetchReport(true), fetchRealtime()]);
+	}
+
+	function startAutoRefresh() {
+		stopAutoRefresh();
+		refreshTimer = setInterval(() => {
+			fetchReport();
+			fetchRealtime();
+		}, REFRESH_INTERVAL);
+	}
+
+	function stopAutoRefresh() {
+		if (refreshTimer) {
+			clearInterval(refreshTimer);
+			refreshTimer = null;
+		}
+	}
+
+	// Persist config
+	function saveConfig() {
+		widgets.updateWidgetConfig(widget.id, {
+			analytics: { propertyId, propertyName, metrics: selectedMetrics, days, refreshToken }
+		});
+	}
+
+	// ─── Settings ────────────────────────────────────────
+
+	function openSettings() {
+		settingsMetrics = [...selectedMetrics];
+		selectedPropertyId = propertyId;
+		showSettings = true;
+		if (refreshToken && gaProperties.length === 0) {
+			fetchProperties();
+		}
+	}
+
+	function applySettings() {
+		selectedMetrics = settingsMetrics.length > 0 ? settingsMetrics : ['sessions'];
+		if (selectedPropertyId !== propertyId) {
+			propertyId = selectedPropertyId;
+			const prop = gaProperties.find((p) => p.propertyId === propertyId);
+			propertyName = prop ? prop.displayName : '';
+		}
+		showSettings = false;
+		saveConfig();
+		fetchReport(true);
+		fetchRealtime();
+	}
+
+	// ─── OAuth ───────────────────────────────────────────
+
+	function connectGoogle() {
+		isConnecting = true;
+		const popup = window.open(
+			'/api/analytics/auth',
+			'ga-oauth',
+			'width=500,height=650,menubar=no,toolbar=no,location=no'
+		);
+
+		function onMessage(e: MessageEvent) {
+			if (e.data?.type !== 'ga-oauth-callback') return;
+			window.removeEventListener('message', onMessage);
+			isConnecting = false;
+
+			if (e.data.refreshToken) {
+				refreshToken = e.data.refreshToken;
+				saveConfig();
+				fetchProperties();
+			}
+		}
+
+		window.addEventListener('message', onMessage);
+
+		// Fallback: clear connecting state if popup is closed manually
+		const checkClosed = setInterval(() => {
+			if (popup?.closed) {
+				clearInterval(checkClosed);
+				isConnecting = false;
+				window.removeEventListener('message', onMessage);
+			}
+		}, 500);
+	}
+
+	function disconnectGoogle() {
+		refreshToken = '';
+		propertyId = '';
+		propertyName = '';
+		gaProperties = [];
+		rows = [];
+		totals = {};
+		realtimeUsers = 0;
+		selectedPropertyId = '';
+		saveConfig();
+	}
+
+	async function fetchProperties() {
+		if (!refreshToken) return;
+		loadingProperties = true;
+		propertiesError = '';
+		try {
+			const params = new URLSearchParams({ action: 'properties' });
+			const res = await fetch(`/api/analytics?${params}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ refreshToken })
+			});
+			const data = await res.json();
+			if (res.ok) {
+				gaProperties = data.properties ?? [];
+				if (gaProperties.length === 0) {
+					propertiesError = 'No GA4 properties found for this account.';
+				}
+			} else {
+				propertiesError = data.error || `Failed to load properties (HTTP ${res.status})`;
+			}
+		} catch (e) {
+			propertiesError = e instanceof Error ? e.message : 'Failed to fetch properties';
+		} finally {
+			loadingProperties = false;
+		}
+	}
+
+	function toggleSettingsMetric(metricId: string) {
+		if (settingsMetrics.includes(metricId)) {
+			if (settingsMetrics.length > 1) {
+				settingsMetrics = settingsMetrics.filter((m) => m !== metricId);
+			}
+		} else if (settingsMetrics.length < 5) {
+			settingsMetrics = [...settingsMetrics, metricId];
+		}
+	}
+
+	// ─── Formatters ─────────────────────────────────────
+
+	function getMetricInfo(metricId: string) {
+		return METRIC_OPTIONS.find((m) => m.id === metricId);
+	}
+
+	function formatValue(metricId: string, value: number): string {
+		const info = getMetricInfo(metricId);
+		if (!info) return String(Math.round(value));
+
+		switch (info.format) {
+			case 'percent':
+				return `${(value * 100).toFixed(1)}%`;
+			case 'duration': {
+				const mins = Math.floor(value / 60);
+				const secs = Math.round(value % 60);
+				return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+			}
+			default:
+				return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(Math.round(value));
+		}
+	}
+
+	function formatChartDate(dateStr: string): string {
+		const d = new Date(dateStr + 'T00:00:00');
+		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+	}
+
+	function getMetricColor(metricId: string): string {
+		const idx = selectedMetrics.indexOf(metricId);
+		return CHART_COLORS[idx >= 0 ? idx % CHART_COLORS.length : 0];
+	}
+
+	// ─── Chart Interaction ──────────────────────────────
+
+	function measureChart() {
+		if (!chartContainer) return;
+		const rect = chartContainer.getBoundingClientRect();
+		chartWidth = rect.width;
+		chartHeight = rect.height;
+	}
+
+	function handleChartMouseMove(e: MouseEvent) {
+		if (!chartContainer || rows.length === 0) return;
+		measureChart();
+		const rect = chartContainer.getBoundingClientRect();
+		const x = e.clientX - rect.left;
+		const idx = Math.round((x / chartWidth) * (rows.length - 1));
+		hoverIndex = Math.max(0, Math.min(rows.length - 1, idx));
+		isHovering = true;
+	}
+
+	function handleChartTouchMove(e: TouchEvent) {
+		if (!chartContainer || rows.length === 0 || !e.touches[0]) return;
+		measureChart();
+		const rect = chartContainer.getBoundingClientRect();
+		const x = e.touches[0].clientX - rect.left;
+		const idx = Math.round((x / chartWidth) * (rows.length - 1));
+		hoverIndex = Math.max(0, Math.min(rows.length - 1, idx));
+		isHovering = true;
+	}
+
+	function handleChartLeave() {
+		isHovering = false;
+		hoverIndex = -1;
+	}
+
+	// ─── Lifecycle ──────────────────────────────────────
+
+	onMount(() => {
+		if (browser && propertyId) {
+			fetchReport();
+			fetchRealtime();
+			startAutoRefresh();
+		}
+		if (browser) {
+			const ro = new ResizeObserver(() => measureChart());
+			if (chartContainer) ro.observe(chartContainer);
+			return () => ro.disconnect();
+		}
+	});
+
+	onDestroy(() => {
+		stopAutoRefresh();
+	});
+
+	// React to timeframe changes
+	$: if (browser && propertyId && days) {
+		saveConfig();
+		fetchReport(true);
+	}
+</script>
+
+<div class="analytics-widget">
+	{#if !refreshToken}
+		<div class="empty-state">
+			<svg class="empty-icon-svg" viewBox="0 0 48 48" fill="none">
+				<rect x="6" y="24" width="8" height="18" rx="2" fill="var(--primary-color)" opacity="0.3" />
+				<rect x="20" y="16" width="8" height="26" rx="2" fill="var(--primary-color)" opacity="0.5" />
+				<rect x="34" y="8" width="8" height="34" rx="2" fill="var(--primary-color)" opacity="0.8" />
+			</svg>
+			<p class="empty-title">Connect Google Analytics</p>
+			<p class="empty-hint">Sign in to view your GA4 data</p>
+			<button class="setup-button" on:click={connectGoogle} disabled={isConnecting}>
+				<svg viewBox="0 0 18 18" width="16" height="16" fill="none">
+					<path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="var(--text-primary)"/>
+					<path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="var(--text-primary)"/>
+					<path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042L3.964 10.71z" fill="var(--text-primary)"/>
+					<path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="var(--text-primary)"/>
+				</svg>
+				{isConnecting ? 'Connecting…' : 'Connect Account'}
+			</button>
+		</div>
+	{:else if !propertyId}
+		<div class="empty-state">
+			<svg class="empty-icon-svg" viewBox="0 0 48 48" fill="none">
+				<rect x="6" y="24" width="8" height="18" rx="2" fill="var(--primary-color)" opacity="0.3" />
+				<rect x="20" y="16" width="8" height="26" rx="2" fill="var(--primary-color)" opacity="0.5" />
+				<rect x="34" y="8" width="8" height="34" rx="2" fill="var(--primary-color)" opacity="0.8" />
+			</svg>
+			<p class="empty-title">Select a Property</p>
+			<p class="empty-hint">Choose which GA4 property to display</p>
+			<button class="setup-button" on:click={openSettings}>Select Property</button>
+		</div>
+	{:else if isLoading && rows.length === 0}
+		<div class="loading-state">
+			<div class="spinner"></div>
+			<p>Loading analytics…</p>
+		</div>
+	{:else if error}
+		<div class="error-state">
+			<p>⚠️ {error}</p>
+			<button class="retry-button" on:click={() => fetchReport(true)}>Retry</button>
+		</div>
+	{:else}
+		<!-- Top bar: property name + realtime + actions -->
+		<div class="top-bar">
+			<div class="top-bar-left">
+				{#if propertyName}
+					<span class="property-name">{propertyName}</span>
+				{/if}
+				<div class="realtime-badge" title="Active users right now">
+					<span class="realtime-dot"></span>
+					<span class="realtime-count">{realtimeUsers}</span>
+					<span class="realtime-label">live</span>
+				</div>
+			</div>
+			<div class="top-bar-right">
+				<button class="icon-btn" on:click={openSettings} title="Settings">
+					<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor">
+						<path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+					</svg>
+				</button>
+				<button class="icon-btn" on:click={refresh} title="Refresh" class:spinning={isLoading}>
+					<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor">
+						<path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+					</svg>
+				</button>
+			</div>
+		</div>
+
+		<!-- Metric cards -->
+		<div class="metric-cards">
+			{#each selectedMetrics as metricId, idx}
+				{@const info = getMetricInfo(metricId)}
+				{@const value = totals[metricId] ?? 0}
+				{@const color = CHART_COLORS[idx % CHART_COLORS.length]}
+				<button
+					class="metric-card"
+					class:active={activeChartMetric === metricId}
+					on:click={() => (activeChartMetric = metricId)}
+					style="--card-color: {color};"
+				>
+					<div class="metric-card-bar" style="background: {color};"></div>
+					<span class="metric-card-value">{formatValue(metricId, value)}</span>
+					<span class="metric-card-label">{info?.shortLabel ?? metricId}</span>
+				</button>
+			{/each}
+		</div>
+
+		<!-- Timeframe pills -->
+		<div class="timeframe-bar">
+			{#each TIMEFRAME_OPTIONS as tf}
+				<button
+					class="tf-pill"
+					class:active={days === tf.days}
+					on:click={() => (days = tf.days)}
+				>
+					{tf.label}
+				</button>
+			{/each}
+		</div>
+
+		<!-- Chart -->
+		{#if rows.length > 1}
+			<div
+				class="chart-wrap"
+				bind:this={chartContainer}
+				on:mousemove={handleChartMouseMove}
+				on:mouseleave={handleChartLeave}
+				on:touchmove|preventDefault={handleChartTouchMove}
+				on:touchend={handleChartLeave}
+				role="img"
+				aria-label="Analytics chart for {getMetricInfo(activeChartMetric)?.label}"
+			>
+				<svg width="100%" height="100%" class="chart-svg">
+					<!-- Gradient defs -->
+					{#each selectedMetrics as metricId, idx}
+						{@const color = CHART_COLORS[idx % CHART_COLORS.length]}
+						<defs>
+							<linearGradient id="grad-{metricId}" x1="0" y1="0" x2="0" y2="1">
+								<stop offset="0%" stop-color={color} stop-opacity={metricId === activeChartMetric ? 0.3 : 0.08} />
+								<stop offset="100%" stop-color={color} stop-opacity="0" />
+							</linearGradient>
+						</defs>
+					{/each}
+
+					<!-- Horizontal grid -->
+					{#each [0.25, 0.5, 0.75] as frac}
+						<line
+							x1="0" y1={chartHeight * frac}
+							x2={chartWidth} y2={chartHeight * frac}
+							class="grid-line"
+						/>
+					{/each}
+
+					<!-- Secondary metric areas and lines -->
+					{#each selectedMetrics as metricId, idx}
+						{#if metricId !== activeChartMetric}
+							{@const paths = getSecondaryPaths(metricId)}
+							<path d={paths.area} fill="url(#grad-{metricId})" />
+							<path
+								d={paths.line}
+								fill="none"
+								stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+								stroke-width="1.5"
+								opacity="0.4"
+							/>
+						{/if}
+					{/each}
+
+					<!-- Active metric area & line (drawn last = on top) -->
+					<path d={chartAreaPath} fill="url(#grad-{activeChartMetric})" />
+					<path
+						d={chartLinePath}
+						fill="none"
+						stroke={getMetricColor(activeChartMetric)}
+						stroke-width="2.5"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+
+					<!-- Hover crosshair & dots -->
+					{#if isHovering && hoverIndex >= 0}
+						{@const xPos = rows.length > 1 ? (hoverIndex / (rows.length - 1)) * chartWidth : 0}
+						<line x1={xPos} y1="0" x2={xPos} y2={chartHeight} class="crosshair" />
+						{#each selectedMetrics as metricId, idx}
+							{@const yPos = getHoverY(metricId, hoverIndex)}
+							<circle
+								cx={xPos} cy={yPos} r="4.5"
+								fill={CHART_COLORS[idx % CHART_COLORS.length]}
+								stroke="var(--surface)"
+								stroke-width="2"
+							/>
+						{/each}
+					{/if}
+				</svg>
+
+				<!-- Hover tooltip -->
+				{#if isHovering && hoverIndex >= 0 && rows[hoverIndex]}
+					{@const hoverRow = rows[hoverIndex]}
+					{@const pct = rows.length > 1 ? (hoverIndex / (rows.length - 1)) * 100 : 50}
+					<div
+						class="chart-tooltip"
+						style="left: {pct}%; transform: translateX({pct > 75 ? '-90%' : pct < 25 ? '-10%' : '-50%'});"
+					>
+						<div class="tooltip-date">{formatChartDate(String(hoverRow.date))}</div>
+						{#each selectedMetrics as metricId, idx}
+							{@const metricVal = Number(hoverRow[metricId] || 0)}
+							<div class="tooltip-row">
+								<span class="tooltip-dot" style="background: {CHART_COLORS[idx % CHART_COLORS.length]};"></span>
+								<span class="tooltip-metric-label">{getMetricInfo(metricId)?.shortLabel}</span>
+								<span class="tooltip-metric-value">{formatValue(metricId, metricVal)}</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+
+			<!-- X-axis labels -->
+			<div class="x-axis">
+				<span>{formatChartDate(String(rows[0].date))}</span>
+				{#if rows.length > 4}
+					<span>{formatChartDate(String(rows[Math.floor(rows.length / 2)].date))}</span>
+				{/if}
+				<span>{formatChartDate(String(rows[rows.length - 1].date))}</span>
+			</div>
+		{:else}
+			<div class="empty-chart">
+				<p>Not enough data to display</p>
+			</div>
+		{/if}
+
+		<!-- Legend -->
+		{#if selectedMetrics.length > 1}
+			<div class="legend">
+				{#each selectedMetrics as metricId, idx}
+					<button
+						class="legend-item"
+						class:active={activeChartMetric === metricId}
+						on:click={() => (activeChartMetric = metricId)}
+					>
+						<span class="legend-dot" style="background: {CHART_COLORS[idx % CHART_COLORS.length]};"></span>
+						{getMetricInfo(metricId)?.shortLabel}
+					</button>
+				{/each}
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Settings Modal -->
+	{#if showSettings}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="settings-overlay" on:click={() => (showSettings = false)}>
+			<div class="settings-panel" on:click|stopPropagation>
+				<div class="settings-header">
+					<h3>Analytics Settings</h3>
+					<button class="settings-close" on:click={() => (showSettings = false)}>✕</button>
+				</div>
+
+				<div class="settings-section">
+					<span class="settings-section-title">Google Account</span>
+					{#if refreshToken}
+						<div class="connected-row">
+							<span class="connected-badge">✓ Connected</span>
+							<button class="disconnect-btn" on:click={disconnectGoogle}>Disconnect</button>
+						</div>
+					{:else}
+						<button class="connect-btn" on:click={connectGoogle} disabled={isConnecting}>
+							{isConnecting ? 'Connecting…' : 'Connect Google Account'}
+						</button>
+					{/if}
+				</div>
+
+				{#if refreshToken}
+					<div class="settings-section">
+						<span class="settings-section-title">GA4 Property</span>
+						{#if loadingProperties}
+							<div class="prop-loading">
+								<div class="spinner small"></div>
+								Loading properties…
+							</div>
+						{:else if gaProperties.length > 0}
+							<select class="settings-select" bind:value={selectedPropertyId}>
+								<option value="">— Select a property —</option>
+								{#each gaProperties as prop}
+									<option value={prop.propertyId}>
+										{prop.displayName} ({prop.accountDisplayName})
+									</option>
+								{/each}
+							</select>
+						{:else}
+							{#if propertiesError}
+								<span class="settings-error">{propertiesError}</span>
+							{:else}
+								<span class="settings-hint">No properties found. Make sure your Google account has access to GA4 properties.</span>
+							{/if}
+							<button class="refresh-props-btn" on:click={fetchProperties}>Retry</button>
+						{/if}
+					</div>
+
+					<div class="settings-section">
+						<span class="settings-section-title">Metrics <span class="settings-meta">(up to 5)</span></span>
+						<div class="metrics-grid">
+							{#each METRIC_OPTIONS as metric}
+								<button
+									class="metric-chip"
+									class:selected={settingsMetrics.includes(metric.id)}
+									on:click={() => toggleSettingsMetric(metric.id)}
+								>
+									{metric.label}
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<div class="settings-actions">
+					<button class="cancel-btn" on:click={() => (showSettings = false)}>Cancel</button>
+					<button class="apply-btn" on:click={applySettings} disabled={!selectedPropertyId}>Apply</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+</div>
+
+<style>
+	.analytics-widget {
+		padding: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		min-height: 0;
+		height: 100%;
+	}
+
+	/* ─── Empty / Loading / Error states ─── */
+	.empty-state,
+	.loading-state,
+	.error-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 2rem 1rem;
+		text-align: center;
+		color: var(--text-secondary);
+		flex: 1;
+	}
+
+	.empty-icon-svg {
+		width: 56px;
+		height: 56px;
+		margin-bottom: 0.25rem;
+	}
+
+	.empty-title {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin: 0;
+	}
+
+	.empty-hint {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		opacity: 0.7;
+		margin: 0;
+	}
+
+	.setup-button,
+	.retry-button {
+		margin-top: 0.5rem;
+		padding: 0.55rem 1.25rem;
+		background: var(--primary-color);
+		color: var(--primary-color-text, #fff);
+		border: none;
+		border-radius: 0.5rem;
+		cursor: pointer;
+		font-weight: 600;
+		font-size: 0.8rem;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		transition: background 0.15s, transform 0.1s;
+	}
+
+	.setup-button:hover,
+	.retry-button:hover {
+		background: var(--primary-color-hover);
+	}
+
+	.setup-button:active,
+	.retry-button:active {
+		transform: scale(0.97);
+	}
+
+	.spinner {
+		width: 1.5rem;
+		height: 1.5rem;
+		border: 2px solid var(--border);
+		border-top-color: var(--primary-color);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	.spinner.small {
+		width: 1rem;
+		height: 1rem;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	/* ─── Top bar ─── */
+	.top-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.top-bar-left {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		min-width: 0;
+	}
+
+	.property-name {
+		font-size: 0.7rem;
+		font-weight: 500;
+		color: var(--text-secondary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.top-bar-right {
+		display: flex;
+		gap: 0.15rem;
+		flex-shrink: 0;
+	}
+
+	.realtime-badge {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: var(--success);
+		background: var(--surface-variant);
+		padding: 0.15rem 0.5rem;
+		border-radius: 1rem;
+	}
+
+	.realtime-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--success);
+		animation: pulse-dot 2s ease-in-out infinite;
+		flex-shrink: 0;
+	}
+
+	.realtime-count {
+		font-variant-numeric: tabular-nums;
+	}
+
+	.realtime-label {
+		opacity: 0.7;
+	}
+
+	@keyframes pulse-dot {
+		0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--success); }
+		50% { opacity: 0.5; box-shadow: 0 0 0 3px transparent; }
+	}
+
+	.icon-btn {
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.3rem;
+		border-radius: 0.375rem;
+		color: var(--text-secondary);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: color 0.15s, background 0.15s;
+	}
+
+	.icon-btn:hover {
+		color: var(--text-primary);
+		background: var(--surface-variant);
+	}
+
+	.icon-btn.spinning {
+		animation: spin 0.8s linear infinite;
+	}
+
+	/* ─── Metric cards ─── */
+	.metric-cards {
+		display: flex;
+		gap: 0.4rem;
+	}
+
+	.metric-card {
+		flex: 1 1 0;
+		min-width: 0;
+		padding: 0.5rem 0.55rem 0.4rem;
+		border-radius: 0.5rem;
+		background: var(--surface-variant);
+		border: 1.5px solid transparent;
+		cursor: pointer;
+		text-align: left;
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+		transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+		position: relative;
+		overflow: hidden;
+	}
+
+	.metric-card:hover {
+		background: var(--surface);
+		box-shadow: 0 1px 4px var(--shadow);
+	}
+
+	.metric-card.active {
+		border-color: var(--card-color);
+		box-shadow: 0 0 0 1px var(--card-color), 0 2px 8px var(--shadow);
+	}
+
+	.metric-card-bar {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 2px;
+		border-radius: 2px 2px 0 0;
+		opacity: 0;
+		transition: opacity 0.2s;
+	}
+
+	.metric-card.active .metric-card-bar {
+		opacity: 1;
+	}
+
+	.metric-card-value {
+		font-size: 1.15rem;
+		font-weight: 700;
+		color: var(--text-primary);
+		font-variant-numeric: tabular-nums;
+		line-height: 1.2;
+	}
+
+	.metric-card-label {
+		font-size: 0.6rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	/* ─── Timeframe pills ─── */
+	.timeframe-bar {
+		display: flex;
+		gap: 0.2rem;
+		background: var(--surface-variant);
+		border-radius: 0.5rem;
+		padding: 0.15rem;
+	}
+
+	.tf-pill {
+		flex: 1;
+		padding: 0.25rem 0.5rem;
+		border: none;
+		border-radius: 0.375rem;
+		background: transparent;
+		color: var(--text-secondary);
+		font-size: 0.7rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.tf-pill:hover {
+		color: var(--text-primary);
+	}
+
+	.tf-pill.active {
+		background: var(--primary-color);
+		color: var(--primary-color-text, #fff);
+		box-shadow: 0 1px 3px var(--shadow);
+	}
+
+	/* ─── Chart ─── */
+	.chart-wrap {
+		position: relative;
+		width: 100%;
+		height: 180px;
+		cursor: crosshair;
+		border-radius: 0.5rem;
+		overflow: hidden;
+		flex-shrink: 0;
+	}
+
+	.chart-svg {
+		display: block;
+	}
+
+	.grid-line {
+		stroke: var(--border);
+		stroke-width: 0.5;
+		stroke-dasharray: 4 4;
+		opacity: 0.5;
+	}
+
+	.crosshair {
+		stroke: var(--text-secondary);
+		stroke-width: 0.75;
+		stroke-dasharray: 3 3;
+		opacity: 0.4;
+	}
+
+	/* ─── Tooltip ─── */
+	.chart-tooltip {
+		position: absolute;
+		top: 4px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		padding: 0.45rem 0.6rem;
+		font-size: 0.7rem;
+		white-space: nowrap;
+		pointer-events: none;
+		box-shadow: 0 4px 16px var(--shadow-strong);
+		z-index: 10;
+	}
+
+	.tooltip-date {
+		font-weight: 700;
+		color: var(--text-primary);
+		margin-bottom: 0.2rem;
+		font-size: 0.65rem;
+	}
+
+	.tooltip-row {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	.tooltip-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.tooltip-metric-label {
+		opacity: 0.8;
+		font-size: 0.65rem;
+	}
+
+	.tooltip-metric-value {
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-left: auto;
+		padding-left: 0.5rem;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* ─── X-axis ─── */
+	.x-axis {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.6rem;
+		color: var(--text-secondary);
+		padding: 0 0.1rem;
+		opacity: 0.7;
+	}
+
+	/* ─── Legend ─── */
+	.legend {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		justify-content: center;
+	}
+
+	.legend-item {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 0.65rem;
+		color: var(--text-secondary);
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.15rem 0.4rem;
+		border-radius: 0.25rem;
+		transition: color 0.15s, background 0.15s;
+	}
+
+	.legend-item:hover {
+		background: var(--surface-variant);
+		color: var(--text-primary);
+	}
+
+	.legend-item.active {
+		color: var(--text-primary);
+		font-weight: 600;
+	}
+
+	.legend-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.empty-chart {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 100px;
+		color: var(--text-secondary);
+		font-size: 0.8rem;
+	}
+
+	/* ─── Settings overlay ─── */
+	.settings-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.55);
+		backdrop-filter: blur(4px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	.settings-panel {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 1rem;
+		padding: 1.25rem;
+		width: min(420px, 90vw);
+		max-height: 80vh;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		box-shadow: 0 12px 48px var(--shadow-strong);
+	}
+
+	.settings-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.settings-panel h3 {
+		margin: 0;
+		color: var(--text-primary);
+		font-size: 1rem;
+	}
+
+	.settings-close {
+		background: none;
+		border: none;
+		font-size: 1.1rem;
+		color: var(--text-secondary);
+		cursor: pointer;
+		padding: 0.2rem 0.4rem;
+		border-radius: 0.25rem;
+		line-height: 1;
+	}
+
+	.settings-close:hover {
+		color: var(--text-primary);
+		background: var(--surface-variant);
+	}
+
+	.settings-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		background: var(--background);
+	}
+
+	.settings-section-title {
+		font-size: 0.8rem;
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.settings-meta {
+		font-weight: 400;
+		color: var(--text-secondary);
+		font-size: 0.7rem;
+	}
+
+	.settings-hint {
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+		font-weight: 400;
+	}
+
+	.settings-error {
+		font-size: 0.7rem;
+		color: var(--error);
+		font-weight: 400;
+	}
+
+	.connected-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.connected-badge {
+		color: var(--success);
+		font-weight: 600;
+		font-size: 0.8rem;
+	}
+
+	.connect-btn {
+		padding: 0.5rem 1rem;
+		background: var(--primary-color);
+		color: var(--primary-color-text, #fff);
+		border: none;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 0.8rem;
+		cursor: pointer;
+	}
+
+	.connect-btn:hover:not(:disabled) {
+		background: var(--primary-color-hover);
+	}
+
+	.connect-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.disconnect-btn {
+		padding: 0.3rem 0.65rem;
+		background: var(--surface-variant);
+		color: var(--error);
+		border: 1px solid var(--border);
+		border-radius: 0.375rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.disconnect-btn:hover {
+		border-color: var(--error);
+	}
+
+	.settings-select {
+		padding: 0.5rem 0.75rem;
+		background: var(--surface-variant);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		font-size: 0.8rem;
+		appearance: none;
+		cursor: pointer;
+	}
+
+	.settings-select:focus {
+		outline: 2px solid var(--primary-color);
+		outline-offset: 2px;
+	}
+
+	.prop-loading {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		padding: 0.25rem 0;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.refresh-props-btn {
+		align-self: flex-start;
+		padding: 0.3rem 0.65rem;
+		background: var(--surface-variant);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+		border-radius: 0.375rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.refresh-props-btn:hover {
+		border-color: var(--primary-color);
+	}
+
+	.metrics-grid {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+		margin-top: 0.15rem;
+	}
+
+	.metric-chip {
+		padding: 0.3rem 0.6rem;
+		border: 1px solid var(--border);
+		border-radius: 1rem;
+		background: var(--surface-variant);
+		color: var(--text-secondary);
+		font-size: 0.7rem;
+		cursor: pointer;
+		transition: all 0.15s;
+		font-weight: 500;
+	}
+
+	.metric-chip:hover {
+		border-color: var(--primary-color);
+		color: var(--text-primary);
+	}
+
+	.metric-chip.selected {
+		background: var(--primary-color);
+		color: var(--primary-color-text, #fff);
+		border-color: var(--primary-color);
+	}
+
+	.settings-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+		padding-top: 0.25rem;
+	}
+
+	.cancel-btn,
+	.apply-btn {
+		padding: 0.45rem 1rem;
+		border: none;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 0.8rem;
+		cursor: pointer;
+	}
+
+	.cancel-btn {
+		background: var(--surface-variant);
+		color: var(--text-primary);
+	}
+
+	.cancel-btn:hover {
+		background: var(--border);
+	}
+
+	.apply-btn {
+		background: var(--primary-color);
+		color: var(--primary-color-text, #fff);
+	}
+
+	.apply-btn:hover:not(:disabled) {
+		background: var(--primary-color-hover);
+	}
+
+	.apply-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+</style>

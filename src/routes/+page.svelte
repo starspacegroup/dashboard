@@ -9,6 +9,7 @@
 	import DataTableWidget from '$lib/components/DataTableWidget.svelte';
 	import CopilotUsageWidget from '$lib/components/CopilotUsageWidget.svelte';
 	import CryptoWidget from '$lib/components/CryptoWidget.svelte';
+	import GoogleAnalyticsWidget from '$lib/components/GoogleAnalyticsWidget.svelte';
 	import ColumnLayout from '$lib/components/ColumnLayout.svelte';
 	import { widgets, sections } from '$lib/stores/widgets';
 	import { commands } from '$lib/stores/commands';
@@ -27,7 +28,8 @@
 		GithubPullRequestsWidget,
 		DataTableWidget,
 		CopilotUsageWidget,
-		CryptoWidget
+		CryptoWidget,
+		GoogleAnalyticsWidget
 	};
 
 	let isWidgetPickerOpen = false;

@@ -1,6 +1,6 @@
 export interface Widget {
 	id: string;
-	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table' | 'copilot-usage' | 'crypto';
+	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table' | 'copilot-usage' | 'crypto' | 'google-analytics';
 	title: string;
 	section: number; // Which section this widget belongs to
 	order: number; // Order within the section
@@ -28,6 +28,13 @@ export interface WidgetConfig {
 		coinId: string; // CoinGecko coin ID (e.g., 'bitcoin')
 		vsCurrency: string; // Target currency (e.g., 'usd')
 		days: number; // Chart timeframe in days (1, 7, 30, 90, 365)
+	};
+	analytics?: {
+		propertyId: string; // GA4 property ID (numeric)
+		propertyName?: string; // Friendly name of the selected property
+		metrics: string[]; // Selected metric names
+		days: number; // Date range in days (7, 14, 30, 90)
+		refreshToken?: string; // Google OAuth refresh token
 	};
 }
 

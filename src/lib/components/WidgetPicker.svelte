@@ -73,6 +73,12 @@
 			title: 'Crypto Price',
 			description: 'Track cryptocurrency prices with interactive charts',
 			icon: '📈'
+		},
+		{
+			type: 'google-analytics',
+			title: 'Google Analytics',
+			description: 'View GA4 property metrics with interactive graphs',
+			icon: '📊'
 		}
 	];
 
