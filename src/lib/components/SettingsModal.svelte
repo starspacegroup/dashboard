@@ -633,15 +633,60 @@
 		line-height: 1.4;
 	}
 
+	.button {
+		padding: 0.625rem 1.25rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		border-radius: 0.625rem;
+		cursor: pointer;
+		border: 1px solid var(--border);
+		transition: all var(--transition-fast) var(--ease-out);
+		white-space: nowrap;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+	}
+
+	.button-primary {
+		background: var(--primary-color);
+		color: var(--surface);
+		border-color: var(--primary-color);
+	}
+
+	.button-primary:hover {
+		filter: brightness(1.1);
+		transform: translateY(-1px);
+	}
+
+	.button-primary:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	.button-secondary {
+		background: var(--surface-variant);
+		color: var(--text-secondary);
+		border-color: var(--border);
+	}
+
+	.button-secondary:hover {
+		background: var(--surface-hover);
+		color: var(--text-primary);
+		border-color: var(--primary-color);
+	}
+
 	.button-danger {
-		background: var(--error-bg);
-		color: var(--error);
-		border: 1px solid var(--error);
+		background: var(--surface-variant);
+		color: var(--text-secondary);
+		border-color: var(--border);
 	}
 
 	.button-danger:hover {
-		background: var(--error);
-		color: white;
+		background: var(--error-bg);
+		color: var(--error);
+		border-color: var(--error);
 	}
 
 	.temperature-unit-selector {
