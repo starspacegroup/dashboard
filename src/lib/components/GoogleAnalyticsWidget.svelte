@@ -7,6 +7,16 @@
 
 	export let widget: Widget;
 
+	// ─── Portal action (moves element to body to escape stacking contexts) ───
+	function portal(node: HTMLElement) {
+		document.body.appendChild(node);
+		return {
+			destroy() {
+				if (node.parentNode) node.parentNode.removeChild(node);
+			}
+		};
+	}
+
 	// ─── Config ──────────────────────────────────────────
 	const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 min auto-refresh
 	const REALTIME_POLL_INTERVAL = 30 * 1000; // 30s realtime polling
@@ -610,7 +620,7 @@
 						<path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
 					</svg>
 				</button>
-				<button class="icon-btn" on:click={refresh} title="Refresh" class:spinning={isLoading}>
+				<button class="icon-btn" on:click={refresh} title="Refresh data" class:spinning={isLoading}>
 					<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor">
 						<path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
 					</svg>
@@ -646,16 +656,14 @@
 					{@const info = getMetricInfo(metricId)}
 					{@const value = totals[metricId] ?? 0}
 					{@const color = CHART_COLORS[idx % CHART_COLORS.length]}
-					<button
+					<div
 						class="metric-card"
-						class:active={activeChartMetric === metricId}
-						on:click={() => (activeChartMetric = metricId)}
 						style="--card-color: {color};"
 					>
 						<div class="metric-card-bar" style="background: {color};"></div>
 						<span class="metric-card-value">{formatValue(metricId, value)}</span>
 						<span class="metric-card-label">{info?.shortLabel ?? metricId}</span>
-					</button>
+					</div>
 				{/each}
 			</div>
 
@@ -684,7 +692,7 @@
 							{@const color = CHART_COLORS[idx % CHART_COLORS.length]}
 							<defs>
 								<linearGradient id="grad-{metricId}" x1="0" y1="0" x2="0" y2="1">
-									<stop offset="0%" stop-color={color} stop-opacity={metricId === activeChartMetric ? 0.3 : 0.08} />
+									<stop offset="0%" stop-color={color} stop-opacity="0.2" />
 									<stop offset="100%" stop-color={color} stop-opacity="0" />
 								</linearGradient>
 							</defs>
@@ -699,31 +707,19 @@
 							/>
 						{/each}
 
-						<!-- Secondary metric areas and lines -->
+						<!-- All metric areas and lines (rendered equally) -->
 						{#each selectedMetrics as metricId, idx}
-							{#if metricId !== activeChartMetric}
-								{@const paths = getSecondaryPaths(metricId)}
-								<path d={paths.area} fill="url(#grad-{metricId})" />
-								<path
-									d={paths.line}
-									fill="none"
-									stroke={CHART_COLORS[idx % CHART_COLORS.length]}
-									stroke-width="1.5"
-									opacity="0.4"
-								/>
-							{/if}
+							{@const paths = metricId === activeChartMetric ? { line: chartLinePath, area: chartAreaPath } : getSecondaryPaths(metricId)}
+							<path d={paths.area} fill="url(#grad-{metricId})" />
+							<path
+								d={paths.line}
+								fill="none"
+								stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
 						{/each}
-
-						<!-- Active metric area & line (drawn last = on top) -->
-						<path d={chartAreaPath} fill="url(#grad-{activeChartMetric})" />
-						<path
-							d={chartLinePath}
-							fill="none"
-							stroke={getMetricColor(activeChartMetric)}
-							stroke-width="2.5"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
 
 						<!-- Hover crosshair & dots -->
 						{#if isHovering && hoverIndex >= 0}
@@ -783,14 +779,10 @@
 			{#if selectedMetrics.length > 1}
 				<div class="legend">
 					{#each selectedMetrics as metricId, idx}
-						<button
-							class="legend-item"
-							class:active={activeChartMetric === metricId}
-							on:click={() => (activeChartMetric = metricId)}
-						>
+						<span class="legend-item">
 							<span class="legend-dot" style="background: {CHART_COLORS[idx % CHART_COLORS.length]};"></span>
 							{getMetricInfo(metricId)?.shortLabel}
-						</button>
+						</span>
 					{/each}
 				</div>
 			{/if}
@@ -901,7 +893,7 @@
 	{#if showSettings}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div class="settings-overlay" on:click={() => (showSettings = false)}>
+		<div class="settings-overlay" use:portal on:click={() => (showSettings = false)}>
 			<div class="settings-panel" on:click|stopPropagation>
 				<div class="settings-header">
 					<h3>Analytics Settings</h3>
@@ -1158,12 +1150,10 @@
 		border-radius: 0.5rem;
 		background: var(--surface-variant);
 		border: 1.5px solid transparent;
-		cursor: pointer;
 		text-align: left;
 		display: flex;
 		flex-direction: column;
 		gap: 0.1rem;
-		transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
 		position: relative;
 		overflow: hidden;
 	}
@@ -1173,11 +1163,6 @@
 		box-shadow: 0 1px 4px var(--shadow);
 	}
 
-	.metric-card.active {
-		border-color: var(--card-color);
-		box-shadow: 0 0 0 1px var(--card-color), 0 2px 8px var(--shadow);
-	}
-
 	.metric-card-bar {
 		position: absolute;
 		top: 0;
@@ -1185,12 +1170,6 @@
 		right: 0;
 		height: 2px;
 		border-radius: 2px 2px 0 0;
-		opacity: 0;
-		transition: opacity 0.2s;
-	}
-
-	.metric-card.active .metric-card-bar {
-		opacity: 1;
 	}
 
 	.metric-card-value {
@@ -1404,23 +1383,11 @@
 		align-items: center;
 		gap: 0.25rem;
 		font-size: 0.65rem;
-		color: var(--text-secondary);
+		color: var(--text-primary);
 		background: none;
 		border: none;
-		cursor: pointer;
 		padding: 0.15rem 0.4rem;
 		border-radius: 0.25rem;
-		transition: color 0.15s, background 0.15s;
-	}
-
-	.legend-item:hover {
-		background: var(--surface-variant);
-		color: var(--text-primary);
-	}
-
-	.legend-item.active {
-		color: var(--text-primary);
-		font-weight: 600;
 	}
 
 	.legend-dot {
@@ -1448,7 +1415,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: 100000;
 	}
 
 	.settings-panel {

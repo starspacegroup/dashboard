@@ -371,9 +371,9 @@
 					</div>
 				</div>
 
-				<!-- Google Analytics Section -->
+				<!-- Analytics Section -->
 				<div class="settings-section">
-					<h3 class="section-title">Google Analytics</h3>
+					<h3 class="section-title">Analytics</h3>
 					<p class="section-description">
 						Connect your Google account to enable the Analytics widget on your dashboard.
 					</p>
@@ -383,7 +383,7 @@
 							<div class="permission-status permission-granted">
 								<span class="status-icon">✓</span>
 								<div class="status-info">
-									<div class="status-label">Google Analytics Connected</div>
+									<div class="status-label">Analytics Connected</div>
 									<div class="status-description">You can now add Analytics widgets to your dashboard</div>
 								</div>
 							</div>

@@ -78,7 +78,7 @@
 		},
 		{
 			type: 'google-analytics',
-			title: 'GA',
+			title: 'Analytics',
 			description: 'View GA4 property metrics with interactive graphs',
 			icon: '📊',
 			requiresConnection: true
