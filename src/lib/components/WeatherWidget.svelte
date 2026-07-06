@@ -565,10 +565,13 @@
 		if (state.isOpen && state.widgetId === widget.id) {
 			setupSettingsWereOpen = true;
 		} else if (!state.isOpen && setupSettingsWereOpen) {
-			// Settings modal just closed for the newly added widget
+			// Settings modal just closed for the newly added widget.
+			// Delay the reveal: at this moment the modal is still mounted with
+			// body scroll locked (overflow: hidden), which cancels smooth
+			// scrolling. Wait for it to unmount and restore scrolling first.
 			isFirstTimeSetup = false;
 			setupSettingsWereOpen = false;
-			revealWidget();
+			setTimeout(revealWidget, 350);
 		}
 	});
 
