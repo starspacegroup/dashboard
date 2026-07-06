@@ -471,8 +471,17 @@
 	// Measured width of the forecast graph area. The SVG is built in pixel
 	// space at this exact width (viewBox matches rendered size 1:1) so dots
 	// stay round and stroke widths stay uniform at every widget width/zoom.
+	// Measured via the component ResizeObserver (updateEarthSize) — Svelte's
+	// bind:clientWidth iframe technique misses resizes after the first load.
 	let forecastGraphWidth = 0;
+	let forecastGraphEl: HTMLDivElement | null = null;
 	const FORECAST_GRAPH_HEIGHT = 120;
+
+	// Initial measurement when the forecast section first renders (the element
+	// mounts only after weather data arrives, well after the observer starts)
+	$: if (browser && forecastGraphEl) {
+		forecastGraphWidth = forecastGraphEl.clientWidth;
+	}
 
 	// Forecast graph data: SVG paths + per-day display values
 	$: forecastGraph = (() => {
@@ -913,6 +922,11 @@
 		
 		earthSize = Math.max(minEarthSize, Math.min(maxEarthSize, calculatedEarthSize));
 		padding = Math.floor(earthSize * 0.28); // 28% padding
+
+		// Re-measure the forecast graph so its SVG stays 1:1 with rendered pixels
+		if (forecastGraphEl) {
+			forecastGraphWidth = forecastGraphEl.clientWidth;
+		}
 	}
 
 	// Calculate loading animation positions using the same logic as real positions
@@ -1983,7 +1997,7 @@
 						<span class="forecast-y-label" style="top: {tick.pct}%">{tick.temp}°</span>
 					{/each}
 				</div>
-				<div class="forecast-graph" bind:clientWidth={forecastGraphWidth}>
+				<div class="forecast-graph" bind:this={forecastGraphEl}>
 				<svg viewBox="0 0 {forecastGraph.svgW} {forecastGraph.svgH}" preserveAspectRatio="none" class="forecast-svg">
 					<defs>
 						<!-- Temperature-based gradient for high line -->
