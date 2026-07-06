@@ -10,11 +10,22 @@ A SvelteKit 2 dashboard application with draggable widgets (weather, traffic, ca
 
 ```bash
 npm run dev          # Start dev server on port 4200 (0.0.0.0:4200)
+npm run dev:tunnel   # Dev server + Cloudflare tunnel at dev-dashboard-<hash>.starspace.group
 npm run build        # Production build
 npm run preview      # Preview production build on port 4200
 npm run check        # Run svelte-kit sync + svelte-check
 npm run lint         # Run ESLint
 ```
+
+### Dev tunnel
+`scripts/dev-tunnel.sh` provisions a named Cloudflare tunnel + proxied CNAME on
+first run (hash is stable per machine+checkout, so the URL persists). DNS is
+created via the Cloudflare API using `~/.cloudflared/dns-edit-token` — NOT
+`cloudflared tunnel route dns`, which infers the zone from the local origin
+cert and lands in the wrong zone. Vite allows the tunnel Host via
+`server.allowedHosts` in `vite.config.ts`. GitHub sign-in through the tunnel
+requires a dev OAuth app whose callback is
+`https://dev-dashboard-<hash>.starspace.group/auth/callback/github`.
 
 ## Architecture
 
