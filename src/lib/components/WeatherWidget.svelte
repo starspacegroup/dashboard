@@ -1695,7 +1695,7 @@
 
 		<div 
 			class="earth weather-{weatherCondition}" 
-			style="background: {earthGradient}; --text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --location-size: {locationSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin}; --location-margin: {locationMargin}"
+			style="background: {earthGradient}; --text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --location-size: {locationSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin}; --location-margin: {locationMargin}; --base-scale: {textScale}"
 		>
 		<!-- Weather Animation Overlay -->
 		<div class="weather-animation-container" style="
@@ -1873,7 +1873,7 @@
 		{/if}
 
 		<!-- Bottom Info Row - Enhanced wind, pressure, humidity -->
-		<div class="bottom-info-row" style="--base-scale: {textScale};">
+		<div class="bottom-info-row">
 			<!-- Wind with direction -->
 			<div class="info-item wind-info" style="--importance: {windImportance};">
 				<div class="info-icon-row">
@@ -2171,6 +2171,8 @@
 
 	.earth {
 		position: relative;
+		/* In-circle text scales with the globe, capped on large globes */
+		--row-scale: min(var(--base-scale, 1), 1.15);
 		width: var(--earth-size, 320px);
 		height: var(--earth-size, 320px);
 		border-radius: 50%;
@@ -2303,7 +2305,9 @@
 		left: 46%;
 		transform: translate(-50%, -50%);
 		z-index: 2;
-		font-size: 5rem;
+		/* Scale with the globe (~20% of its diameter) so the reading never
+		   collides with the condition text above or the H/L row below */
+		font-size: clamp(2.2rem, calc(var(--earth-size, 320px) * 0.2), 5.25rem);
 		font-weight: 600;
 		color: var(--text-color, var(--text-primary));
 		line-height: 1;
@@ -2317,7 +2321,7 @@
 	}
 
 	.degree-symbol {
-		font-size: 2.5rem;
+		font-size: 0.5em;
 		margin-left: 0.25rem;
 		margin-top: 0.5rem;
 	}
@@ -2333,7 +2337,7 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 0.25rem;
-		font-size: calc(0.85rem * var(--base-scale, 1));
+		font-size: calc(0.85rem * var(--row-scale, 1));
 		color: var(--text-color, var(--text-primary));
 		text-shadow: 0 1px 3px var(--shadow);
 	}
@@ -2362,7 +2366,7 @@
 		display: flex;
 		justify-content: center;
 		align-items: flex-end;
-		gap: calc(1.25rem * var(--base-scale, 1));
+		gap: calc(1.25rem * var(--row-scale, 1));
 		z-index: 10;
 		max-width: 90%;
 	}
@@ -2373,10 +2377,11 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 0.15rem;
-		transition: transform 0.3s ease;
-		transform: scale(var(--importance, 1));
 		color: var(--text-color, var(--text-primary));
 		text-shadow: 0 1px 3px var(--shadow);
+		/* NOTE: no transform: scale() here — importance/size scaling happens
+		   via font/icon sizes so the layout box stays honest. A transform
+		   grows the box past its layout bounds and overlaps the H/L row. */
 	}
 
 	.info-icon-row {
@@ -2393,12 +2398,12 @@
 
 	.info-value {
 		font-weight: 500;
-		font-size: calc(1rem * var(--importance, 1));
+		font-size: calc(1rem * var(--row-scale, 1) * var(--importance, 1));
 		line-height: 1;
 	}
 
 	.info-unit {
-		font-size: calc(0.55rem * var(--importance, 1));
+		font-size: calc(0.55rem * var(--row-scale, 1) * var(--importance, 1));
 		opacity: 0.7;
 		font-weight: 400;
 	}
@@ -2409,20 +2414,20 @@
 	}
 
 	.wind-arrow {
-		width: calc(16px * var(--importance, 1));
-		height: calc(16px * var(--importance, 1));
+		width: calc(16px * var(--row-scale, 1) * var(--importance, 1));
+		height: calc(16px * var(--row-scale, 1) * var(--importance, 1));
 		transition: transform 0.5s ease-out;
 		opacity: 0.9;
 	}
 
 	.wind-direction {
-		font-size: calc(0.65rem * var(--importance, 1));
+		font-size: calc(0.65rem * var(--row-scale, 1) * var(--importance, 1));
 		font-weight: 600;
 		opacity: 0.85;
 	}
 
 	.gust-label {
-		font-size: 0.5rem;
+		font-size: calc(0.5rem * var(--row-scale, 1));
 		opacity: 0.6;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -2434,14 +2439,14 @@
 	}
 
 	.pressure-graph {
-		width: calc(48px * var(--importance, 1));
-		height: calc(16px * var(--importance, 1));
+		width: calc(48px * var(--row-scale, 1) * var(--importance, 1));
+		height: calc(16px * var(--row-scale, 1) * var(--importance, 1));
 		opacity: 0.9;
 		overflow: visible;
 	}
 
 	.trend-label {
-		font-size: 0.5rem;
+		font-size: calc(0.5rem * var(--row-scale, 1));
 		font-weight: 500;
 		opacity: 0.8;
 		text-transform: uppercase;
@@ -2454,8 +2459,8 @@
 	}
 
 	.humidity-droplet {
-		width: calc(20px * var(--importance, 1));
-		height: calc(26px * var(--importance, 1));
+		width: calc(20px * var(--row-scale, 1) * var(--importance, 1));
+		height: calc(26px * var(--row-scale, 1) * var(--importance, 1));
 		transition: width 0.3s ease, height 0.3s ease;
 	}
 
