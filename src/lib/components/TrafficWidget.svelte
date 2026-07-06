@@ -3,10 +3,26 @@
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import type { Widget } from '$lib/types/widget';
-	import { widgets } from '$lib/stores/widgets';
+	import { widgets, pendingSetupWidgetId } from '$lib/stores/widgets';
 	import { weatherSettings } from '$lib/stores/weatherSettings';
+	import { revealWidget } from '$lib/utils/revealWidget';
 
 	export let widget: Widget | undefined = undefined;
+
+	// First-time setup flow: settings open on add, reveal after they close
+	let isFirstTimeSetup = false;
+	let setupSettingsWereOpen = false;
+
+	const unsubSetupWatch = weatherSettings.subscribe((state) => {
+		if (!isFirstTimeSetup || !widget) return;
+		if (state.isOpen && state.widgetId === widget.id) {
+			setupSettingsWereOpen = true;
+		} else if (!state.isOpen && setupSettingsWereOpen) {
+			isFirstTimeSetup = false;
+			setupSettingsWereOpen = false;
+			revealWidget(widget.id, 350);
+		}
+	});
 
 	const ZIP_CODE_KEY = 'dashboard-zip-code';
 	const DASHBOARD_LOCATION_KEY = 'dashboard-location';
@@ -310,7 +326,14 @@
 	
 	onMount(() => {
 		if (!browser) return;
-		
+
+		// Newly added via the widget picker? Open settings for initial setup.
+		if (widget && get(pendingSetupWidgetId) === widget.id) {
+			pendingSetupWidgetId.set(null);
+			isFirstTimeSetup = true;
+			setTimeout(() => openSettings(), 150);
+		}
+
 		// Initialize current theme
 		currentTheme = getCurrentTheme();
 		
@@ -366,6 +389,7 @@
 		if (themeObserver) {
 			themeObserver.disconnect();
 		}
+		unsubSetupWatch();
 	});
 	
 	// Reinitialize map when location changes

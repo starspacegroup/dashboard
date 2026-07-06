@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { browser } from '$app/environment';
+	import { get } from 'svelte/store';
 	import type { Widget } from '$lib/types/widget';
-	import { widgets } from '$lib/stores/widgets';
+	import { widgets, pendingSetupWidgetId } from '$lib/stores/widgets';
 	import { analyticsConnection } from '$lib/stores/analyticsConnection';
+	import { revealWidget } from '$lib/utils/revealWidget';
 
 	export let widget: Widget;
 
@@ -68,6 +70,16 @@
 	let needsReconnect = false;
 	let isReconnecting = false;
 	let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+	// First-time setup flow: settings open on add, reveal after they close
+	let isFirstTimeSetup = false;
+	let setupSettingsWereOpen = false;
+	$: if (isFirstTimeSetup && showSettings) setupSettingsWereOpen = true;
+	$: if (isFirstTimeSetup && setupSettingsWereOpen && !showSettings) {
+		isFirstTimeSetup = false;
+		setupSettingsWereOpen = false;
+		revealWidget(widget.id, 350);
+	}
 
 	let showSettings = false;
 	let settingsMetrics = [...selectedMetrics];
@@ -582,6 +594,13 @@
 				widgets.updateWidgetConfig(widget.id, {
 					analytics: { ...widget.config?.analytics, refreshToken: undefined }
 				});
+			}
+
+			// Newly added via the widget picker? Open the property settings.
+			if (get(pendingSetupWidgetId) === widget.id) {
+				pendingSetupWidgetId.set(null);
+				isFirstTimeSetup = true;
+				setTimeout(() => openSettings(), 150);
 			}
 		}
 		if (browser && propertyId && refreshToken) {

@@ -128,7 +128,7 @@
 			<div class="section-content">
 				{#if widgetsBySection[section.id]}
 					{#each widgetsBySection[section.id] as widget (widget.id)}
-						<div class="widget-container">
+						<div class="widget-container" data-widget-id={widget.id}>
 							<Widget {widget} on:widgetDrop={handleWidgetDrop} onSettingsClick={widget.type === 'weather' || widget.type === 'traffic' ? () => openWidgetSettings(widget.id) : undefined}>
 								{#if widget.type === 'weather'}
 									<svelte:component this={widgetComponents.WeatherWidget} {widget} bind:this={settingsWidgetRefs[widget.id]} />

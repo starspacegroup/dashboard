@@ -5,6 +5,7 @@
 	import type { Widget } from '$lib/types/widget';
 	import { widgets, pendingSetupWidgetId } from '$lib/stores/widgets';
 	import { weatherSettings } from '$lib/stores/weatherSettings';
+	import { revealWidget } from '$lib/utils/revealWidget';
 	import { moonPhase as moonPhaseStore, computeMoonPhase } from '$lib/stores/moonPhase';
 
 	export let widget: Widget;
@@ -595,14 +596,6 @@
 	let isFirstTimeSetup = false;
 	let setupSettingsWereOpen = false;
 
-	function revealWidget() {
-		const el = (containerElement?.closest('.widget') as HTMLElement) ?? containerElement;
-		if (!el) return;
-		el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-		el.classList.add('widget-flash');
-		setTimeout(() => el.classList.remove('widget-flash'), 2600);
-	}
-
 	const unsubSetupWatch = weatherSettings.subscribe((state) => {
 		if (!isFirstTimeSetup) return;
 		if (state.isOpen && state.widgetId === widget.id) {
@@ -614,7 +607,7 @@
 			// scrolling. Wait for it to unmount and restore scrolling first.
 			isFirstTimeSetup = false;
 			setupSettingsWereOpen = false;
-			setTimeout(revealWidget, 350);
+			revealWidget(widget.id, 350);
 		}
 	});
 

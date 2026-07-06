@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { fly, fade } from 'svelte/transition';
 	import { widgets, sections, pendingSetupWidgetId } from '$lib/stores/widgets';
+	import { revealWidget } from '$lib/utils/revealWidget';
 	import type { Widget } from '$lib/types/widget';
 	import { isAnalyticsConnected } from '$lib/stores/analyticsConnection';
 
@@ -126,10 +127,14 @@
 
 		widgets.addWidget(newWidget);
 
-		// Weather widgets get a first-time setup flow: settings modal opens
-		// immediately, then the widget scrolls into view and flashes
-		if (newWidget.type === 'weather') {
+		// First-time setup flow: widgets with settings open them immediately
+		// and reveal (scroll + flash) once setup closes; widgets without
+		// settings reveal right away so it's clear where they landed.
+		const SETUP_TYPES: Widget['type'][] = ['weather', 'traffic', 'google-analytics'];
+		if (SETUP_TYPES.includes(newWidget.type)) {
 			pendingSetupWidgetId.set(newWidget.id);
+		} else {
+			revealWidget(newWidget.id, 250);
 		}
 
 		closeAndReset();
