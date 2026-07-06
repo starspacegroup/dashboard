@@ -325,7 +325,7 @@
 		}
 
 		.section-content {
-			padding: 0.25rem;
+			padding: 0;
 		}
 	}
 </style>
