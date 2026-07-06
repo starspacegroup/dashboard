@@ -1212,7 +1212,7 @@
 			window.removeEventListener('resize', handleResize);
 			window.removeEventListener('location-changed', handleLocationChanged as EventListener);
 			window.removeEventListener('location-cleared', handleLocationCleared);
-			resizeObserver.disconnect();
+			resizeObserver?.disconnect();
 			unsubSetupWatch();
 		};
 	});
