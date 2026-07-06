@@ -2245,7 +2245,7 @@
 				</svg>
 			</div>
 			
-			<div class="earth loading-earth loading-fade-in" style="background: {loadingEarthGradient}; --text-color: {loadingIsNight ? 'var(--foreground)' : 'var(--background)'}; --time-size: {timeSize}; --date-size: {dateSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin};">
+			<div class="earth loading-earth loading-fade-in" style="background: {loadingEarthGradient}; --text-color: {loadingIsNight ? 'var(--text-primary)' : 'var(--background)'}; --time-size: {timeSize}; --date-size: {dateSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin};">
 				<!-- Time display while loading (centered) -->
 				<div class="loading-time-section">
 					<div class="time">{currentTime}</div>
@@ -2522,11 +2522,11 @@
 	}
 
 	.time-date-section .time {
-		color: var(--foreground);
+		color: var(--text-primary);
 	}
 
 	.time-date-section .date {
-		color: var(--foreground);
+		color: var(--text-primary);
 		opacity: 0.7;
 	}
 
