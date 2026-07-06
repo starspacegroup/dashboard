@@ -52,8 +52,11 @@
 		widgets.load();
 		sections.load();
 
-		// Pull/push dashboard state to the server so all instances stay in sync
-		stopSync = startSync();
+		// Pull/push dashboard state to the server so all instances stay in
+		// sync. Keyed to the signed-in user so accounts sharing a browser
+		// never see or overwrite each other's state.
+		const userId = data.user?.login ?? data.user?.email ?? '';
+		stopSync = startSync(userId);
 
 		// Refresh GitHub data every 5 minutes so widgets stay current
 		refreshInterval = setInterval(() => {

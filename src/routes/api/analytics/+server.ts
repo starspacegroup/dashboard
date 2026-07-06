@@ -114,14 +114,18 @@ export const POST: RequestHandler = async ({ url, request, locals }) => {
   try {
     const accessToken = await getAccessTokenFromRefresh(refreshToken);
 
+    // Scope cache entries to this connection so one user's cached reports
+    // are never served to a different user asking about the same property
+    const cacheScope = refreshToken.slice(-12);
+
     if (action === 'properties') {
       return await handleProperties(accessToken);
     } else if (action === 'report') {
-      return await handleReport(url, skipCache, accessToken);
+      return await handleReport(url, skipCache, accessToken, cacheScope);
     } else if (action === 'realtime') {
-      return await handleRealtime(url, accessToken);
+      return await handleRealtime(url, accessToken, cacheScope);
     } else if (action === 'realtime-history') {
-      return await handleRealtimeHistory(url, accessToken);
+      return await handleRealtimeHistory(url, accessToken, cacheScope);
     } else {
       return json({ error: 'Invalid action. Use: properties, report, realtime, realtime-history' }, { status: 400 });
     }
@@ -202,7 +206,7 @@ async function handleProperties(accessToken: string) {
 }
 
 /** Fetch a date-range report from GA4 Data API */
-async function handleReport(url: URL, skipCache: boolean, accessToken: string) {
+async function handleReport(url: URL, skipCache: boolean, accessToken: string, cacheScope: string) {
   const propertyId = url.searchParams.get('propertyId');
   const metricsParam = url.searchParams.get('metrics');
   const days = parseInt(url.searchParams.get('days') || '7', 10);
@@ -221,7 +225,7 @@ async function handleReport(url: URL, skipCache: boolean, accessToken: string) {
 
   const clampedDays = Math.min(Math.max(days, 1), 365);
 
-  const cacheKey = `report:${propertyId}:${requestedMetrics.join(',')}:${clampedDays}`;
+  const cacheKey = `report:${cacheScope}:${propertyId}:${requestedMetrics.join(',')}:${clampedDays}`;
   if (!skipCache) {
     const cached = getCached(cacheKey);
     if (cached) return json(cached);
@@ -298,13 +302,13 @@ async function handleReport(url: URL, skipCache: boolean, accessToken: string) {
 }
 
 /** Fetch realtime active users */
-async function handleRealtime(url: URL, accessToken: string) {
+async function handleRealtime(url: URL, accessToken: string, cacheScope: string) {
   const propertyId = url.searchParams.get('propertyId');
   if (!propertyId) {
     return json({ error: 'Missing propertyId parameter' }, { status: 400 });
   }
 
-  const cacheKey = `realtime:${propertyId}`;
+  const cacheKey = `realtime:${cacheScope}:${propertyId}`;
   const cached = getCached(cacheKey);
   if (cached) return json(cached);
 
@@ -344,13 +348,13 @@ async function handleRealtime(url: URL, accessToken: string) {
 }
 
 /** Fetch per-minute active users for the last 30 minutes via the Realtime API */
-async function handleRealtimeHistory(url: URL, accessToken: string) {
+async function handleRealtimeHistory(url: URL, accessToken: string, cacheScope: string) {
   const propertyId = url.searchParams.get('propertyId');
   if (!propertyId) {
     return json({ error: 'Missing propertyId parameter' }, { status: 400 });
   }
 
-  const cacheKey = `realtime-history:${propertyId}`;
+  const cacheKey = `realtime-history:${cacheScope}:${propertyId}`;
   const cached = getCached(cacheKey);
   if (cached) return json(cached);
 

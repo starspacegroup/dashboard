@@ -23,6 +23,7 @@ const SYNCED_KEYS = [
 ] as const;
 
 const LOCAL_META_KEY = 'dashboard-sync-updated-at';
+const LOCAL_USER_KEY = 'dashboard-sync-user';
 const PUSH_DEBOUNCE_MS = 2000;
 const PULL_INTERVAL_MS = 60 * 1000;
 
@@ -156,10 +157,47 @@ export function markDirty() {
 	pushTimer = setTimeout(() => void push(), PUSH_DEBOUNCE_MS);
 }
 
-/** Start the sync engine. Call once from the dashboard page on mount. */
-export function startSync(): () => void {
+/**
+ * Wipe all locally cached dashboard state. Called when a different user
+ * signs in on this browser so widget layouts, locations, and the analytics
+ * connection never bleed between accounts (locally or up into their KV).
+ */
+function clearLocalState() {
+	for (const key of SYNCED_KEYS) {
+		localStorage.removeItem(key);
+	}
+	localStorage.removeItem(LOCAL_META_KEY);
+
+	// Per-widget weather caches hold the previous user's locations
+	const stale: string[] = [];
+	for (let i = 0; i < localStorage.length; i++) {
+		const key = localStorage.key(i);
+		if (key && key.startsWith('dashboard-weather-data')) stale.push(key);
+	}
+	stale.forEach((k) => localStorage.removeItem(k));
+
+	sections.load();
+	widgets.load();
+	analyticsConnection.reload();
+}
+
+/**
+ * Start the sync engine. Call once from the dashboard page on mount,
+ * passing a stable id for the signed-in user (login or email).
+ */
+export function startSync(currentUserId: string): () => void {
 	if (!browser || started) return () => {};
 	started = true;
+
+	// Local state belongs to whoever synced it last. A different account
+	// signing in starts from a clean slate, then pulls their own state.
+	if (currentUserId) {
+		const lastUser = localStorage.getItem(LOCAL_USER_KEY);
+		if (lastUser && lastUser !== currentUserId) {
+			clearLocalState();
+		}
+		localStorage.setItem(LOCAL_USER_KEY, currentUserId);
+	}
 
 	void pull();
 
