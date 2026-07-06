@@ -223,7 +223,7 @@
 					{#if initialLocation || selectedTemperatureUnit !== 'global'}
 						<div class="reset-section">
 							<button class="button button-text" on:click={clearAndUseGlobal}>
-								Reset to Global Settings
+								{showTemperatureUnit ? 'Reset to Global Settings' : 'Reset to Default Location'}
 							</button>
 						</div>
 					{/if}
