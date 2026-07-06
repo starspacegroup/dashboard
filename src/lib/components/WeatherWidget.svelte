@@ -475,12 +475,16 @@
 	// bind:clientWidth iframe technique misses resizes after the first load.
 	let forecastGraphWidth = 0;
 	let forecastGraphEl: HTMLDivElement | null = null;
+	let resizeObserver: ResizeObserver | null = null;
 	const FORECAST_GRAPH_HEIGHT = 120;
 
-	// Initial measurement when the forecast section first renders (the element
-	// mounts only after weather data arrives, well after the observer starts)
+	// The forecast section mounts only after weather data arrives, well after
+	// the observer starts — measure and start observing it when it appears.
+	// (Observing an already-observed target is a spec'd no-op, so this is safe
+	// to re-run.)
 	$: if (browser && forecastGraphEl) {
 		forecastGraphWidth = forecastGraphEl.clientWidth;
+		resizeObserver?.observe(forecastGraphEl);
 	}
 
 	// Forecast graph data: SVG paths + per-day display values
@@ -1139,14 +1143,17 @@
 	onMount(() => {
 		// Set initial earth size after a brief delay to ensure container is rendered
 		setTimeout(updateEarthSize, 0);
-		
+
 		// Use ResizeObserver to watch for container size changes
-		const resizeObserver = new ResizeObserver(() => {
+		resizeObserver = new ResizeObserver(() => {
 			updateEarthSize();
 		});
-		
+
 		if (containerElement) {
 			resizeObserver.observe(containerElement);
+		}
+		if (forecastGraphEl) {
+			resizeObserver.observe(forecastGraphEl);
 		}
 		
 		// Listen for window resize as fallback
