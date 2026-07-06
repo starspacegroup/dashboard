@@ -468,17 +468,23 @@
 	$: maxForecastDays = containerWidth < 400 ? 5 : 9;
 	$: visibleForecast = dailyForecast.slice(0, maxForecastDays);
 
+	// Measured width of the forecast graph area. The SVG is built in pixel
+	// space at this exact width (viewBox matches rendered size 1:1) so dots
+	// stay round and stroke widths stay uniform at every widget width/zoom.
+	let forecastGraphWidth = 0;
+	const FORECAST_GRAPH_HEIGHT = 120;
+
 	// Forecast graph data: SVG paths + per-day display values
 	$: forecastGraph = (() => {
-		if (visibleForecast.length === 0) return { highPath: '', lowPath: '', highPoints: [] as {x: number, y: number, temp: number, tempF: number}[], lowPoints: [] as {x: number, y: number, temp: number, tempF: number}[], areaPath: '', min: 0, max: 100, range: 100, maxF: 100, minF: 0, dayRects: [] as {x: number, xDay: number, wDay: number, colW: number}[], svgW: 900, svgH: 140, ticks: [] as {temp: number, y: number, pct: number}[] };
+		if (visibleForecast.length === 0) return { highPath: '', lowPath: '', highPoints: [] as {x: number, y: number, temp: number, tempF: number}[], lowPoints: [] as {x: number, y: number, temp: number, tempF: number}[], areaPath: '', min: 0, max: 100, range: 100, maxF: 100, minF: 0, dayRects: [] as {x: number, xDay: number, wDay: number, colW: number}[], svgW: 600, svgH: FORECAST_GRAPH_HEIGHT, ticks: [] as {temp: number, y: number, pct: number}[] };
 		const highs = visibleForecast.map(d => isCelsius ? Math.round((d.tempMax - 32) * 5/9) : d.tempMax);
 		const lows = visibleForecast.map(d => isCelsius ? Math.round((d.tempMin - 32) * 5/9) : d.tempMin);
 		const allTemps = [...highs, ...lows];
 		const globalMax = Math.max(...allTemps);
 		const globalMin = Math.min(...allTemps);
 		const n = visibleForecast.length;
-		const svgW = 900;
-		const svgH = 140;
+		const svgW = forecastGraphWidth || 600;
+		const svgH = FORECAST_GRAPH_HEIGHT;
 		const padTop = 24;
 		const padBot = 24;
 		const graphH = svgH - padTop - padBot;
@@ -1977,7 +1983,7 @@
 						<span class="forecast-y-label" style="top: {tick.pct}%">{tick.temp}°</span>
 					{/each}
 				</div>
-				<div class="forecast-graph">
+				<div class="forecast-graph" bind:clientWidth={forecastGraphWidth}>
 				<svg viewBox="0 0 {forecastGraph.svgW} {forecastGraph.svgH}" preserveAspectRatio="none" class="forecast-svg">
 					<defs>
 						<!-- Temperature-based gradient for high line -->
@@ -2115,9 +2121,8 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 1.5rem;
-		padding: 2rem;
-		min-height: 400px;
+		gap: 0.75rem;
+		padding: 0.5rem 1rem 0.75rem;
 		position: relative;
 		overflow: visible;
 	}
@@ -2133,6 +2138,10 @@
 		opacity: 0;
 		transition: opacity 0.8s ease-in-out;
 		overflow: visible;
+		/* The orbit padding is only fully needed at the top and sides (sun/moon
+		   arcs, horizon moon illusion). Below the globe the hidden orbit barely
+		   extends past the edge, so reclaim most of that space. */
+		margin-bottom: calc(var(--padding, 90px) * -0.6);
 	}
 
 	.celestial-container.loaded {
@@ -3026,7 +3035,7 @@
 		flex-direction: column;
 		width: 100%;
 		gap: 0;
-		padding: 0.5rem 0 0;
+		padding: 0;
 	}
 
 	.forecast-graph-wrapper {
