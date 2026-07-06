@@ -17,6 +17,8 @@ Pages.
   organizations in tile format
 - 🔐 **GitHub OAuth**: Sign-in to view your GitHub projects and organization
   repositories
+- ☁️ **Cross-Device Sync**: Widget layout, location, and connections sync
+  across browsers/devices for the same logged-in user (Cloudflare KV)
 
 ## Screenshots
 

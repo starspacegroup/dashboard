@@ -65,6 +65,8 @@
 
 	let isLoading = false;
 	let error = '';
+	let needsReconnect = false;
+	let isReconnecting = false;
 	let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 	let showSettings = false;
@@ -264,6 +266,7 @@
 		if (!propertyId || !refreshToken) return;
 		isLoading = true;
 		error = '';
+		needsReconnect = false;
 
 		try {
 			const params = new URLSearchParams({
@@ -281,6 +284,9 @@
 			});
 			if (!res.ok) {
 				const body = await res.json();
+				if (body.code === 'reconnect_required' || res.status === 401) {
+					needsReconnect = true;
+				}
 				throw new Error(body.error || `HTTP ${res.status}`);
 			}
 
@@ -294,6 +300,43 @@
 		} finally {
 			isLoading = false;
 		}
+	}
+
+	// Re-run the Google OAuth consent flow to get a fresh refresh token.
+	// Widget config (property, metrics, timeframe) is untouched — no need to
+	// recreate any widgets when the connection expires.
+	function reconnectAnalytics() {
+		if (isReconnecting) return;
+		isReconnecting = true;
+
+		const popup = window.open(
+			'/api/analytics/auth',
+			'ga-oauth',
+			'width=500,height=650,menubar=no,toolbar=no,location=no'
+		);
+
+		function onMessage(e: MessageEvent) {
+			if (e.data?.type !== 'ga-oauth-callback') return;
+			window.removeEventListener('message', onMessage);
+			isReconnecting = false;
+
+			if (e.data.refreshToken) {
+				analyticsConnection.connect(e.data.refreshToken);
+				needsReconnect = false;
+				error = '';
+				fetchReport(true);
+			}
+		}
+
+		window.addEventListener('message', onMessage);
+
+		const checkClosed = setInterval(() => {
+			if (popup?.closed) {
+				clearInterval(checkClosed);
+				isReconnecting = false;
+				window.removeEventListener('message', onMessage);
+			}
+		}, 500);
 	}
 
 	async function fetchRealtime() {
@@ -483,11 +526,6 @@
 
 	$: xAxisLabels = computeXAxisLabels(rows);
 
-	function getMetricColor(metricId: string): string {
-		const idx = selectedMetrics.indexOf(metricId);
-		return CHART_COLORS[idx >= 0 ? idx % CHART_COLORS.length : 0];
-	}
-
 	// ─── Chart Interaction ──────────────────────────────
 
 	function measureChart() {
@@ -608,7 +646,13 @@
 	{:else if error}
 		<div class="error-state">
 			<p>⚠️ {error}</p>
-			<button class="retry-button" on:click={() => fetchReport(true)}>Retry</button>
+			{#if needsReconnect}
+				<button class="retry-button" on:click={reconnectAnalytics} disabled={isReconnecting}>
+					{isReconnecting ? 'Waiting for Google…' : 'Reconnect Google Analytics'}
+				</button>
+			{:else}
+				<button class="retry-button" on:click={() => fetchReport(true)}>Retry</button>
+			{/if}
 		</div>
 	{:else}
 		<!-- Top bar: actions -->

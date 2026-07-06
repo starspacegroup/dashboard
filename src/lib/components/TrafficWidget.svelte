@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
+	import { get } from 'svelte/store';
+	import { widgets } from '$lib/stores/widgets';
 
 	const ZIP_CODE_KEY = 'dashboard-zip-code';
-	const WEATHER_CACHE_KEY = 'dashboard-weather-data';
+	const DASHBOARD_LOCATION_KEY = 'dashboard-location';
 	
 	let hasLocation = false;
 	let mapCenter = { lat: 0, lng: 0 };
@@ -179,51 +181,48 @@
 		map.setOptions({ styles: mapStyles });
 	}
 	
-	// Load location data from localStorage
+	// Load location data from saved settings, only falling back to the browser
+	// geolocation prompt when nothing has been configured anywhere.
 	async function loadLocationData() {
 		if (!browser) return;
-		
-		// First, check for saved zip code
+
+		// 1) Saved zip code
 		const savedZip = localStorage.getItem(ZIP_CODE_KEY);
 		if (savedZip) {
 			// Use geocoding to get coordinates from zip code
 			await getCoordinatesFromZipCode(savedZip);
 			return;
 		}
-		
-		// Check for cached weather data which might have coordinates
-		const cachedWeather = localStorage.getItem(WEATHER_CACHE_KEY);
-		if (cachedWeather) {
+
+		// 2) Global location from the settings modal
+		const savedLocation = localStorage.getItem(DASHBOARD_LOCATION_KEY);
+		if (savedLocation) {
 			try {
-				const data = JSON.parse(cachedWeather);
-				// If weather widget has location, extract it
-				if (data.location) {
-					// Try to get coordinates from browser geolocation
-					if (navigator.geolocation) {
-						navigator.geolocation.getCurrentPosition(
-							(position) => {
-								mapCenter = {
-									lat: position.coords.latitude,
-									lng: position.coords.longitude
-								};
-								hasLocation = true;
-								isLoading = false;
-							},
-							() => {
-								isLoading = false;
-							}
-						);
-					} else {
-						isLoading = false;
-					}
+				const loc = JSON.parse(savedLocation);
+				if (typeof loc.lat === 'number' && typeof loc.lon === 'number') {
+					mapCenter = { lat: loc.lat, lng: loc.lon };
+					hasLocation = true;
+					isLoading = false;
 					return;
 				}
 			} catch (_e) {
-				// Could not parse cached weather data
+				// Could not parse saved location
 			}
 		}
-		
-		// Try to get browser location
+
+		// 3) A weather widget with a configured location
+		const weatherWithLocation = get(widgets).find(
+			(w) => w.type === 'weather' && typeof w.config?.location?.lat === 'number'
+		);
+		if (weatherWithLocation?.config?.location) {
+			const loc = weatherWithLocation.config.location;
+			mapCenter = { lat: loc.lat, lng: loc.lon };
+			hasLocation = true;
+			isLoading = false;
+			return;
+		}
+
+		// 4) Last resort: browser geolocation (this is what triggers the permission prompt)
 		if (navigator.geolocation) {
 			navigator.geolocation.getCurrentPosition(
 				(position) => {

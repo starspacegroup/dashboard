@@ -26,11 +26,32 @@ interface ExtendedSession {
 	error?: string;
 }
 
-async function refreshAccessToken(refreshToken: string): Promise<{
+interface RefreshedTokens {
 	accessToken: string;
 	refreshToken: string;
 	expiresAt: number;
-} | null> {
+}
+
+// GitHub refresh tokens are single-use. When several requests land at once
+// (page load + API calls), each would try to refresh with the same token and
+// all but one would fail, poisoning the session. Dedupe concurrent refreshes
+// so requests in the same isolate share one refresh call.
+const inflightRefreshes = new Map<string, Promise<RefreshedTokens | null>>();
+
+function refreshAccessTokenDeduped(refreshToken: string): Promise<RefreshedTokens | null> {
+	const existing = inflightRefreshes.get(refreshToken);
+	if (existing) return existing;
+
+	const promise = refreshAccessToken(refreshToken).finally(() => {
+		// Keep the resolved promise around briefly so slightly-later requests
+		// still reuse the result instead of retrying the consumed token
+		setTimeout(() => inflightRefreshes.delete(refreshToken), 30_000);
+	});
+	inflightRefreshes.set(refreshToken, promise);
+	return promise;
+}
+
+async function refreshAccessToken(refreshToken: string): Promise<RefreshedTokens | null> {
 	try {
 		const response = await fetch('https://github.com/login/oauth/access_token', {
 			method: 'POST',
@@ -102,16 +123,20 @@ export const { handle } = SvelteKitAuth({
 			// If token has an expiration, check if it needs refresh
 			if (token.expiresAt && typeof token.expiresAt === 'number') {
 				const now = Math.floor(Date.now() / 1000);
+				const expiresAt = token.expiresAt as number;
 				// Refresh 5 minutes before expiry to avoid edge cases
-				if (now >= (token.expiresAt as number) - 300) {
+				if (now >= expiresAt - 300) {
 					if (token.refreshToken && typeof token.refreshToken === 'string') {
-						const refreshed = await refreshAccessToken(token.refreshToken);
+						const refreshed = await refreshAccessTokenDeduped(token.refreshToken);
 						if (refreshed) {
 							token.accessToken = refreshed.accessToken;
 							token.refreshToken = refreshed.refreshToken;
 							token.expiresAt = refreshed.expiresAt;
 							delete token.error;
-						} else {
+						} else if (now >= expiresAt) {
+							// Only give up once the access token is actually dead;
+							// before that, keep using it and retry the refresh on a
+							// later request (a lost refresh race is often transient)
 							token.error = 'RefreshTokenError';
 						}
 					} else {

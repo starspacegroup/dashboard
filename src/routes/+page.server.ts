@@ -128,11 +128,61 @@ interface ExtendedSession {
 	error?: string;
 }
 
-export const load: PageServerLoad = async ({ locals, fetch }) => {
+// GitHub data payload cached in KV (everything the page needs except `user`)
+interface GithubData {
+	githubProjects: GitHubRepository[];
+	organizationProjects: OrganizationProjects[];
+	allGithubProjects: GitHubProject[];
+	assignedPRs: GitHubPullRequest[];
+	createdPRs: GitHubPullRequest[];
+	reviewRequestedPRs: GitHubPullRequest[];
+	copilotMetrics: OrganizationMetrics[];
+}
+
+interface CachedGithubData {
+	data: GithubData;
+	timestamp: number;
+}
+
+// Serve from cache within this window to avoid hammering the GitHub API
+// (especially the search API: 30 requests/min, 3 used per dashboard load)
+const GITHUB_CACHE_FRESH_MS = 3 * 60 * 1000;
+// Keep stale copies around as a fallback when GitHub rate-limits us
+const GITHUB_CACHE_TTL_SECONDS = 24 * 60 * 60;
+
+export const load: PageServerLoad = async ({ locals, fetch, platform }) => {
 	const session = await locals.auth() as ExtendedSession | null;
 
 	if (!session?.user) {
 		throw redirect(303, '/signin');
+	}
+
+	const kv = platform?.env?.DASHBOARD_KV;
+	const cacheKey = `github-data:${session.user.login ?? session.user.email ?? 'unknown'}`;
+
+	let cached: CachedGithubData | null = null;
+	if (kv) {
+		try {
+			const raw = await kv.get(cacheKey);
+			if (raw) cached = JSON.parse(raw) as CachedGithubData;
+		} catch {
+			// unreadable cache — ignore
+		}
+	}
+
+	// Fresh enough? Skip the GitHub API entirely.
+	if (cached && Date.now() - cached.timestamp < GITHUB_CACHE_FRESH_MS) {
+		return { user: session.user, ...cached.data };
+	}
+
+	// Set true by any helper that sees a GitHub rate-limit response; when it
+	// happens we serve the stale cache instead of half-empty widgets.
+	let rateLimited = false;
+
+	function noteRateLimit(status: number) {
+		if (status === 403 || status === 429) {
+			rateLimited = true;
+		}
 	}
 
 	try {
@@ -208,6 +258,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 					const result = await res.json();
 					return parsePRItems(result.items || []);
 				}
+				noteRateLimit(res.status);
 				console.error('[ERROR] PR search failed:', res.status);
 			} catch (error) {
 				console.error('[ERROR] PR search error:', error);
@@ -389,6 +440,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		let organizations: GitHubOrganization[] = [];
 		if (orgsResponse.ok) {
 			organizations = await orgsResponse.json();
+		} else {
+			noteRateLimit(orgsResponse.status);
 		}
 
 		// ── 2) Fire ALL independent fetches in parallel ──
@@ -441,14 +494,21 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		let githubProjects: GitHubRepository[] = [];
 		if (userReposResponse.ok) {
 			githubProjects = await userReposResponse.json();
+		} else {
+			noteRateLimit(userReposResponse.status);
 		}
 
 		const copilotMetrics: OrganizationMetrics[] = copilotMetricsResults.filter(
 			(m): m is OrganizationMetrics => m !== null
 		);
 
-		return {
-			user: session.user,
+		// Rate-limited mid-fetch? A stale cache beats half-empty widgets.
+		if (rateLimited && cached) {
+			console.warn('[WARN] GitHub rate limit hit — serving cached dashboard data');
+			return { user: session.user, ...cached.data };
+		}
+
+		const data: GithubData = {
 			githubProjects,
 			organizationProjects,
 			allGithubProjects,
@@ -457,8 +517,28 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			reviewRequestedPRs,
 			copilotMetrics
 		};
+
+		if (kv && !rateLimited) {
+			try {
+				await kv.put(
+					cacheKey,
+					JSON.stringify({ data, timestamp: Date.now() } satisfies CachedGithubData),
+					{ expirationTtl: GITHUB_CACHE_TTL_SECONDS }
+				);
+			} catch {
+				// cache write failure is non-fatal
+			}
+		}
+
+		return { user: session.user, ...data };
 	} catch (error) {
 		console.error('Failed to fetch GitHub data:', error);
+	}
+
+	// Total failure — fall back to the stale cache if we have one
+	if (cached) {
+		console.warn('[WARN] GitHub fetch failed — serving cached dashboard data');
+		return { user: session.user, ...cached.data };
 	}
 
 	return {

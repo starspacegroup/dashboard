@@ -35,6 +35,19 @@ npm run lint         # Run ESLint
 - `/api/weather` - Weather data from Open-Meteo with server-side caching (`src/lib/server/weatherCache.ts`)
 - `/api/geocode` - Location geocoding
 - `/api/maps-config` - Google Maps configuration
+- `/api/dashboard-state` - GET/PUT per-user dashboard state (Cloudflare KV, `DASHBOARD_KV` binding)
+- `/api/analytics` - GA4 reports proxy; returns `{ code: 'reconnect_required' }` with 401 when the Google refresh token is dead (widget shows a Reconnect button)
+
+### Cross-Instance Sync
+- `src/lib/stores/sync.ts` - Snapshots a fixed set of localStorage keys (widgets, sections, layouts, location, analytics connection) and persists them to KV via `/api/dashboard-state`, keyed by the logged-in user
+- Pulls on load / tab focus / 60s interval; pushes debounced (2s) after changes; last-write-wins by timestamp
+- Stores dispatch a `dashboard-state-changed` window event after writing synced localStorage keys — anything that writes those keys must dispatch it
+- KV binding is defined in `wrangler.toml`; `platformProxy` in `svelte.config.js` emulates it during `npm run dev` (data persisted under `.wrangler/`)
+
+### GitHub Data Caching
+- `+page.server.ts` caches the assembled GitHub payload in KV per user (fresh window 3 min, stale kept 24h)
+- On GitHub rate limiting (403/429 — the search API allows only 30 req/min and each load uses 3) or total failure, the stale cache is served instead of empty widgets
+- `hooks.server.ts` dedupes concurrent OAuth token refreshes (GitHub refresh tokens are single-use) and only sets a session error once the access token is actually expired
 
 ### State Management
 - `src/lib/stores/theme.ts` - Theme toggle (light/dark)
@@ -98,3 +111,4 @@ Cloudflare Pages:
 - Build command: `npm run build`
 - Output directory: `.svelte-kit/cloudflare`
 - Set environment variables in Cloudflare Pages settings
+- KV namespace `DASHBOARD_KV` (id in `wrangler.toml`, account "David Monaghan") powers per-user state sync and GitHub data caching; the app degrades gracefully to localStorage-only if the binding is missing

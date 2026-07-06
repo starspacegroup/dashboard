@@ -10,6 +10,11 @@ const config = {
 			routes: {
 				include: ['/*'],
 				exclude: ['<all>']
+			},
+			// Emulate Cloudflare bindings (KV) during `npm run dev` using wrangler.toml
+			platformProxy: {
+				configPath: 'wrangler.toml',
+				persist: true
 			}
 		})
 	}

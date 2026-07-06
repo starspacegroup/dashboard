@@ -1,4 +1,9 @@
 name = "dashboard"
+account_id = "7170285216abcab51100eea6730677aa"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = ".svelte-kit/cloudflare"
+
+[[kv_namespaces]]
+binding = "DASHBOARD_KV"
+id = "bebfc834f6204bf0a9fade004a7bdbad"

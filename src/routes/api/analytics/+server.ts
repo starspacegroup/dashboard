@@ -27,6 +27,14 @@ function setCache(key: string, data: unknown) {
   cache.set(key, { data, timestamp: Date.now() });
 }
 
+/** Thrown when the refresh token itself is dead and the user must re-consent. */
+class ReconnectRequiredError extends Error {
+  constructor() {
+    super('Google connection expired. Reconnect your Google account.');
+    this.name = 'ReconnectRequiredError';
+  }
+}
+
 /**
  * Exchange a refresh token for a fresh access token using Google OAuth.
  */
@@ -52,6 +60,13 @@ async function getAccessTokenFromRefresh(refreshToken: string): Promise<string> 
   if (!res.ok) {
     const errBody = await res.text();
     console.error('Token refresh failed:', res.status, errBody);
+
+    // invalid_grant = the refresh token is expired or revoked. Retrying will
+    // never work; the user has to go through the OAuth consent flow again.
+    if (errBody.includes('invalid_grant')) {
+      throw new ReconnectRequiredError();
+    }
+
     throw new Error('Google token refresh failed. Try reconnecting your account.');
   }
 
@@ -112,6 +127,9 @@ export const POST: RequestHandler = async ({ url, request, locals }) => {
     }
   } catch (error) {
     console.error('Analytics API error:', error);
+    if (error instanceof ReconnectRequiredError) {
+      return json({ error: error.message, code: 'reconnect_required' }, { status: 401 });
+    }
     const message = error instanceof Error ? error.message : 'Failed to fetch analytics data';
     return json({ error: message }, { status: 500 });
   }

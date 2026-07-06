@@ -9,6 +9,12 @@ const CURRENT_LAYOUT_KEY = 'dashboard-current-layout';
 // Global drag state
 export const isDraggingAny = writable(false);
 
+// Tell the sync engine (stores/sync.ts) that synced localStorage keys changed
+function notifyStateChanged() {
+	if (typeof window === 'undefined') return;
+	window.dispatchEvent(new CustomEvent('dashboard-state-changed'));
+}
+
 // Generate a unique fingerprint for a layout configuration
 function getLayoutFingerprint(sections: Section[]): string {
 	const sorted = [...sections].sort((a, b) => {
@@ -286,6 +292,7 @@ function saveWidgets(widgets: Widget[], sections?: Section[]) {
 
 		// Also save to legacy storage for backwards compatibility
 		localStorage.setItem(WIDGETS_STORAGE_KEY, JSON.stringify(widgets));
+		notifyStateChanged();
 	} catch (error) {
 		console.warn('Failed to save widgets to localStorage:', error);
 	}
@@ -299,6 +306,7 @@ function saveSections(sections: Section[]) {
 
 	try {
 		localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(sections));
+		notifyStateChanged();
 	} catch (error) {
 		console.warn('Failed to save sections to localStorage:', error);
 	}

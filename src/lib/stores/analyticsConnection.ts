@@ -7,8 +7,8 @@ interface AnalyticsConnection {
   refreshToken: string;
 }
 
-function createAnalyticsConnectionStore() {
-  const initial: AnalyticsConnection = { refreshToken: '' };
+function loadFromStorage(): AnalyticsConnection {
+  const state: AnalyticsConnection = { refreshToken: '' };
 
   if (browser) {
     try {
@@ -16,7 +16,7 @@ function createAnalyticsConnectionStore() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.refreshToken) {
-          initial.refreshToken = parsed.refreshToken;
+          state.refreshToken = parsed.refreshToken;
         }
       }
     } catch {
@@ -24,11 +24,16 @@ function createAnalyticsConnectionStore() {
     }
   }
 
-  const { subscribe, set, update } = writable<AnalyticsConnection>(initial);
+  return state;
+}
+
+function createAnalyticsConnectionStore() {
+  const { subscribe, set } = writable<AnalyticsConnection>(loadFromStorage());
 
   function persist(state: AnalyticsConnection) {
     if (browser) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      window.dispatchEvent(new CustomEvent('dashboard-state-changed'));
     }
   }
 
@@ -43,6 +48,10 @@ function createAnalyticsConnectionStore() {
       const state = { refreshToken: '' };
       set(state);
       persist(state);
+    },
+    /** Re-read localStorage (used after remote sync updates it) */
+    reload() {
+      set(loadFromStorage());
     }
   };
 }

@@ -138,10 +138,11 @@
 				// Save location immediately
 				localStorage.setItem('dashboard-location', JSON.stringify(location));
 				savedLocation = location;
-				window.dispatchEvent(new CustomEvent('location-changed', { 
-					detail: location 
+				window.dispatchEvent(new CustomEvent('location-changed', {
+					detail: location
 				}));
 			}
+			window.dispatchEvent(new CustomEvent('dashboard-state-changed'));
 		}
 	}
 
@@ -151,11 +152,12 @@
 		
 		if (browser) {
 			localStorage.setItem('dashboard-temp-unit-global', unit);
-			
+
 			// Trigger event for widgets to update
 			window.dispatchEvent(new CustomEvent('temperature-unit-changed', {
 				detail: { unit }
 			}));
+			window.dispatchEvent(new CustomEvent('dashboard-state-changed'));
 		}
 	}
 

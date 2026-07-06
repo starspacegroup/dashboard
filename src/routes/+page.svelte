@@ -12,6 +12,7 @@
 	import GoogleAnalyticsWidget from '$lib/components/GoogleAnalyticsWidget.svelte';
 	import ColumnLayout from '$lib/components/ColumnLayout.svelte';
 	import { widgets, sections } from '$lib/stores/widgets';
+	import { startSync } from '$lib/stores/sync';
 	import { commands } from '$lib/stores/commands';
 	import { invalidateAll } from '$app/navigation';
 	import { signOut } from '@auth/sveltekit/client';
@@ -39,6 +40,7 @@
 	let isLayoutPickerOpen = false;
 
 	let refreshInterval: ReturnType<typeof setInterval>;
+	let stopSync: (() => void) | null = null;
 
 	// If the server detected an expired/invalid token, sign out so the user re-authenticates
 	$: if (data.tokenError) {
@@ -49,6 +51,9 @@
 	onMount(() => {
 		widgets.load();
 		sections.load();
+
+		// Pull/push dashboard state to the server so all instances stay in sync
+		stopSync = startSync();
 
 		// Refresh GitHub data every 5 minutes so widgets stay current
 		refreshInterval = setInterval(() => {
@@ -83,6 +88,7 @@
 		commands.removeCommand('add-widget');
 		commands.removeCommand('change-layout');
 		if (refreshInterval) clearInterval(refreshInterval);
+		if (stopSync) stopSync();
 	});
 
 	function closeWidgetPicker() {

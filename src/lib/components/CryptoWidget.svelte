@@ -56,7 +56,6 @@
 	// Spot price — fetched independently from chart data so it never
 	// jumps when the user switches timeframes.
 	let currentPrice = 0;
-	let price24hChange = 0;
 
 	// Chart-derived stats (depend on selected timeframe)
 	let chartChangePercent = 0;
@@ -154,7 +153,6 @@
 			if (!res.ok) throw new Error('Failed to fetch price');
 			const data = await res.json();
 			currentPrice = data.price ?? 0;
-			price24hChange = data.change24h ?? 0;
 		} catch (err) {
 			console.error('Error fetching crypto price:', err);
 			// Don't overwrite error if chart already set it
