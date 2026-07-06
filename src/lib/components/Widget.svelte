@@ -615,11 +615,12 @@
 	/* Mobile optimizations */
 	@media (max-width: 768px) {
 		.widget {
-			margin-bottom: 1rem;
+			/* Section gap already separates widgets — no extra margin */
+			margin-bottom: 0;
 		}
 
 		.widget-header {
-			padding: 0.875rem 1rem;
+			padding: 0.625rem 0.875rem;
 		}
 
 		.widget-header h3 {
@@ -627,7 +628,7 @@
 		}
 
 		.widget-content {
-			padding: 1rem;
+			padding: 0.875rem;
 		}
 
 		.settings-button,
@@ -646,11 +647,11 @@
 
 	@media (max-width: 480px) {
 		.widget-header {
-			padding: 0.75rem;
+			padding: 0.5rem 0.625rem;
 		}
 
 		.widget-content {
-			padding: 0.75rem;
+			padding: 0.625rem;
 		}
 	}
 </style>

@@ -283,7 +283,8 @@
 		}
 
 		main {
-			padding: 1rem;
+			/* The dashboard grid provides its own gutter on mobile */
+			padding: 0;
 		}
 	}
 

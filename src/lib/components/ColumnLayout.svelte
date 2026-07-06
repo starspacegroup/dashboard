@@ -285,11 +285,11 @@
 	@media (max-width: 768px) {
 		.dashboard-layout {
 			grid-template-columns: 1fr;
-			padding: 1rem;
-			gap: 1rem;
+			padding: 0.75rem;
+			gap: 0.875rem;
 			grid-auto-flow: row;
 		}
-		
+
 		.section {
 			grid-column: 1 / span 1 !important;
 			grid-row: auto !important;
@@ -299,10 +299,11 @@
 		.section.dragging {
 			padding: 0.75rem;
 		}
-		
+
 		.section-content {
-			padding: 0.5rem;
-			gap: 0.75rem;
+			/* Sections are invisible grouping on mobile — no extra inset */
+			padding: 0;
+			gap: 0.875rem;
 		}
 		
 		.drop-zone {
@@ -314,7 +315,7 @@
 	/* Small mobile */
 	@media (max-width: 480px) {
 		.dashboard-layout {
-			padding: 0.75rem;
+			padding: 0.5rem;
 			gap: 0.75rem;
 		}
 

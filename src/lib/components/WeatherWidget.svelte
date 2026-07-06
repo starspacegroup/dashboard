@@ -3432,13 +3432,19 @@
 
 	/* Responsive adjustments */
 	@media (max-width: 768px) {
+		.weather-widget {
+			padding: 0.25rem 0.375rem 0.5rem;
+			gap: 0.5rem;
+		}
+
 		.time {
 			font-size: 1.5rem;
 		}
 
-		.temperature {
-			font-size: 4rem;
-		}
+		/* NOTE: no .temperature override here — it scales with the globe
+		   (clamp on --earth-size); a fixed size reintroduces text overlap.
+		   Likewise .forecast-graph keeps its 120px height so the SVG's
+		   pixel-space viewBox stays 1:1 with the rendered box. */
 
 		.forecast-day-name {
 			font-size: 0.6rem;
@@ -3447,10 +3453,6 @@
 		.forecast-icon-lg {
 			width: 22px;
 			height: 22px;
-		}
-
-		.forecast-graph {
-			height: 90px;
 		}
 	}
 </style>
