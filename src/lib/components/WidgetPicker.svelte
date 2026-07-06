@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fly, fade } from 'svelte/transition';
-	import { widgets, sections } from '$lib/stores/widgets';
+	import { widgets, sections, pendingSetupWidgetId } from '$lib/stores/widgets';
 	import type { Widget } from '$lib/types/widget';
 	import { isAnalyticsConnected } from '$lib/stores/analyticsConnection';
 
@@ -125,6 +125,13 @@
 		};
 
 		widgets.addWidget(newWidget);
+
+		// Weather widgets get a first-time setup flow: settings modal opens
+		// immediately, then the widget scrolls into view and flashes
+		if (newWidget.type === 'weather') {
+			pendingSetupWidgetId.set(newWidget.id);
+		}
+
 		closeAndReset();
 	}
 

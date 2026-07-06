@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
+	import { get } from 'svelte/store';
 	import type { Widget } from '$lib/types/widget';
-	import { widgets } from '$lib/stores/widgets';
+	import { widgets, pendingSetupWidgetId } from '$lib/stores/widgets';
 	import { weatherSettings } from '$lib/stores/weatherSettings';
 	import { moonPhase as moonPhaseStore, computeMoonPhase } from '$lib/stores/moonPhase';
 
@@ -544,6 +545,32 @@
 
 	// Reactive humidity display - uses time offset data when time traveling
 	$: displayHumidity = timeOffsetData.humidity;
+
+	// First-time setup flow (widget was just added via the widget picker):
+	// the settings modal opens right away; when it closes we scroll the new
+	// widget into view and flash it so the user knows where it landed.
+	let isFirstTimeSetup = false;
+	let setupSettingsWereOpen = false;
+
+	function revealWidget() {
+		const el = (containerElement?.closest('.widget') as HTMLElement) ?? containerElement;
+		if (!el) return;
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		el.classList.add('widget-flash');
+		setTimeout(() => el.classList.remove('widget-flash'), 2600);
+	}
+
+	const unsubSetupWatch = weatherSettings.subscribe((state) => {
+		if (!isFirstTimeSetup) return;
+		if (state.isOpen && state.widgetId === widget.id) {
+			setupSettingsWereOpen = true;
+		} else if (!state.isOpen && setupSettingsWereOpen) {
+			// Settings modal just closed for the newly added widget
+			isFirstTimeSetup = false;
+			setupSettingsWereOpen = false;
+			revealWidget();
+		}
+	});
 
 	// Settings handlers
 	export function openSettings() {
@@ -1139,7 +1166,15 @@
 		const weatherInterval = setInterval(() => {
 			loadWeatherData();
 		}, CACHE_DURATION);
-		
+
+		// Newly added via the widget picker? Open settings for initial setup.
+		// Small delay lets the picker modal close and the widget render first.
+		if (get(pendingSetupWidgetId) === widget.id) {
+			pendingSetupWidgetId.set(null);
+			isFirstTimeSetup = true;
+			setTimeout(() => openSettings(), 150);
+		}
+
 		return () => {
 			clearInterval(interval);
 			clearInterval(loadingInterval);
@@ -1148,6 +1183,7 @@
 			window.removeEventListener('location-changed', handleLocationChanged as EventListener);
 			window.removeEventListener('location-cleared', handleLocationCleared);
 			resizeObserver.disconnect();
+			unsubSetupWatch();
 		};
 	});
 

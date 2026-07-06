@@ -275,3 +275,18 @@ input[type="radio"]:checked {
 	outline: 2px solid var(--primary-color);
 	outline-offset: 2px;
 }
+
+/* Flash highlight for newly added widgets (see WeatherWidget first-time setup) */
+.widget-flash {
+	animation: widget-flash-pulse 0.75s ease-in-out 3;
+}
+
+@keyframes widget-flash-pulse {
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 transparent;
+	}
+	50% {
+		box-shadow: 0 0 0 5px var(--primary-color);
+	}
+}

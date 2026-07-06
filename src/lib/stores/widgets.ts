@@ -9,6 +9,10 @@ const CURRENT_LAYOUT_KEY = 'dashboard-current-layout';
 // Global drag state
 export const isDraggingAny = writable(false);
 
+// Widget id that was just added and should run its first-time setup flow
+// (e.g. a new weather widget opens its settings modal, then scrolls into view)
+export const pendingSetupWidgetId = writable<string | null>(null);
+
 // Tell the sync engine (stores/sync.ts) that synced localStorage keys changed
 function notifyStateChanged() {
 	if (typeof window === 'undefined') return;
