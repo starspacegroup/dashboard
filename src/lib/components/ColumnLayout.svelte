@@ -30,12 +30,12 @@
 	let containerRef: HTMLDivElement;
 	let draggedSectionId: number | null = null;
 	
-	// Store weather widget component references
+	// Component refs for widgets that expose an openSettings() (weather, traffic)
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	let weatherWidgetRefs: Record<string, any> = {};
-	
-	function openWeatherSettings(widgetId: string) {
-		const ref = weatherWidgetRefs[widgetId];
+	let settingsWidgetRefs: Record<string, any> = {};
+
+	function openWidgetSettings(widgetId: string) {
+		const ref = settingsWidgetRefs[widgetId];
 		if (ref && ref.openSettings) {
 			ref.openSettings();
 		}
@@ -129,11 +129,11 @@
 				{#if widgetsBySection[section.id]}
 					{#each widgetsBySection[section.id] as widget (widget.id)}
 						<div class="widget-container">
-							<Widget {widget} on:widgetDrop={handleWidgetDrop} onSettingsClick={widget.type === 'weather' ? () => openWeatherSettings(widget.id) : undefined}>
+							<Widget {widget} on:widgetDrop={handleWidgetDrop} onSettingsClick={widget.type === 'weather' || widget.type === 'traffic' ? () => openWidgetSettings(widget.id) : undefined}>
 								{#if widget.type === 'weather'}
-									<svelte:component this={widgetComponents.WeatherWidget} {widget} bind:this={weatherWidgetRefs[widget.id]} />
+									<svelte:component this={widgetComponents.WeatherWidget} {widget} bind:this={settingsWidgetRefs[widget.id]} />
 								{:else if widget.type === 'traffic'}
-									<svelte:component this={widgetComponents.TrafficWidget} />
+									<svelte:component this={widgetComponents.TrafficWidget} {widget} bind:this={settingsWidgetRefs[widget.id]} />
 								{:else if widget.type === 'calendar'}
 									<svelte:component this={widgetComponents.CalendarWidget} />
 								{:else if widget.type === 'github'}

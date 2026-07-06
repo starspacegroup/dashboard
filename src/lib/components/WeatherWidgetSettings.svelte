@@ -8,6 +8,8 @@
 	export let onSave: (location: Location | null, temperatureUnit?: 'celsius' | 'fahrenheit') => void;
 	export let initialLocation: Location | null = null;
 	export let initialTemperatureUnit: 'celsius' | 'fahrenheit' | undefined = undefined;
+	export let title = 'Weather Widget Settings';
+	export let showTemperatureUnit = true;
 
 	interface Location {
 		name: string;
@@ -155,7 +157,7 @@
 
 			<!-- Header -->
 			<div class="modal-header">
-				<h2 class="modal-title">Weather Widget Settings</h2>
+				<h2 class="modal-title">{title}</h2>
 				<button class="close-button" on:click={onClose} aria-label="Close">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<line x1="18" y1="6" x2="6" y2="18"></line>
@@ -167,6 +169,7 @@
 			<!-- Content -->
 			<div class="modal-content">
 				<!-- Temperature Unit Section -->
+				{#if showTemperatureUnit}
 				<div class="settings-section">
 					<h3 class="section-title">Temperature Unit</h3>
 					<p class="section-description">
@@ -191,8 +194,8 @@
 						>
 							°F
 						</button>
-						<button 
-							class="unit-button" 
+						<button
+							class="unit-button"
 							class:active={selectedTemperatureUnit === 'celsius'}
 							on:click={() => handleTemperatureUnitChange('celsius')}
 							title="Always use Celsius for this widget"
@@ -201,6 +204,7 @@
 						</button>
 					</div>
 				</div>
+				{/if}
 
 				<!-- Widget Location Section -->
 				<div class="settings-section">

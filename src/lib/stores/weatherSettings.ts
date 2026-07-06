@@ -15,6 +15,8 @@ interface WeatherSettingsState {
   initialLocation: Location | null;
   initialTemperatureUnit: 'celsius' | 'fahrenheit' | undefined;
   onSave: ((location: Location | null, temperatureUnit?: 'celsius' | 'fahrenheit') => void) | null;
+  /** Which widget kind opened the modal — traffic hides the temperature unit */
+  variant: 'weather' | 'traffic';
 }
 
 function createWeatherSettingsStore() {
@@ -23,7 +25,8 @@ function createWeatherSettingsStore() {
     widgetId: null,
     initialLocation: null,
     initialTemperatureUnit: undefined,
-    onSave: null
+    onSave: null,
+    variant: 'weather'
   });
 
   return {
@@ -32,14 +35,16 @@ function createWeatherSettingsStore() {
       widgetId: string,
       initialLocation: Location | null,
       initialTemperatureUnit: 'celsius' | 'fahrenheit' | undefined,
-      onSave: (location: Location | null, temperatureUnit?: 'celsius' | 'fahrenheit') => void
+      onSave: (location: Location | null, temperatureUnit?: 'celsius' | 'fahrenheit') => void,
+      variant: 'weather' | 'traffic' = 'weather'
     ) => {
       set({
         isOpen: true,
         widgetId,
         initialLocation,
         initialTemperatureUnit,
-        onSave
+        onSave,
+        variant
       });
     },
     close: () => {
@@ -51,7 +56,8 @@ function createWeatherSettingsStore() {
         widgetId: null,
         initialLocation: null,
         initialTemperatureUnit: undefined,
-        onSave: null
+        onSave: null,
+        variant: 'weather'
       });
     }
   };

@@ -2,7 +2,11 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
+	import type { Widget } from '$lib/types/widget';
 	import { widgets } from '$lib/stores/widgets';
+	import { weatherSettings } from '$lib/stores/weatherSettings';
+
+	export let widget: Widget | undefined = undefined;
 
 	const ZIP_CODE_KEY = 'dashboard-zip-code';
 	const DASHBOARD_LOCATION_KEY = 'dashboard-location';
@@ -181,10 +185,48 @@
 		map.setOptions({ styles: mapStyles });
 	}
 	
+	// Settings modal — same interface as the weather widget, minus the
+	// temperature unit. Saves a per-widget location override to config.
+	export function openSettings() {
+		if (!widget) return;
+		weatherSettings.open(
+			widget.id,
+			widget.config?.location ?? null,
+			undefined,
+			handleSettingsSave,
+			'traffic'
+		);
+	}
+
+	function handleSettingsSave(location: { lat: number; lon: number } | null) {
+		if (!widget) return;
+		widgets.updateWidgetConfig(widget.id, { location: location ?? undefined });
+
+		if (location) {
+			mapCenter = { lat: location.lat, lng: location.lon };
+			hasLocation = true;
+			isLoading = false;
+			if (map) map.setCenter(mapCenter);
+		} else {
+			// Override cleared — fall back to the default location chain
+			loadLocationData().then(() => {
+				if (map && hasLocation) map.setCenter(mapCenter);
+			});
+		}
+	}
+
 	// Load location data from saved settings, only falling back to the browser
 	// geolocation prompt when nothing has been configured anywhere.
 	async function loadLocationData() {
 		if (!browser) return;
+
+		// 0) Per-widget location override from this widget's settings
+		if (widget?.config?.location && typeof widget.config.location.lat === 'number') {
+			mapCenter = { lat: widget.config.location.lat, lng: widget.config.location.lon };
+			hasLocation = true;
+			isLoading = false;
+			return;
+		}
 
 		// 1) Saved zip code
 		const savedZip = localStorage.getItem(ZIP_CODE_KEY);
@@ -357,7 +399,11 @@
 	{:else}
 		<div class="placeholder">
 			<div class="placeholder-text">Set location to see traffic map</div>
-			<div class="placeholder-hint">Configure location in Weather widget</div>
+			{#if widget}
+				<button class="placeholder-action" on:click={openSettings}>Set location</button>
+			{:else}
+				<div class="placeholder-hint">Open this widget's settings (⚙) to set a location</div>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -402,6 +448,27 @@
 	.placeholder-hint {
 		font-size: 0.875rem;
 		color: var(--text-secondary);
+	}
+
+	.placeholder-action {
+		padding: 0.5rem 1.25rem;
+		background: var(--primary-color);
+		color: #fff;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.15s ease;
+	}
+
+	.placeholder-action:hover {
+		background: var(--primary-color-hover);
+	}
+
+	.placeholder-action:focus-visible {
+		outline: 2px solid var(--primary-color);
+		outline-offset: 2px;
 	}
 
 	.loading-text {

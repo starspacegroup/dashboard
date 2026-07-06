@@ -60,6 +60,8 @@
 	}}
 	initialLocation={$weatherSettings.initialLocation}
 	initialTemperatureUnit={$weatherSettings.initialTemperatureUnit}
+	title={$weatherSettings.variant === 'traffic' ? 'Traffic Widget Settings' : 'Weather Widget Settings'}
+	showTemperatureUnit={$weatherSettings.variant !== 'traffic'}
 />
 
 <div class="app">
