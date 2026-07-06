@@ -160,6 +160,27 @@
 	$: stormParticles = weatherCondition === 'thunderstorm'
 		? generateParticles(50, { delayMax: 0.5, durationMin: 0.3, durationRange: 0.15, opacityMin: 0.6, opacityRange: 0.3, sizeMin: 18, sizeRange: 12 })
 		: [];
+
+	// ─── Living sky layers ──────────────────────────────────────────────
+	// Deterministic star field (golden-angle scatter, stable across SSR/CSR)
+	const SKY_STARS = Array.from({ length: 42 }, (_, i) => ({
+		x: (i * 61.803) % 100,
+		y: (i * 37.51) % 86,
+		size: 1 + ((i * 7) % 3) * 0.7,
+		dur: 2.2 + ((i * 13) % 10) * 0.45,
+		delay: ((i * 29) % 40) / 10
+	}));
+
+	// Drifting cloud bank (negative delays start clouds mid-flight)
+	const SKY_CLOUDS = [
+		{ top: 10, w: 55, h: 16, dur: 150, delay: -20, a: 0.95 },
+		{ top: 28, w: 70, h: 20, dur: 195, delay: -90, a: 0.75 },
+		{ top: 50, w: 60, h: 16, dur: 170, delay: -140, a: 0.6 },
+		{ top: 66, w: 48, h: 12, dur: 120, delay: -55, a: 0.5 }
+	];
+
+	// Clouds cross the globe faster in stronger wind
+	$: cloudSpeedFactor = 0.6 + Math.min(windSpeed, 30) / 15;
 	
 	let hourlyData: HourlyData[] = [];
 	let dailyForecast: DailyForecast[] = [];
@@ -176,6 +197,9 @@
 	let moonPosition = { x: -100, y: -100 };
 	let earthGradient = '';
 	let textColor = 'var(--text-primary)';
+	let rimColor = 'transparent';
+	let starOpacity = 0;
+	let cloudLayerOpacity = 0;
 	let moonScale = 1; // Scale factor for moon size (1.0 to 1.9)
 	let currentTimestamp = Date.now(); // Track current time for reactive updates
 	let moonShadowPath = ''; // SVG path for accurate moon shadow
@@ -945,13 +969,22 @@
 		loadingMoonPosition = { x: moonData.x, y: moonData.y };
 		loadingMoonScale = moonData.scale;
 		
-		// Determine day/night for earth gradient
+		// Determine day/night for text color
 		const displayHour = Math.floor(secondsSinceMidnight / 3600);
 		loadingIsNight = displayHour < 6 || displayHour >= 18;
-		
-		// Update earth gradient
-		const colorData = calculateEarthColor(displayHour, loadingIsNight ? 'night' : 'partly-cloudy');
-		loadingEarthGradient = colorData.gradient;
+
+		// The loading animation is a full clear-sky day cycle — run it through
+		// the same sky engine so it sweeps night → dawn → noon → dusk
+		const elev = solarElevation(secondsSinceMidnight, LOADING_SUNRISE, LOADING_SUNSET);
+		const toPct = (p: number) => ((p - padding) / Math.max(earthSize, 1)) * 100;
+		loadingEarthGradient = buildSky(
+			elev,
+			'clear',
+			toPct(loadingSunPosition.x),
+			toPct(loadingSunPosition.y),
+			toPct(loadingMoonPosition.x),
+			toPct(loadingMoonPosition.y)
+		).background;
 	}
 
 	// Sun position calculation for loading animation (uses fixed Giza data)
@@ -1473,90 +1506,6 @@
 	}
 
 	// Calculate Earth's color based on time of day and weather
-	function calculateEarthColor(hour: number, weatherCondition: string): { gradient: string; textColor: string } {
-		// Calculate brightness based on time of day (0 = midnight, 12 = noon)
-		// Use a smooth curve: darkest at midnight (0/24), brightest at noon (12)
-		const hoursFromNoon = Math.abs(12 - hour);
-		const dayBrightness = 1 - (hoursFromNoon / 12); // 0 at midnight, 1 at noon
-		
-		// Base colors for different times of day
-		let baseColor1, baseColor2, baseColor3, baseColor4;
-		
-		if (dayBrightness > 0.8) {
-			// Noon - very bright
-			baseColor1 = { r: 245, g: 240, b: 235 };
-			baseColor2 = { r: 230, g: 220, b: 210 };
-			baseColor3 = { r: 215, g: 205, b: 195 };
-			baseColor4 = { r: 200, g: 190, b: 180 };
-		} else if (dayBrightness > 0.6) {
-			// Morning/Afternoon - bright
-			baseColor1 = { r: 212, g: 180, b: 140 };
-			baseColor2 = { r: 195, g: 165, b: 125 };
-			baseColor3 = { r: 180, g: 150, b: 115 };
-			baseColor4 = { r: 165, g: 140, b: 105 };
-		} else if (dayBrightness > 0.4) {
-			// Early morning/Evening - moderate
-			baseColor1 = { r: 150, g: 120, b: 100 };
-			baseColor2 = { r: 130, g: 105, b: 90 };
-			baseColor3 = { r: 115, g: 95, b: 80 };
-			baseColor4 = { r: 100, g: 85, b: 70 };
-		} else if (dayBrightness > 0.2) {
-			// Dusk/Dawn - dim
-			baseColor1 = { r: 90, g: 75, b: 85 };
-			baseColor2 = { r: 75, g: 65, b: 75 };
-			baseColor3 = { r: 65, g: 55, b: 65 };
-			baseColor4 = { r: 55, g: 48, b: 58 };
-		} else {
-			// Night - very dark
-			baseColor1 = { r: 45, g: 40, b: 55 };
-			baseColor2 = { r: 38, g: 35, b: 48 };
-			baseColor3 = { r: 32, g: 30, b: 42 };
-			baseColor4 = { r: 25, g: 23, b: 35 };
-		}
-		
-		// Adjust colors based on weather conditions
-		if (weatherCondition.includes('cloud') || weatherCondition === 'partly-cloudy') {
-			// Add gray/reduce saturation
-			const grayFactor = 0.7;
-			baseColor1 = mixWithGray(baseColor1, grayFactor);
-			baseColor2 = mixWithGray(baseColor2, grayFactor);
-			baseColor3 = mixWithGray(baseColor3, grayFactor);
-			baseColor4 = mixWithGray(baseColor4, grayFactor);
-		} else if (weatherCondition.includes('rain')) {
-			// Add blue tint and more gray
-			const blueTint = { r: 0, g: 20, b: 40 };
-			baseColor1 = mixColors(baseColor1, blueTint, 0.3);
-			baseColor2 = mixColors(baseColor2, blueTint, 0.35);
-			baseColor3 = mixColors(baseColor3, blueTint, 0.4);
-			baseColor4 = mixColors(baseColor4, blueTint, 0.45);
-			
-			const grayFactor = 0.6;
-			baseColor1 = mixWithGray(baseColor1, grayFactor);
-			baseColor2 = mixWithGray(baseColor2, grayFactor);
-			baseColor3 = mixWithGray(baseColor3, grayFactor);
-			baseColor4 = mixWithGray(baseColor4, grayFactor);
-		}
-		
-		// Create gradient string
-		const gradient = `linear-gradient(135deg, 
-			rgba(${baseColor1.r}, ${baseColor1.g}, ${baseColor1.b}, 0.95) 0%,
-			rgba(${baseColor2.r}, ${baseColor2.g}, ${baseColor2.b}, 0.95) 30%,
-			rgba(${baseColor3.r}, ${baseColor3.g}, ${baseColor3.b}, 0.95) 60%,
-			rgba(${baseColor4.r}, ${baseColor4.g}, ${baseColor4.b}, 0.95) 100%
-		)`;
-		
-		// Calculate text color for visibility
-		// Use average brightness to determine if we need dark or light text
-		const avgBrightness = (baseColor1.r + baseColor1.g + baseColor1.b + 
-		                        baseColor2.r + baseColor2.g + baseColor2.b) / 6;
-		
-		const textColor = avgBrightness > 160
-			? 'rgba(40, 40, 40, 0.95)' // Dark text for bright backgrounds
-			: 'rgba(255, 255, 255, 0.95)'; // Light text for dark backgrounds
-		
-		return { gradient, textColor };
-	}
-	
 	function mixWithGray(color: { r: number; g: number; b: number }, factor: number) {
 		const avg = (color.r + color.g + color.b) / 3;
 		return {
@@ -1567,14 +1516,152 @@
 	}
 	
 	function mixColors(
-		color1: { r: number; g: number; b: number }, 
-		color2: { r: number; g: number; b: number }, 
+		color1: { r: number; g: number; b: number },
+		color2: { r: number; g: number; b: number },
 		ratio: number
 	) {
 		return {
 			r: Math.round(color1.r * (1 - ratio) + color2.r * ratio),
 			g: Math.round(color1.g * (1 - ratio) + color2.g * ratio),
 			b: Math.round(color1.b * (1 - ratio) + color2.b * ratio)
+		};
+	}
+
+	// ─── Sky engine ─────────────────────────────────────────────────────
+	// The globe is the local sky, lit from where the sun actually is.
+	// Solar elevation (-1 deep night … +1 high noon) drives a piecewise
+	// color ramp; the sun's computed position drives a light bloom.
+
+	interface SkyRGB { r: number; g: number; b: number }
+	interface SkyBand { elev: number; zenith: SkyRGB; mid: SkyRGB; horizon: SkyRGB; rim: string }
+
+	const SKY_BANDS: SkyBand[] = [
+		{ elev: -1.0,  zenith: { r: 5,  g: 8,   b: 22 },  mid: { r: 13,  g: 19,  b: 40 },  horizon: { r: 24,  g: 33,  b: 58 },  rim: 'rgba(90, 115, 190, 0.22)' },
+		{ elev: -0.18, zenith: { r: 10, g: 14,  b: 34 },  mid: { r: 24,  g: 28,  b: 58 },  horizon: { r: 52,  g: 44,  b: 80 },  rim: 'rgba(110, 120, 200, 0.25)' },
+		{ elev: -0.04, zenith: { r: 26, g: 32,  b: 74 },  mid: { r: 82,  g: 62,  b: 104 }, horizon: { r: 214, g: 114, b: 74 },  rim: 'rgba(255, 145, 85, 0.34)' },
+		{ elev: 0.14,  zenith: { r: 38, g: 86,  b: 160 }, mid: { r: 104, g: 148, b: 198 }, horizon: { r: 238, g: 198, b: 150 }, rim: 'rgba(255, 170, 110, 0.26)' },
+		{ elev: 0.45,  zenith: { r: 44, g: 106, b: 190 }, mid: { r: 118, g: 168, b: 216 }, horizon: { r: 214, g: 232, b: 244 }, rim: 'rgba(130, 180, 235, 0.30)' },
+		{ elev: 1.0,   zenith: { r: 40, g: 112, b: 198 }, mid: { r: 126, g: 176, b: 222 }, horizon: { r: 222, g: 238, b: 248 }, rim: 'rgba(140, 190, 240, 0.32)' }
+	];
+
+	function clamp01(v: number): number {
+		return Math.max(0, Math.min(1, v));
+	}
+
+	/** Solar elevation proxy: sin curve through the day arc, mirrored (negative) through the night. */
+	function solarElevation(nowSec: number, sunriseSec: number, sunsetSec: number): number {
+		if (sunriseSec < sunsetSec && nowSec >= sunriseSec && nowSec <= sunsetSec) {
+			const p = (nowSec - sunriseSec) / Math.max(sunsetSec - sunriseSec, 1);
+			return Math.sin(p * Math.PI);
+		}
+		const nightDur = 86400 - (sunsetSec - sunriseSec);
+		const since = nowSec > sunsetSec ? nowSec - sunsetSec : nowSec + 86400 - sunsetSec;
+		const p = since / Math.max(nightDur, 1);
+		return -Math.sin(clamp01(p) * Math.PI);
+	}
+
+	function lerpSkyBands(elev: number): { zenith: SkyRGB; mid: SkyRGB; horizon: SkyRGB; rim: string } {
+		const e = Math.max(-1, Math.min(1, elev));
+		for (let i = 0; i < SKY_BANDS.length - 1; i++) {
+			const a = SKY_BANDS[i];
+			const b = SKY_BANDS[i + 1];
+			if (e >= a.elev && e <= b.elev) {
+				const t = (e - a.elev) / (b.elev - a.elev);
+				return {
+					zenith: mixColors(a.zenith, b.zenith, t),
+					mid: mixColors(a.mid, b.mid, t),
+					horizon: mixColors(a.horizon, b.horizon, t),
+					rim: t < 0.5 ? a.rim : b.rim
+				};
+			}
+		}
+		const last = SKY_BANDS[SKY_BANDS.length - 1];
+		return { zenith: last.zenith, mid: last.mid, horizon: last.horizon, rim: last.rim };
+	}
+
+	interface SkyResult {
+		background: string;
+		textColor: string;
+		rim: string;
+		starOpacity: number;
+		cloudOpacity: number;
+	}
+
+	function buildSky(
+		elev: number,
+		cond: string,
+		sunXPct: number,
+		sunYPct: number,
+		moonXPct: number,
+		moonYPct: number
+	): SkyResult {
+		let { zenith, mid, horizon, rim } = lerpSkyBands(elev);
+
+		// Weather shapes the sky: bloom strength, star visibility, cloud cover
+		let bloomMul = 1;
+		let starMul = 1;
+		let cloudOpacity = 0;
+		const tint = (c: SkyRGB, gray: number, toward?: SkyRGB, ratio = 0) => {
+			let out = mixWithGray(c, gray);
+			if (toward) out = mixColors(out, toward, ratio);
+			return out;
+		};
+		const applyTint = (gray: number, toward?: SkyRGB, ratio = 0) => {
+			zenith = tint(zenith, gray, toward, ratio);
+			mid = tint(mid, gray, toward, ratio);
+			horizon = tint(horizon, gray, toward, ratio);
+		};
+
+		if (cond === 'clouds') {
+			applyTint(0.45);
+			bloomMul = 0.45; starMul = 0.25; cloudOpacity = 0.55;
+		} else if (cond === 'fog') {
+			applyTint(0.65, { r: 190, g: 195, b: 205 }, 0.25);
+			bloomMul = 0.15; starMul = 0; cloudOpacity = 0.7;
+		} else if (cond === 'drizzle') {
+			applyTint(0.5, { r: 40, g: 60, b: 95 }, 0.25);
+			bloomMul = 0.3; starMul = 0.1; cloudOpacity = 0.45;
+		} else if (cond === 'rain') {
+			applyTint(0.55, { r: 30, g: 48, b: 82 }, 0.35);
+			bloomMul = 0.2; starMul = 0.05; cloudOpacity = 0.55;
+		} else if (cond === 'snow') {
+			applyTint(0.5, { r: 175, g: 190, b: 215 }, 0.22);
+			bloomMul = 0.3; starMul = 0.15; cloudOpacity = 0.5;
+		} else if (cond === 'thunderstorm') {
+			applyTint(0.6, { r: 18, g: 20, b: 34 }, 0.45);
+			bloomMul = 0.08; starMul = 0; cloudOpacity = 0.65;
+		}
+
+		const rgba = (c: SkyRGB, a: number) => `rgba(${c.r}, ${c.g}, ${c.b}, ${a})`;
+		const layers: string[] = [];
+
+		// Sun bloom: strongest and warmest when the sun is low
+		const bloomStrength = (elev > -0.06 ? Math.max(0.12, 0.62 - Math.max(elev - 0.12, 0) * 0.45) : 0) * bloomMul;
+		if (bloomStrength > 0.03) {
+			const warmth = clamp01(1 - elev * 2.2); // 1 near horizon → 0 high noon
+			const bloomColor = mixColors({ r: 255, g: 236, b: 200 }, { r: 255, g: 140, b: 74 }, warmth);
+			const size = Math.round(30 + (1 - clamp01(elev)) * 28);
+			layers.push(
+				`radial-gradient(circle at ${sunXPct.toFixed(1)}% ${sunYPct.toFixed(1)}%, ${rgba(bloomColor, bloomStrength)} 0%, transparent ${size}%)`
+			);
+		}
+
+		// Faint moon sheen on clear nights
+		if (elev < -0.1 && starMul > 0.2) {
+			layers.push(
+				`radial-gradient(circle at ${moonXPct.toFixed(1)}% ${moonYPct.toFixed(1)}%, rgba(205, 215, 240, 0.10) 0%, transparent 32%)`
+			);
+		}
+
+		layers.push(`linear-gradient(to top, ${rgba(horizon, 1)} 0%, ${rgba(mid, 1)} 46%, ${rgba(zenith, 1)} 100%)`);
+
+		const avgMid = (mid.r + mid.g + mid.b) / 3;
+		return {
+			background: layers.join(', '),
+			textColor: avgMid > 165 ? 'rgba(40, 40, 40, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+			rim,
+			starOpacity: clamp01((-elev - 0.05) * 8) * starMul,
+			cloudOpacity
 		};
 	}
 
@@ -1608,14 +1695,25 @@
 		const mpd = testDateOffset === 0 ? $moonPhaseStore : computeMoonPhase(testDate);
 		moonShadowPath = mpd.shadowPath;
 		
-		// For determining day/night, use the location's hour via the helper
+		// Rebuild the sky from solar elevation + the sun/moon's actual positions
 		const locationSeconds = getSecondsSinceMidnightInLocationTime(testDate);
-		const displayHour = Math.floor(locationSeconds / 3600);
-		
-		// Update Earth colors based on time and weather
-		const colorData = calculateEarthColor(displayHour, condition);
-		earthGradient = colorData.gradient;
-		textColor = colorData.textColor;
+		const sunriseSec = sunrise ? unixToSecondsSinceMidnightInLocationTime(sunrise) : 6 * 3600;
+		const sunsetSec = sunset ? unixToSecondsSinceMidnightInLocationTime(sunset) : 18 * 3600;
+		const elev = solarElevation(locationSeconds, sunriseSec, sunsetSec);
+		const toPct = (p: number) => ((p - padding) / Math.max(earthSize, 1)) * 100;
+		const sky = buildSky(
+			elev,
+			weatherCondition,
+			toPct(sunPosition.x),
+			toPct(sunPosition.y),
+			toPct(moonPosition.x),
+			toPct(moonPosition.y)
+		);
+		earthGradient = sky.background;
+		textColor = sky.textColor;
+		rimColor = sky.rim;
+		starOpacity = sky.starOpacity;
+		cloudLayerOpacity = sky.cloudOpacity;
 	}
 </script>
 
@@ -1693,10 +1791,32 @@
 			<div class="date">{currentDate}</div>
 		</div>
 
-		<div 
-			class="earth weather-{weatherCondition}" 
-			style="background: {earthGradient}; --text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --location-size: {locationSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin}; --location-margin: {locationMargin}; --base-scale: {textScale}"
+		<div
+			class="earth weather-{weatherCondition}"
+			style="background: {earthGradient}; --rim-color: {rimColor}; --text-color: {textColor}; --time-size: {timeSize}; --date-size: {dateSize}; --location-size: {locationSize}; --top-spacing: {topSpacing}; --date-margin: {dateMargin}; --location-margin: {locationMargin}; --base-scale: {textScale}"
 		>
+		<!-- Living sky: stars fade in after dusk, clouds drift with the wind -->
+		<div class="sky-stars" style="opacity: {starOpacity}" aria-hidden="true">
+			{#each SKY_STARS as s}
+				<span
+					class="star"
+					style="left: {s.x}%; top: {s.y}%; width: {s.size}px; height: {s.size}px; animation-duration: {s.dur}s; animation-delay: {s.delay}s"
+				></span>
+			{/each}
+		</div>
+		{#if cloudLayerOpacity > 0.01}
+			<div class="sky-clouds" style="opacity: {cloudLayerOpacity}; --cloud-dir: {windBlowsX >= 0 ? 1 : -1}" aria-hidden="true">
+				{#each SKY_CLOUDS as c}
+					<div
+						class="drift-cloud"
+						style="top: {c.top}%; width: {c.w}%; height: {c.h}%; animation-duration: {(c.dur / cloudSpeedFactor).toFixed(0)}s; animation-delay: {c.delay}s; --cloud-alpha: {c.a}"
+					></div>
+				{/each}
+			</div>
+		{/if}
+		{#if weatherCondition === 'thunderstorm'}
+			<div class="globe-flash" aria-hidden="true"></div>
+		{/if}
 		<!-- Weather Animation Overlay -->
 		<div class="weather-animation-container" style="
 			--wind-travel-x: {windTravelX}px;
@@ -2176,16 +2296,139 @@
 		width: var(--earth-size, 320px);
 		height: var(--earth-size, 320px);
 		border-radius: 50%;
-		box-shadow: 0 8px 32px var(--shadow);
+		/* Atmosphere rim: glow color follows the sky (dawn amber, day blue, night indigo) */
+		box-shadow:
+			0 8px 32px var(--shadow),
+			0 0 calc(var(--earth-size, 320px) * 0.1) var(--rim-color, transparent);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		transition: background 1s ease, color 1s ease;
+		transition: background 1s ease, color 1s ease, box-shadow 2s ease;
 		overflow: hidden;
 		flex-shrink: 0;
 		aspect-ratio: 1 / 1;
 		color: var(--text-color);
+	}
+
+	/* Glass-sphere depth: specular sheen up top, limb shading at the edge */
+	.earth::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
+		background: radial-gradient(ellipse 60% 42% at 30% 16%, rgba(255, 255, 255, 0.13), transparent 70%);
+		z-index: 1;
+		pointer-events: none;
+	}
+
+	.earth::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
+		background: radial-gradient(circle at 50% 40%, transparent 55%, rgba(2, 4, 14, 0.18) 84%, rgba(2, 4, 16, 0.34) 100%);
+		z-index: 1;
+		pointer-events: none;
+	}
+
+	/* ─── Living sky layers ─── */
+	.sky-stars {
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
+		overflow: hidden;
+		z-index: 0;
+		pointer-events: none;
+		transition: opacity 2s ease;
+	}
+
+	.star {
+		position: absolute;
+		border-radius: 50%;
+		background: #fff;
+		box-shadow: 0 0 3px rgba(255, 255, 255, 0.6);
+		animation: star-twinkle 3s ease-in-out infinite alternate;
+	}
+
+	@keyframes star-twinkle {
+		from {
+			opacity: 0.25;
+			transform: scale(0.85);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1.05);
+		}
+	}
+
+	.sky-clouds {
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
+		overflow: hidden;
+		z-index: 0;
+		pointer-events: none;
+		transition: opacity 2s ease;
+	}
+
+	.drift-cloud {
+		position: absolute;
+		left: 0;
+		border-radius: 50%;
+		background: rgba(236, 240, 250, calc(0.32 * var(--cloud-alpha, 1)));
+		filter: blur(9px);
+		animation: cloud-drift linear infinite;
+	}
+
+	@keyframes cloud-drift {
+		from {
+			transform: translateX(calc(var(--cloud-dir, 1) * -140%));
+		}
+		to {
+			transform: translateX(calc(var(--cloud-dir, 1) * 240%));
+		}
+	}
+
+	.globe-flash {
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
+		z-index: 2;
+		pointer-events: none;
+		opacity: 0;
+		background: radial-gradient(circle at 60% 18%, rgba(255, 255, 255, 0.95) 0%, rgba(190, 205, 255, 0.4) 38%, transparent 72%);
+		animation: globe-flash 7.3s linear infinite;
+	}
+
+	@keyframes globe-flash {
+		0%, 84.6%, 100% {
+			opacity: 0;
+		}
+		85% {
+			opacity: 0.38;
+		}
+		86% {
+			opacity: 0.06;
+		}
+		87.2% {
+			opacity: 0.26;
+		}
+		88.6% {
+			opacity: 0;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.star,
+		.drift-cloud,
+		.globe-flash {
+			animation: none;
+		}
+
+		.globe-flash {
+			opacity: 0;
+		}
 	}
 
 	.sun,
