@@ -99,18 +99,34 @@
 	let viewMode: 'history' | 'live' = 'history';
 	let realtimeHistory: { time: Date; value: number }[] = [];
 	let realtimeTimer: ReturnType<typeof setInterval> | null = null;
-	let liveChartContainer: HTMLDivElement;
+	let liveChartContainer: HTMLDivElement | undefined;
 	let liveChartWidth = 0;
 	let liveChartHeight = 0;
 	let liveHovering = false;
 	let liveHoverIndex = -1;
 
 	// Chart interaction
-	let chartContainer: HTMLDivElement;
+	let chartContainer: HTMLDivElement | undefined;
 	let isHovering = false;
 	let hoverIndex = -1;
 	let chartWidth = 0;
 	let chartHeight = 0;
+
+	// Both chart-wrap elements only exist once their data has loaded (they're
+	// behind {#if rows.length > 1} / {#if realtimeHistory.length > 1}), so the
+	// ResizeObserver set up in onMount can miss them entirely if data arrives
+	// after mount — leaving chartWidth/chartHeight stuck at 0 until some
+	// unrelated re-render happens to remeasure. Observe reactively instead,
+	// the moment each element actually appears in the DOM.
+	let chartResizeObserver: ResizeObserver | null = null;
+	$: if (browser && chartContainer && chartResizeObserver) {
+		chartResizeObserver.observe(chartContainer);
+		measureChart();
+	}
+	$: if (browser && liveChartContainer && chartResizeObserver) {
+		chartResizeObserver.observe(liveChartContainer);
+		measureLiveChart();
+	}
 
 	// Active metric for the main chart line (first selected by default)
 	let activeChartMetric = selectedMetrics[0] ?? 'sessions';
@@ -612,19 +628,19 @@
 		}
 		if (browser) {
 			window.addEventListener('analytics-disconnected', handleAnalyticsDisconnected);
-			const ro = new ResizeObserver(() => {
+			// Created here, but chart elements are attached reactively above
+			// since they may not exist in the DOM yet at mount time.
+			chartResizeObserver = new ResizeObserver(() => {
 				measureChart();
 				measureLiveChart();
 			});
-			if (chartContainer) ro.observe(chartContainer);
-			if (liveChartContainer) ro.observe(liveChartContainer);
-			return () => {
-				ro.disconnect();
-			};
+			if (chartContainer) chartResizeObserver.observe(chartContainer);
+			if (liveChartContainer) chartResizeObserver.observe(liveChartContainer);
 		}
 	});
 
 	onDestroy(() => {
+		chartResizeObserver?.disconnect();
 		stopAutoRefresh();
 		stopRealtimePolling();
 		unsubConnection();
