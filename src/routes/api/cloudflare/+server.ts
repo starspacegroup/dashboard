@@ -383,7 +383,7 @@ async function handleOverview(token: string, url: URL, scope: string, skipCache:
   let pagesCount = 0;
   let workersCount = 0;
   try {
-    const p = await cfFetch<{ name: string }[]>(token, `/accounts/${encodeURIComponent(accountId)}/pages/projects?per_page=100`);
+    const p = await cfFetch<{ name: string }[]>(token, `/accounts/${encodeURIComponent(accountId)}/pages/projects`);
     pagesCount = (p.result || []).length;
   } catch { /* pages permission missing */ }
   try {
@@ -425,7 +425,7 @@ async function handlePages(token: string, url: URL, scope: string, skipCache: bo
     const cached = getCached(key);
     if (cached) return json(cached);
   }
-  const body = await cfFetch<CfPagesProject[]>(token, `/accounts/${encodeURIComponent(accountId)}/pages/projects?per_page=100`);
+  const body = await cfFetch<CfPagesProject[]>(token, `/accounts/${encodeURIComponent(accountId)}/pages/projects`);
   const projects = (body.result || []).map((p) => {
     const dep = p.latest_deployment;
     return {
