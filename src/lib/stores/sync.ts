@@ -55,8 +55,14 @@ function applySnapshot(state: Record<string, string | null>) {
 		const oldLocation = localStorage.getItem('dashboard-location');
 
 		for (const key of SYNCED_KEYS) {
+			// A key ABSENT from the remote snapshot means that snapshot predates
+			// the key (saved before it was added to SYNCED_KEYS) — NOT a delete.
+			// Skip it so a stale blob can't wipe a value only newer clients know
+			// about (e.g. a freshly connected Cloudflare/Analytics token). An
+			// explicit null (present but cleared) still deletes.
+			if (!(key in state)) continue;
 			const value = state[key];
-			if (value === null || value === undefined) {
+			if (value === null) {
 				localStorage.removeItem(key);
 			} else {
 				localStorage.setItem(key, value);
