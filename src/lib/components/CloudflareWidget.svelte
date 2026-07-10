@@ -15,11 +15,15 @@
 	// Continue to summary → Create Token → Copy. Verified against the live
 	// dashboard — `page` is Cloudflare Pages, `analytics` is Zone Analytics.
 	const TOKEN_PERMISSION_KEYS = [
-		{ key: 'account_analytics', type: 'read' }, // Overview + Workers invocation stats
+		{ key: 'account_analytics', type: 'read' }, // Overview + Workers/KV/R2/D1 stats
 		{ key: 'analytics', type: 'read' }, // Zone (domain) traffic analytics
 		{ key: 'zone', type: 'read' }, // List domains
 		{ key: 'page', type: 'read' }, // Cloudflare Pages projects
-		{ key: 'workers_scripts', type: 'read' } // Workers scripts
+		{ key: 'workers_scripts', type: 'read' }, // Workers scripts
+		{ key: 'workers_kv_storage', type: 'read' }, // KV namespaces + usage
+		{ key: 'workers_r2', type: 'read' }, // R2 buckets + usage
+		{ key: 'd1', type: 'read' }, // D1 databases + query analytics
+		{ key: 'queues', type: 'read' } // Queues
 	];
 	const CREATE_TOKEN_URL =
 		'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=' +
@@ -30,12 +34,22 @@
 	const TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens';
 	const REFRESH_INTERVAL = 5 * 60 * 1000;
 
-	type View = 'overview' | 'domains' | 'pages' | 'workers';
+	type View = 'overview' | 'domains' | 'pages' | 'workers' | 'storage';
 	const TABS: { id: View; label: string; icon: string }[] = [
 		{ id: 'overview', label: 'Overview', icon: '◈' },
 		{ id: 'domains', label: 'Domains', icon: '🌐' },
 		{ id: 'pages', label: 'Pages', icon: '📄' },
-		{ id: 'workers', label: 'Workers', icon: '⚡' }
+		{ id: 'workers', label: 'Workers', icon: '⚡' },
+		{ id: 'storage', label: 'Storage', icon: '🗄️' }
+	];
+
+	// Storage sub-products (each its own dataset)
+	type StorageKind = 'kv' | 'r2' | 'd1' | 'queues';
+	const STORAGE_TABS: { id: StorageKind; label: string }[] = [
+		{ id: 'kv', label: 'KV' },
+		{ id: 'r2', label: 'R2' },
+		{ id: 'd1', label: 'D1' },
+		{ id: 'queues', label: 'Queues' }
 	];
 
 	const TIMEFRAMES = [
@@ -86,6 +100,13 @@
 	let zoneAnalytics: { series: { date: string; requests: number; bytes: number; cachedRequests: number; threats: number; pageViews: number; uniques: number }[]; totals: { requests: number; bytes: number; cachedRequests: number; threats: number; pageViews: number; uniques: number } } | null = null;
 	let pages: { name: string; subdomain: string; domains: string[]; deployment: { environment: string; createdOn: string; url: string; status: string; stage: string; branch: string; message: string } | null }[] = [];
 	let workers: { scripts: { name: string; modifiedOn: string; createdOn: string; requests: number | null; errors: number | null; cpuP50: number | null; cpuP99: number | null }[]; analyticsAvailable: boolean } | null = null;
+
+	// ─── Storage sub-views ──────────────────────────────
+	let storageKind: StorageKind = 'kv';
+	let kv: { namespaces: { id: string; title: string; keys: number | null; bytes: number | null }[]; ops: { read: number; write: number; delete: number; list: number; total: number }; storage: { keys: number; bytes: number }; analyticsAvailable: boolean } | null = null;
+	let r2: { buckets: { name: string; createdOn: string; objects: number | null; bytes: number | null }[]; requests: number; storage: { objects: number; bytes: number }; analyticsAvailable: boolean } | null = null;
+	let d1: { databases: { id: string; name: string; version: string; tables: number | null; bytes: number | null; readQueries: number | null; writeQueries: number | null; rowsRead: number | null; rowsWritten: number | null }[]; totals: { readQueries: number; writeQueries: number; rowsRead: number; rowsWritten: number }; analyticsAvailable: boolean } | null = null;
+	let queues: { queues: { name: string; createdOn: string; producers: number; consumers: number }[] } | null = null;
 
 	let loading = false;
 	let error = '';
@@ -272,6 +293,10 @@
 		zoneAnalytics = null;
 		pages = [];
 		workers = null;
+		kv = null;
+		r2 = null;
+		d1 = null;
+		queues = null;
 		saveConfig();
 	}
 
@@ -316,6 +341,10 @@
 		zoneAnalytics = null;
 		pages = [];
 		workers = null;
+		kv = null;
+		r2 = null;
+		d1 = null;
+		queues = null;
 		await loadView();
 	}
 
@@ -341,9 +370,38 @@
 				pages = p.projects ?? [];
 			} else if (view === 'workers') {
 				workers = await api('workers', { accountId, days: String(days) }, skipCache);
+			} else if (view === 'storage') {
+				await loadStorage(skipCache);
 			}
 			await tick();
 			measureChart();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load data.';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadStorage(skipCache = false) {
+		if (storageKind === 'kv') {
+			kv = await api('kv', { accountId, days: String(days) }, skipCache);
+		} else if (storageKind === 'r2') {
+			r2 = await api('r2', { accountId, days: String(days) }, skipCache);
+		} else if (storageKind === 'd1') {
+			d1 = await api('d1', { accountId, days: String(days) }, skipCache);
+		} else if (storageKind === 'queues') {
+			queues = await api('queues', { accountId }, skipCache);
+		}
+	}
+
+	async function selectStorageKind(kind: StorageKind) {
+		if (storageKind === kind) return;
+		storageKind = kind;
+		loading = true;
+		error = '';
+		needsReconnect = false;
+		try {
+			await loadStorage();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load data.';
 		} finally {
@@ -495,7 +553,7 @@
 					<path fill="#fbad41" d="M40.6 9.3h-.5c-.1 0-.2.1-.2.2l-.6 2.1c-.3 1-.2 1.9.3 2.6.4.6 1.2 1 2.1 1l3.6.2c.1 0 .2.1.3.2 0 .1 0 .2-.1.2 0 .1-.1.2-.3.2l-3.8.2c-2 .1-4.2 1.7-5 3.7l-.2.7c-.1.1 0 .3.2.3h13c.1 0 .2-.1.2-.2.2-.8.4-1.7.4-2.6 0-4.9-4-8.9-9-8.9z"/>
 				</svg>
 			</div>
-			<p class="nc-text">Connect your Cloudflare account to see domains, Pages &amp; Workers.</p>
+			<p class="nc-text">Connect your Cloudflare account to see domains, Pages, Workers, KV, R2, D1 &amp; Queues.</p>
 			<button class="connect-btn" on:click={openSettings}>Connect Cloudflare</button>
 		</div>
 	{:else}
@@ -530,8 +588,17 @@
 			{/each}
 		</div>
 
+		<!-- ─── Storage sub-tabs ─── -->
+		{#if view === 'storage'}
+			<div class="substorage-bar">
+				{#each STORAGE_TABS as st}
+					<button class="tf-pill" class:active={storageKind === st.id} on:click={() => selectStorageKind(st.id)}>{st.label}</button>
+				{/each}
+			</div>
+		{/if}
+
 		<!-- ─── Timeframe (analytics tabs) ─── -->
-		{#if view === 'overview' || view === 'domains' || view === 'workers'}
+		{#if view === 'overview' || view === 'domains' || view === 'workers' || (view === 'storage' && storageKind !== 'queues')}
 			<div class="timeframe-bar">
 				{#each TIMEFRAMES as tf}
 					<button class="tf-pill" class:active={days === tf.days} on:click={() => setDays(tf.days)}>{tf.label}</button>
@@ -550,7 +617,7 @@
 						<button class="retry-btn" on:click={() => loadView(true)}>Retry</button>
 					{/if}
 				</div>
-			{:else if loading && !overview && !zones.length && !pages.length && !workers}
+			{:else if loading && !overview && !zones.length && !pages.length && !workers && !kv && !r2 && !d1 && !queues}
 				<div class="state-msg"><div class="spinner"></div><p>Loading…</p></div>
 			{:else if view === 'overview'}
 				<!-- OVERVIEW -->
@@ -660,7 +727,118 @@
 						{/each}
 					</div>
 				{/if}
-			{/if}
+				{:else if view === 'storage'}
+					<!-- STORAGE -->
+					{#if storageKind === 'kv'}
+						{#if kv}
+							{#if !kv.analyticsAvailable && kv.namespaces.length > 0}
+								<p class="hint-line">Reconnect with <b>Account Analytics: Read</b> to see KV usage.</p>
+							{/if}
+							<div class="stat-grid">
+								<div class="stat"><span class="stat-val">{formatNumber(kv.ops.read)}</span><span class="stat-lbl">Reads</span></div>
+								<div class="stat"><span class="stat-val">{formatNumber(kv.ops.write)}</span><span class="stat-lbl">Writes</span></div>
+								<div class="stat"><span class="stat-val">{formatNumber(kv.storage.keys)}</span><span class="stat-lbl">Keys</span></div>
+								<div class="stat"><span class="stat-val">{formatBytes(kv.storage.bytes)}</span><span class="stat-lbl">Stored</span></div>
+							</div>
+							<div class="mini-stats">
+								<span><b>{formatNumber(kv.ops.delete)}</b> deletes</span>
+								<span><b>{formatNumber(kv.ops.list)}</b> lists</span>
+							</div>
+							{#if kv.namespaces.length === 0}
+								<div class="state-msg small"><p>No KV namespaces.</p></div>
+							{:else}
+								<div class="list">
+									{#each kv.namespaces as ns}
+										<div class="list-item">
+											<div class="li-main">
+												<div class="li-title-row"><span class="li-title">{ns.title}</span></div>
+												<div class="li-meta">
+													{#if ns.keys !== null}<span><b>{formatNumber(ns.keys)}</b> keys</span>{/if}
+													{#if ns.bytes !== null}<span>· {formatBytes(ns.bytes)}</span>{/if}
+												</div>
+											</div>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						{/if}
+					{:else if storageKind === 'r2'}
+						{#if r2}
+							<div class="stat-grid">
+								<div class="stat"><span class="stat-val">{formatNumber(r2.storage.objects)}</span><span class="stat-lbl">Objects</span></div>
+								<div class="stat"><span class="stat-val">{formatBytes(r2.storage.bytes)}</span><span class="stat-lbl">Stored</span></div>
+								<div class="stat"><span class="stat-val">{formatNumber(r2.requests)}</span><span class="stat-lbl">Requests</span></div>
+								<div class="stat"><span class="stat-val">{r2.buckets.length}</span><span class="stat-lbl">Buckets</span></div>
+							</div>
+							{#if r2.buckets.length === 0}
+								<div class="state-msg small"><p>No R2 buckets.</p></div>
+							{:else}
+								<div class="list">
+									{#each r2.buckets as bucket}
+										<div class="list-item">
+											<div class="li-main">
+												<div class="li-title-row"><span class="li-title">{bucket.name}</span></div>
+												<div class="li-meta">
+													{#if bucket.objects !== null}<span><b>{formatNumber(bucket.objects)}</b> objects</span>{/if}
+													{#if bucket.bytes !== null}<span>· {formatBytes(bucket.bytes)}</span>{/if}
+													<span>· {formatRelative(bucket.createdOn)}</span>
+												</div>
+											</div>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						{/if}
+					{:else if storageKind === 'd1'}
+						{#if d1}
+							<div class="stat-grid">
+								<div class="stat"><span class="stat-val">{formatNumber(d1.totals.readQueries)}</span><span class="stat-lbl">Read Queries</span></div>
+								<div class="stat"><span class="stat-val">{formatNumber(d1.totals.writeQueries)}</span><span class="stat-lbl">Write Queries</span></div>
+								<div class="stat"><span class="stat-val">{formatNumber(d1.totals.rowsRead)}</span><span class="stat-lbl">Rows Read</span></div>
+								<div class="stat"><span class="stat-val">{formatNumber(d1.totals.rowsWritten)}</span><span class="stat-lbl">Rows Written</span></div>
+							</div>
+							{#if d1.databases.length === 0}
+								<div class="state-msg small"><p>No D1 databases.</p></div>
+							{:else}
+								<div class="list">
+									{#each d1.databases as db}
+										<div class="list-item">
+											<div class="li-main">
+												<div class="li-title-row"><span class="li-title">{db.name}</span></div>
+												<div class="li-meta">
+													{#if db.bytes !== null}<span><b>{formatBytes(db.bytes)}</b></span>{/if}
+													{#if db.tables !== null}<span>· {db.tables} tables</span>{/if}
+													{#if db.readQueries !== null}<span>· {formatNumber(db.readQueries)} reads</span>{/if}
+												</div>
+											</div>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						{/if}
+					{:else if storageKind === 'queues'}
+						{#if queues}
+							{#if queues.queues.length === 0}
+								<div class="state-msg small"><p>No Queues.</p></div>
+							{:else}
+								<div class="list">
+									{#each queues.queues as q}
+										<div class="list-item">
+											<div class="li-main">
+												<div class="li-title-row"><span class="li-title">{q.name}</span></div>
+												<div class="li-meta">
+													<span><b>{q.producers}</b> producers</span>
+													<span>· <b>{q.consumers}</b> consumers</span>
+													<span>· {formatRelative(q.createdOn)}</span>
+												</div>
+											</div>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						{/if}
+					{/if}
+				{/if}
 
 			<!-- Shared analytics chart (overview + domains) -->
 			{#if (view === 'overview' || view === 'domains') && chartData.length > 1 && !error}
@@ -1113,6 +1291,7 @@
 
 	/* ─── Timeframe ─── */
 	.timeframe-bar { display: flex; gap: 0.2rem; }
+	.substorage-bar { display: flex; gap: 0.2rem; }
 	.tf-pill {
 		flex: 1;
 		padding: 0.2rem 0.4rem;
