@@ -9,6 +9,24 @@
 
 	export let widget: Widget;
 
+	// Deep-link that opens Cloudflare's "Create Token" page with everything
+	// pre-filled: a read-only permission set covering every widget tab, scoped
+	// to all accounts + all zones, and a token name. The user just clicks
+	// Continue to summary → Create Token → Copy. Verified against the live
+	// dashboard — `page` is Cloudflare Pages, `analytics` is Zone Analytics.
+	const TOKEN_PERMISSION_KEYS = [
+		{ key: 'account_analytics', type: 'read' }, // Overview + Workers invocation stats
+		{ key: 'analytics', type: 'read' }, // Zone (domain) traffic analytics
+		{ key: 'zone', type: 'read' }, // List domains
+		{ key: 'page', type: 'read' }, // Cloudflare Pages projects
+		{ key: 'workers_scripts', type: 'read' } // Workers scripts
+	];
+	const CREATE_TOKEN_URL =
+		'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=' +
+		encodeURIComponent(JSON.stringify(TOKEN_PERMISSION_KEYS)) +
+		'&accountId=*&zoneId=all&name=' +
+		encodeURIComponent('Dashboard (read-only)');
+	// Plain tokens page, in case the user wants to manage tokens directly.
 	const TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens';
 	const REFRESH_INTERVAL = 5 * 60 * 1000;
 
@@ -452,14 +470,16 @@
 				</svg>
 			</div>
 			<h3 class="connect-title">Connect Cloudflare</h3>
-			<p class="connect-sub">Paste a read-only API token to see stats for your domains, Pages projects, and Workers. Tokens don't expire — you stay connected.</p>
+			<p class="connect-sub">See stats for your domains, Pages &amp; Workers. The button below opens Cloudflare with a read-only token already scoped for you — tokens don't expire, so you stay connected on every device.</p>
 
-			<ol class="connect-steps">
-				<li>Open <a href={TOKEN_URL} target="_blank" rel="noopener noreferrer">Cloudflare API Tokens ↗</a></li>
-				<li>Click <strong>Create Token</strong> → use the <strong>Read all resources</strong> template (or add read on Analytics, Pages, Workers &amp; Zone)</li>
-				<li>Copy the token and paste it below</li>
-			</ol>
+			<a class="create-token-btn" href={CREATE_TOKEN_URL} target="_blank" rel="noopener noreferrer">
+				<span class="step-num">1</span>
+				Create token on Cloudflare
+				<span class="ext">↗</span>
+			</a>
+			<p class="connect-hint">Permissions are pre-selected — just click <strong>Continue to summary</strong> → <strong>Create Token</strong> → <strong>Copy</strong>.</p>
 
+			<div class="connect-divider"><span class="step-num">2</span> Paste it here</div>
 			<input
 				class="token-input"
 				type="password"
@@ -475,6 +495,7 @@
 			<button class="connect-btn" on:click={connect} disabled={connecting || !tokenInput.trim()}>
 				{connecting ? 'Verifying…' : 'Connect'}
 			</button>
+			<a class="manual-link" href={TOKEN_URL} target="_blank" rel="noopener noreferrer">or create a token manually</a>
 		</div>
 	{:else}
 		<!-- ─── Header ─── -->
@@ -745,24 +766,66 @@
 		line-height: 1.45;
 		max-width: 34ch;
 	}
-	.connect-steps {
-		text-align: left;
-		margin: 0.25rem 0;
-		padding-left: 1.1rem;
-		font-size: 0.72rem;
-		color: var(--text-secondary);
-		line-height: 1.6;
+	.create-token-btn {
 		display: flex;
-		flex-direction: column;
-		gap: 0.15rem;
-	}
-	.connect-steps a {
-		color: #f6821f;
-		font-weight: 600;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		max-width: 320px;
+		margin-top: 0.35rem;
+		padding: 0.6rem 0.9rem;
+		background: #f6821f;
+		color: #fff;
+		border-radius: 0.5rem;
+		font-weight: 700;
+		font-size: 0.82rem;
 		text-decoration: none;
+		justify-content: center;
+		transition: filter 0.15s, transform 0.1s;
 	}
-	.connect-steps a:hover { text-decoration: underline; }
-	.connect-steps strong { color: var(--text-primary); }
+	.create-token-btn:hover { filter: brightness(1.08); }
+	.create-token-btn:active { transform: scale(0.98); }
+	.create-token-btn .ext { font-weight: 400; opacity: 0.9; }
+	.step-num {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.15rem;
+		height: 1.15rem;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.25);
+		font-size: 0.7rem;
+		font-weight: 800;
+		flex-shrink: 0;
+	}
+	.connect-hint {
+		margin: 0;
+		font-size: 0.68rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+		max-width: 32ch;
+	}
+	.connect-hint strong { color: var(--text-primary); }
+	.connect-divider {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 0.35rem;
+		font-size: 0.72rem;
+		font-weight: 700;
+		color: var(--text-secondary);
+	}
+	.connect-divider .step-num {
+		background: var(--surface-variant);
+		color: var(--text-secondary);
+	}
+	.manual-link {
+		font-size: 0.66rem;
+		color: var(--text-secondary);
+		text-decoration: none;
+		opacity: 0.75;
+	}
+	.manual-link:hover { text-decoration: underline; opacity: 1; }
 	.token-input {
 		width: 100%;
 		max-width: 320px;
