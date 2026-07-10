@@ -168,6 +168,14 @@ export const POST: RequestHandler = async ({ url, request, locals }) => {
         return await handlePages(token, url, scope, skipCache);
       case 'workers':
         return await handleWorkers(token, url, scope, skipCache);
+      case 'kv':
+        return await handleKV(token, url, scope, skipCache);
+      case 'r2':
+        return await handleR2(token, url, scope, skipCache);
+      case 'd1':
+        return await handleD1(token, url, scope, skipCache);
+      case 'queues':
+        return await handleQueues(token, url, scope, skipCache);
       default:
         return json({ error: 'Invalid action.' }, { status: 400 });
     }
@@ -534,6 +542,253 @@ async function handleWorkers(token: string, url: URL, scope: string, skipCache: 
   });
 
   const result = { scripts: merged, analyticsAvailable: statsByName.size > 0 };
+  setCache(key, result);
+  return json(result);
+}
+
+// ─── KV (namespaces + operations + storage) ───────────────────────
+
+async function handleKV(token: string, url: URL, scope: string, skipCache: boolean) {
+  const accountId = requireParam(url, 'accountId');
+  const days = clampDays(url.searchParams.get('days'));
+  const key = `kv:${scope}:${accountId}:${days}`;
+  if (!skipCache) {
+    const cached = getCached(key);
+    if (cached) return json(cached);
+  }
+
+  // Namespaces (REST)
+  let namespaces: { id: string; title: string; keys: number | null; bytes: number | null }[] = [];
+  const nsBody = await cfFetch<{ id: string; title: string }[]>(token, `/accounts/${encodeURIComponent(accountId)}/storage/kv/namespaces`);
+  namespaces = (nsBody.result || []).map((n) => ({ id: n.id, title: n.title, keys: null, bytes: null }));
+
+  // Operations by action type (best-effort — needs Account Analytics read)
+  const ops = { read: 0, write: 0, delete: 0, list: 0, total: 0 };
+  let analyticsAvailable = false;
+  try {
+    const data = await cfGraphQL<{ viewer: { accounts: { kvOperationsAdaptiveGroups: { dimensions: { actionType: string }; sum: { requests: number } }[] }[] } }>(
+      token,
+      `query ($accountTag: String!, $since: Date!, $until: Date!) {
+        viewer { accounts(filter: { accountTag: $accountTag }) {
+          kvOperationsAdaptiveGroups(limit: 10000, filter: { date_geq: $since, date_leq: $until }) {
+            dimensions { actionType } sum { requests }
+          } } } }`,
+      { accountTag: accountId, since: isoDate(days - 1), until: isoDate(0) }
+    );
+    for (const g of data.viewer.accounts[0]?.kvOperationsAdaptiveGroups || []) {
+      const t = g.dimensions.actionType.toLowerCase();
+      if (t in ops) (ops as Record<string, number>)[t] += g.sum.requests;
+      ops.total += g.sum.requests;
+      analyticsAvailable = true;
+    }
+  } catch (e) {
+    console.warn('KV operations unavailable:', e instanceof Error ? e.message : e);
+  }
+
+  // Storage per namespace (best-effort)
+  const storage = { keys: 0, bytes: 0 };
+  try {
+    const data = await cfGraphQL<{ viewer: { accounts: { kvStorageAdaptiveGroups: { dimensions: { namespaceId: string }; max: { keyCount: number; byteCount: number } }[] }[] } }>(
+      token,
+      `query ($accountTag: String!, $since: Date!, $until: Date!) {
+        viewer { accounts(filter: { accountTag: $accountTag }) {
+          kvStorageAdaptiveGroups(limit: 10000, filter: { date_geq: $since, date_leq: $until }, dimensions: { namespaceId }, orderBy: [date_DESC]) {
+            dimensions { namespaceId } max { keyCount byteCount }
+          } } } }`,
+      { accountTag: accountId, since: isoDate(days - 1), until: isoDate(0) }
+    );
+    const byNs = new Map<string, { keys: number; bytes: number }>();
+    for (const g of data.viewer.accounts[0]?.kvStorageAdaptiveGroups || []) {
+      if (!byNs.has(g.dimensions.namespaceId)) {
+        byNs.set(g.dimensions.namespaceId, { keys: g.max.keyCount, bytes: g.max.byteCount });
+      }
+    }
+    for (const ns of namespaces) {
+      const s = byNs.get(ns.id);
+      if (s) {
+        ns.keys = s.keys;
+        ns.bytes = s.bytes;
+        storage.keys += s.keys;
+        storage.bytes += s.bytes;
+      }
+    }
+  } catch (e) {
+    console.warn('KV storage unavailable:', e instanceof Error ? e.message : e);
+  }
+
+  const result = { namespaces, ops, storage, analyticsAvailable };
+  setCache(key, result);
+  return json(result);
+}
+
+// ─── R2 (buckets + operations + storage) ──────────────────────────
+
+async function handleR2(token: string, url: URL, scope: string, skipCache: boolean) {
+  const accountId = requireParam(url, 'accountId');
+  const days = clampDays(url.searchParams.get('days'));
+  const key = `r2:${scope}:${accountId}:${days}`;
+  if (!skipCache) {
+    const cached = getCached(key);
+    if (cached) return json(cached);
+  }
+
+  // Buckets (REST) — result is { buckets: [...] }
+  let buckets: { name: string; createdOn: string; objects: number | null; bytes: number | null }[] = [];
+  const bBody = await cfFetch<{ buckets: { name: string; creation_date: string }[] }>(token, `/accounts/${encodeURIComponent(accountId)}/r2/buckets`);
+  buckets = (bBody.result?.buckets || []).map((b) => ({ name: b.name, createdOn: b.creation_date, objects: null, bytes: null }));
+
+  // Operations (Class A/B) by action type
+  let requests = 0;
+  let analyticsAvailable = false;
+  try {
+    const data = await cfGraphQL<{ viewer: { accounts: { r2OperationsAdaptiveGroups: { dimensions: { actionType: string }; sum: { requests: number } }[] }[] } }>(
+      token,
+      `query ($accountTag: String!, $since: Time!, $until: Time!) {
+        viewer { accounts(filter: { accountTag: $accountTag }) {
+          r2OperationsAdaptiveGroups(limit: 10000, filter: { datetime_geq: $since, datetime_leq: $until }) {
+            dimensions { actionType } sum { requests }
+          } } } }`,
+      { accountTag: accountId, since: isoDateTime(days), until: isoDateTime(0) }
+    );
+    for (const g of data.viewer.accounts[0]?.r2OperationsAdaptiveGroups || []) {
+      requests += g.sum.requests;
+      analyticsAvailable = true;
+    }
+  } catch (e) {
+    console.warn('R2 operations unavailable:', e instanceof Error ? e.message : e);
+  }
+
+  // Storage per bucket (latest snapshot in window)
+  const storage = { objects: 0, bytes: 0 };
+  try {
+    const data = await cfGraphQL<{ viewer: { accounts: { r2StorageAdaptiveGroups: { dimensions: { bucketName: string }; max: { objectCount: number; payloadSize: number; metadataSize: number } }[] }[] } }>(
+      token,
+      `query ($accountTag: String!, $since: Time!, $until: Time!) {
+        viewer { accounts(filter: { accountTag: $accountTag }) {
+          r2StorageAdaptiveGroups(limit: 10000, filter: { datetime_geq: $since, datetime_leq: $until }, dimensions: { bucketName }, orderBy: [datetime_DESC]) {
+            dimensions { bucketName } max { objectCount payloadSize metadataSize }
+          } } } }`,
+      { accountTag: accountId, since: isoDateTime(days), until: isoDateTime(0) }
+    );
+    const byBucket = new Map<string, { objects: number; bytes: number }>();
+    for (const g of data.viewer.accounts[0]?.r2StorageAdaptiveGroups || []) {
+      if (!byBucket.has(g.dimensions.bucketName)) {
+        byBucket.set(g.dimensions.bucketName, { objects: g.max.objectCount, bytes: g.max.payloadSize + g.max.metadataSize });
+      }
+    }
+    for (const bucket of buckets) {
+      const s = byBucket.get(bucket.name);
+      if (s) {
+        bucket.objects = s.objects;
+        bucket.bytes = s.bytes;
+        storage.objects += s.objects;
+        storage.bytes += s.bytes;
+      }
+    }
+  } catch (e) {
+    console.warn('R2 storage unavailable:', e instanceof Error ? e.message : e);
+  }
+
+  const result = { buckets, requests, storage, analyticsAvailable };
+  setCache(key, result);
+  return json(result);
+}
+
+// ─── D1 (databases + query analytics) ─────────────────────────────
+
+async function handleD1(token: string, url: URL, scope: string, skipCache: boolean) {
+  const accountId = requireParam(url, 'accountId');
+  const days = clampDays(url.searchParams.get('days'));
+  const key = `d1:${scope}:${accountId}:${days}`;
+  if (!skipCache) {
+    const cached = getCached(key);
+    if (cached) return json(cached);
+  }
+
+  // Databases (REST) — includes file_size and num_tables
+  const dbBody = await cfFetch<{ uuid: string; name: string; version: string; num_tables?: number; file_size?: number }[]>(
+    token,
+    `/accounts/${encodeURIComponent(accountId)}/d1/database`
+  );
+  const databases = (dbBody.result || []).map((d) => ({
+    id: d.uuid,
+    name: d.name,
+    version: d.version,
+    tables: d.num_tables ?? null,
+    bytes: d.file_size ?? null,
+    readQueries: null as number | null,
+    writeQueries: null as number | null,
+    rowsRead: null as number | null,
+    rowsWritten: null as number | null
+  }));
+
+  const totals = { readQueries: 0, writeQueries: 0, rowsRead: 0, rowsWritten: 0 };
+  let analyticsAvailable = false;
+  try {
+    const data = await cfGraphQL<{ viewer: { accounts: { d1AnalyticsAdaptiveGroups: { dimensions: { databaseId: string }; sum: { readQueries: number; writeQueries: number; rowsRead: number; rowsWritten: number } }[] }[] } }>(
+      token,
+      `query ($accountTag: String!, $since: Date!, $until: Date!) {
+        viewer { accounts(filter: { accountTag: $accountTag }) {
+          d1AnalyticsAdaptiveGroups(limit: 10000, filter: { date_geq: $since, date_leq: $until }, dimensions: { databaseId }) {
+            dimensions { databaseId } sum { readQueries writeQueries rowsRead rowsWritten }
+          } } } }`,
+      { accountTag: accountId, since: isoDate(days - 1), until: isoDate(0) }
+    );
+    const byDb = new Map<string, { readQueries: number; writeQueries: number; rowsRead: number; rowsWritten: number }>();
+    for (const g of data.viewer.accounts[0]?.d1AnalyticsAdaptiveGroups || []) {
+      const prev = byDb.get(g.dimensions.databaseId) || { readQueries: 0, writeQueries: 0, rowsRead: 0, rowsWritten: 0 };
+      byDb.set(g.dimensions.databaseId, {
+        readQueries: prev.readQueries + g.sum.readQueries,
+        writeQueries: prev.writeQueries + g.sum.writeQueries,
+        rowsRead: prev.rowsRead + g.sum.rowsRead,
+        rowsWritten: prev.rowsWritten + g.sum.rowsWritten
+      });
+      analyticsAvailable = true;
+    }
+    for (const db of databases) {
+      const s = byDb.get(db.id);
+      if (s) {
+        db.readQueries = s.readQueries;
+        db.writeQueries = s.writeQueries;
+        db.rowsRead = s.rowsRead;
+        db.rowsWritten = s.rowsWritten;
+        totals.readQueries += s.readQueries;
+        totals.writeQueries += s.writeQueries;
+        totals.rowsRead += s.rowsRead;
+        totals.rowsWritten += s.rowsWritten;
+      }
+    }
+  } catch (e) {
+    console.warn('D1 analytics unavailable:', e instanceof Error ? e.message : e);
+  }
+
+  const result = { databases, totals, analyticsAvailable };
+  setCache(key, result);
+  return json(result);
+}
+
+// ─── Queues (list) ────────────────────────────────────────────────
+
+async function handleQueues(token: string, url: URL, scope: string, skipCache: boolean) {
+  const accountId = requireParam(url, 'accountId');
+  const key = `queues:${scope}:${accountId}`;
+  if (!skipCache) {
+    const cached = getCached(key);
+    if (cached) return json(cached);
+  }
+
+  const body = await cfFetch<{ queue_id?: string; queue_name?: string; name?: string; created_on: string; producers_total_count?: number; consumers_total_count?: number }[]>(
+    token,
+    `/accounts/${encodeURIComponent(accountId)}/queues`
+  );
+  const queues = (body.result || []).map((q) => ({
+    name: q.queue_name || q.name || q.queue_id || 'queue',
+    createdOn: q.created_on,
+    producers: q.producers_total_count ?? 0,
+    consumers: q.consumers_total_count ?? 0
+  }));
+
+  const result = { queues };
   setCache(key, result);
   return json(result);
 }
