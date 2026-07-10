@@ -1,6 +1,6 @@
 export interface Widget {
 	id: string;
-	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table' | 'copilot-usage' | 'crypto' | 'google-analytics';
+	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table' | 'copilot-usage' | 'crypto' | 'google-analytics' | 'cloudflare';
 	title: string;
 	section: number; // Which section this widget belongs to
 	order: number; // Order within the section
@@ -35,6 +35,13 @@ export interface WidgetConfig {
 		metrics: string[]; // Selected metric names
 		days: number; // Date range in days (7, 14, 30, 90)
 		refreshToken?: string; // Google OAuth refresh token
+	};
+	cloudflare?: {
+		accountId?: string; // Selected Cloudflare account tag
+		accountName?: string; // Friendly account name
+		view?: 'overview' | 'domains' | 'pages' | 'workers'; // Active tab
+		zoneId?: string; // Last-viewed zone in the Domains tab
+		days?: number; // Analytics window in days (1, 7, 14, 30)
 	};
 }
 
