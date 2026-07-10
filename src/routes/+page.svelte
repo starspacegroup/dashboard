@@ -10,6 +10,7 @@
 	import CopilotUsageWidget from '$lib/components/CopilotUsageWidget.svelte';
 	import CryptoWidget from '$lib/components/CryptoWidget.svelte';
 	import GoogleAnalyticsWidget from '$lib/components/GoogleAnalyticsWidget.svelte';
+	import CloudflareWidget from '$lib/components/CloudflareWidget.svelte';
 	import ColumnLayout from '$lib/components/ColumnLayout.svelte';
 	import { widgets, sections } from '$lib/stores/widgets';
 	import { startSync } from '$lib/stores/sync';
@@ -32,7 +33,8 @@
 		DataTableWidget,
 		CopilotUsageWidget,
 		CryptoWidget,
-		GoogleAnalyticsWidget
+		GoogleAnalyticsWidget,
+		CloudflareWidget
 	};
 
 	let isWidgetPickerOpen = false;

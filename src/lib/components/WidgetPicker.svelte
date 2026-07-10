@@ -83,6 +83,12 @@
 			description: 'View GA4 property metrics with interactive graphs',
 			icon: '📊',
 			requiresConnection: true
+		},
+		{
+			type: 'cloudflare',
+			title: 'Cloudflare',
+			description: 'Domains, Pages & Workers stats — connect with an API token',
+			icon: '🟠'
 		}
 	];
 
