@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A SvelteKit 2 dashboard application with draggable widgets (weather, traffic, calendar, GitHub repos/PRs). Deployed to Cloudflare Pages using `@sveltejs/adapter-cloudflare`. Authentication via Auth.js with GitHub OAuth.
+A SvelteKit 2 dashboard application with draggable widgets (weather, traffic, calendar, GitHub repos/PRs, GA4 analytics, Cloudflare). Deployed to Cloudflare Pages using `@sveltejs/adapter-cloudflare`. Authentication via Auth.js with GitHub OAuth.
 
 ## Commands
 
@@ -48,9 +48,11 @@ requires a dev OAuth app whose callback is
 - `/api/maps-config` - Google Maps configuration
 - `/api/dashboard-state` - GET/PUT per-user dashboard state (Cloudflare KV, `DASHBOARD_KV` binding)
 - `/api/analytics` - GA4 reports proxy; returns `{ code: 'reconnect_required' }` with 401 when the Google refresh token is dead (widget shows a Reconnect button)
+- `/api/cloudflare` - Cloudflare API proxy (`?action=verify|accounts|overview|zones|zone-analytics|pages|workers`). Auth is a user-supplied, read-only Cloudflare **API token** (no server-side OAuth app / no env var needed) passed in the POST body and forwarded as a Bearer credential; tokens don't expire, so the connection persists until revoked. REST for accounts/zones/pages/workers-scripts; the GraphQL Analytics API (`httpRequests1dGroups`, `workersInvocationsAdaptive`) for traffic/invocation stats. In-memory 5-min response cache scoped by token suffix. Returns `{ code: 'reconnect_required' }` with 401 on 401/403 or auth error codes (1000/9109/10000), which flips the widget to its Connect screen. Analytics/Pages/Workers permissions are fetched best-effort, so an under-scoped token still shows what it can.
 
 ### Cross-Instance Sync
-- `src/lib/stores/sync.ts` - Snapshots a fixed set of localStorage keys (widgets, sections, layouts, location, analytics connection) and persists them to KV via `/api/dashboard-state`, keyed by the logged-in user
+- `src/lib/stores/sync.ts` - Snapshots a fixed set of localStorage keys (widgets, sections, layouts, location, analytics connection, Cloudflare connection) and persists them to KV via `/api/dashboard-state`, keyed by the logged-in user
+- Connection secrets (GA refresh token in `dashboard-analytics-connection`, Cloudflare API token in `dashboard-cloudflare-connection`) live client-side and ride the same sync channel, so a connection made on one device follows the user everywhere. New connection stores must be added to `SYNCED_KEYS` and reloaded in both `applySnapshot` and `clearLocalState`.
 - Pulls on load / tab focus / 60s interval; pushes debounced (2s) after changes; last-write-wins by timestamp
 - Stores dispatch a `dashboard-state-changed` window event after writing synced localStorage keys — anything that writes those keys must dispatch it
 - KV binding is defined in `wrangler.toml`; `platformProxy` in `svelte.config.js` emulates it during `npm run dev` (data persisted under `.wrangler/`)

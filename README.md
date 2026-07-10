@@ -17,6 +17,10 @@ Pages.
   organizations in tile format
 - 🔐 **GitHub OAuth**: Sign-in to view your GitHub projects and organization
   repositories
+- 🟠 **Cloudflare Widget**: Connect a read-only Cloudflare API token to see
+  traffic for your domains, deployment status for Pages projects, and
+  invocation stats for Workers — with an Overview rollup and interactive
+  charts. Tokens don't expire, so you stay connected across devices.
 - ☁️ **Cross-Device Sync**: Widget layout, location, and connections sync
   across browsers/devices for the same logged-in user (Cloudflare KV)
 
