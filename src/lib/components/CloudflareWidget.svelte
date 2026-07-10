@@ -65,7 +65,20 @@
 
 	// ─── Account picker ─────────────────────────────────
 	let accounts: { id: string; name: string }[] = [];
-	let showAccountMenu = false;
+	// Connect / manage settings live in a modal (like the Weather widget),
+	// not inline in the widget body.
+	let showSettingsModal = false;
+
+	// Moves an element to <body> so the modal overlay escapes the widget's
+	// transformed/clipped stacking context.
+	function portal(node: HTMLElement) {
+		document.body.appendChild(node);
+		return {
+			destroy() {
+				if (node.parentNode) node.parentNode.removeChild(node);
+			}
+		};
+	}
 
 	// ─── Per-view data ──────────────────────────────────
 	let overview: { zonesCount: number; pagesCount: number; workersCount: number; totals: { requests: number; bytes: number; threats: number; cachedRequests: number }; series: { date: string; requests: number; bytes: number }[] } | null = null;
@@ -238,6 +251,7 @@
 			needsReconnect = false;
 			error = '';
 			startAutoRefresh();
+			closeSettings();
 			await loadAccounts();
 		} catch (e) {
 			connectError = e instanceof Error ? e.message : 'Failed to verify token.';
@@ -258,8 +272,21 @@
 		zoneAnalytics = null;
 		pages = [];
 		workers = null;
-		showAccountMenu = false;
 		saveConfig();
+	}
+
+	// ─── Settings / connect modal ───────────────────────
+	function openSettings() {
+		showSettingsModal = true;
+	}
+	function closeSettings() {
+		showSettingsModal = false;
+		connectError = '';
+		// First-time-setup reveal, mirroring the Weather/Analytics widgets.
+		if (isFirstTimeSetup) {
+			isFirstTimeSetup = false;
+			revealWidget(widget.id, 300);
+		}
 	}
 
 	async function loadAccounts() {
@@ -282,7 +309,6 @@
 	async function selectAccount(id: string, name: string) {
 		accountId = id;
 		accountName = name;
-		showAccountMenu = false;
 		saveConfig();
 		zones = [];
 		selectedZoneId = '';
@@ -391,16 +417,16 @@
 	onMount(() => {
 		if (!browser) return;
 
+		// Freshly added from the picker with no connection yet: open the connect
+		// modal right away (like the Weather widget opens its settings on add).
 		if (get(pendingSetupWidgetId) === widget.id) {
 			pendingSetupWidgetId.set(null);
-			isFirstTimeSetup = true;
-			// Reveal once the connect screen (or data) is in place
-			setTimeout(() => {
-				if (isFirstTimeSetup) {
-					isFirstTimeSetup = false;
-					revealWidget(widget.id, 300);
-				}
-			}, 200);
+			if (!apiToken) {
+				isFirstTimeSetup = true;
+				setTimeout(() => openSettings(), 150);
+			} else {
+				revealWidget(widget.id, 300);
+			}
 		}
 
 		chartResizeObserver = new ResizeObserver(() => measureChart());
@@ -461,50 +487,24 @@
 
 <div class="cf-widget">
 	{#if !apiToken}
-		<!-- ─── Connect screen ─── -->
-		<div class="connect">
+		<!-- ─── Not connected (prompt → modal) ─── -->
+		<div class="not-connected">
 			<div class="cf-logo" aria-hidden="true">
-				<svg viewBox="0 0 48 32" width="52" height="35">
+				<svg viewBox="0 0 48 32" width="46" height="31">
 					<path fill="#f6821f" d="M35.9 20.2c.3-1 .2-1.9-.3-2.6-.4-.6-1.2-1-2.1-1l-17-.2c-.1 0-.2-.1-.3-.2 0-.1 0-.2.1-.2 0-.1.1-.2.3-.2l17.1-.2c2-.1 4.2-1.7 5-3.7l1-2.6c0-.1.1-.2 0-.3C35.6 3.3 30.9 0 25.4 0c-5.1 0-9.4 3.3-11 7.8-1-.8-2.4-1.2-3.8-1-2.6.3-4.6 2.4-4.9 5 0 .7 0 1.3.2 1.9C1.7 13.8 0 15.6 0 17.9c0 .2 0 .4.1.6 0 .1.1.2.2.2h31.4c.1 0 .2-.1.3-.2l.9-2.6z"/>
 					<path fill="#fbad41" d="M40.6 9.3h-.5c-.1 0-.2.1-.2.2l-.6 2.1c-.3 1-.2 1.9.3 2.6.4.6 1.2 1 2.1 1l3.6.2c.1 0 .2.1.3.2 0 .1 0 .2-.1.2 0 .1-.1.2-.3.2l-3.8.2c-2 .1-4.2 1.7-5 3.7l-.2.7c-.1.1 0 .3.2.3h13c.1 0 .2-.1.2-.2.2-.8.4-1.7.4-2.6 0-4.9-4-8.9-9-8.9z"/>
 				</svg>
 			</div>
-			<h3 class="connect-title">Connect Cloudflare</h3>
-			<p class="connect-sub">See stats for your domains, Pages &amp; Workers. The button below opens Cloudflare with a read-only token already scoped for you — tokens don't expire, so you stay connected on every device.</p>
-
-			<a class="create-token-btn" href={CREATE_TOKEN_URL} target="_blank" rel="noopener noreferrer">
-				<span class="step-num">1</span>
-				Create token on Cloudflare
-				<span class="ext">↗</span>
-			</a>
-			<p class="connect-hint">Permissions are pre-selected — just click <strong>Continue to summary</strong> → <strong>Create Token</strong> → <strong>Copy</strong>.</p>
-
-			<div class="connect-divider"><span class="step-num">2</span> Paste it here</div>
-			<input
-				class="token-input"
-				type="password"
-				bind:value={tokenInput}
-				placeholder="Paste API token"
-				autocomplete="off"
-				spellcheck="false"
-				on:keydown={(e) => e.key === 'Enter' && connect()}
-			/>
-			{#if connectError}
-				<p class="connect-error">⚠️ {connectError}</p>
-			{/if}
-			<button class="connect-btn" on:click={connect} disabled={connecting || !tokenInput.trim()}>
-				{connecting ? 'Verifying…' : 'Connect'}
-			</button>
-			<a class="manual-link" href={TOKEN_URL} target="_blank" rel="noopener noreferrer">or create a token manually</a>
+			<p class="nc-text">Connect your Cloudflare account to see domains, Pages &amp; Workers.</p>
+			<button class="connect-btn" on:click={openSettings}>Connect Cloudflare</button>
 		</div>
 	{:else}
 		<!-- ─── Header ─── -->
 		<div class="cf-header">
 			<button
 				class="account-pill"
-				on:click={() => (showAccountMenu = !showAccountMenu)}
-				disabled={accounts.length <= 1}
-				title={accounts.length > 1 ? 'Switch account' : accountName}
+				on:click={openSettings}
+				title="Cloudflare settings"
 			>
 				<span class="account-dot"></span>
 				<span class="account-name">{accountName || 'Loading…'}</span>
@@ -514,26 +514,11 @@
 				<button class="icon-btn" on:click={refresh} title="Refresh" class:spinning={loading}>
 					<svg viewBox="0 0 20 20" width="15" height="15" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
 				</button>
-				<button class="icon-btn" on:click={() => (showAccountMenu = !showAccountMenu)} title="Options">
-					<svg viewBox="0 0 20 20" width="15" height="15" fill="currentColor"><path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"/></svg>
+				<button class="icon-btn" on:click={openSettings} title="Settings">
+					<svg viewBox="0 0 20 20" width="15" height="15" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
 				</button>
 			</div>
 		</div>
-
-		{#if showAccountMenu}
-			<div class="account-menu">
-				{#if accounts.length > 1}
-					<div class="menu-label">Account</div>
-					{#each accounts as acc}
-						<button class="menu-item" class:active={acc.id === accountId} on:click={() => selectAccount(acc.id, acc.name)}>
-							{acc.name}
-						</button>
-					{/each}
-					<div class="menu-divider"></div>
-				{/if}
-				<button class="menu-item danger" on:click={disconnect}>Disconnect Cloudflare</button>
-			</div>
-		{/if}
 
 		<!-- ─── Tabs ─── -->
 		<div class="cf-tabs">
@@ -729,6 +714,78 @@
 			{/if}
 		</div>
 	{/if}
+
+	<!-- ─── Settings / Connect modal ─── -->
+	{#if showSettingsModal}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="settings-overlay" use:portal on:click={closeSettings}>
+			<div class="settings-panel" on:click|stopPropagation>
+				<div class="settings-header">
+					<div class="settings-title">
+						<svg viewBox="0 0 48 32" width="26" height="18" aria-hidden="true">
+							<path fill="#f6821f" d="M35.9 20.2c.3-1 .2-1.9-.3-2.6-.4-.6-1.2-1-2.1-1l-17-.2c-.1 0-.2-.1-.3-.2 0-.1 0-.2.1-.2 0-.1.1-.2.3-.2l17.1-.2c2-.1 4.2-1.7 5-3.7l1-2.6c0-.1.1-.2 0-.3C35.6 3.3 30.9 0 25.4 0c-5.1 0-9.4 3.3-11 7.8-1-.8-2.4-1.2-3.8-1-2.6.3-4.6 2.4-4.9 5 0 .7 0 1.3.2 1.9C1.7 13.8 0 15.6 0 17.9c0 .2 0 .4.1.6 0 .1.1.2.2.2h31.4c.1 0 .2-.1.3-.2l.9-2.6z"/>
+							<path fill="#fbad41" d="M40.6 9.3h-.5c-.1 0-.2.1-.2.2l-.6 2.1c-.3 1-.2 1.9.3 2.6.4.6 1.2 1 2.1 1l3.6.2c.1 0 .2.1.3.2 0 .1 0 .2-.1.2 0 .1-.1.2-.3.2l-3.8.2c-2 .1-4.2 1.7-5 3.7l-.2.7c-.1.1 0 .3.2.3h13c.1 0 .2-.1.2-.2.2-.8.4-1.7.4-2.6 0-4.9-4-8.9-9-8.9z"/>
+						</svg>
+						<h3>{apiToken ? 'Cloudflare Settings' : 'Connect Cloudflare'}</h3>
+					</div>
+					<button class="settings-close" on:click={closeSettings} aria-label="Close">✕</button>
+				</div>
+
+				{#if !apiToken}
+					<!-- Connect flow -->
+					<p class="connect-sub">The button below opens Cloudflare with a read-only token already scoped for you. Tokens don't expire, so you stay connected on every device.</p>
+
+					<a class="create-token-btn" href={CREATE_TOKEN_URL} target="_blank" rel="noopener noreferrer">
+						<span class="step-num">1</span>
+						Create token on Cloudflare
+						<span class="ext">↗</span>
+					</a>
+					<p class="connect-hint">Permissions are pre-selected — just click <strong>Continue to summary</strong> → <strong>Create Token</strong> → <strong>Copy</strong>.</p>
+
+					<div class="connect-divider"><span class="step-num">2</span> Paste it here</div>
+					<input
+						class="token-input"
+						type="password"
+						bind:value={tokenInput}
+						placeholder="Paste API token"
+						autocomplete="off"
+						spellcheck="false"
+						on:keydown={(e) => e.key === 'Enter' && connect()}
+					/>
+					{#if connectError}
+						<p class="connect-error">⚠️ {connectError}</p>
+					{/if}
+					<button class="connect-btn wide" on:click={connect} disabled={connecting || !tokenInput.trim()}>
+						{connecting ? 'Verifying…' : 'Connect'}
+					</button>
+					<a class="manual-link" href={TOKEN_URL} target="_blank" rel="noopener noreferrer">or create a token manually</a>
+				{:else}
+					<!-- Manage connection -->
+					<div class="settings-section">
+						<span class="settings-section-title">Connected</span>
+						<span class="settings-hint">You're connected with a read-only API token.</span>
+					</div>
+
+					{#if accounts.length > 1}
+						<div class="settings-section">
+							<span class="settings-section-title">Account</span>
+							<select class="settings-select" value={accountId} on:change={(e) => { const a = accounts.find((x) => x.id === e.currentTarget.value); if (a) selectAccount(a.id, a.name); }}>
+								{#each accounts as acc}
+									<option value={acc.id}>{acc.name}</option>
+								{/each}
+							</select>
+						</div>
+					{/if}
+
+					<div class="settings-actions">
+						<button class="disconnect-btn" on:click={disconnect}>Disconnect Cloudflare</button>
+						<button class="done-btn" on:click={closeSettings}>Done</button>
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -741,37 +798,38 @@
 		padding: 0.75rem;
 	}
 
-	/* ─── Connect ─── */
-	.connect {
+	/* ─── Not connected (in-widget prompt) ─── */
+	.not-connected {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		text-align: center;
-		gap: 0.55rem;
-		padding: 1rem 0.5rem;
+		gap: 0.7rem;
+		padding: 1.25rem 0.75rem;
 		flex: 1;
 		justify-content: center;
 	}
 	.cf-logo { line-height: 0; }
-	.connect-title {
+	.nc-text {
 		margin: 0;
-		font-size: 1.05rem;
-		font-weight: 800;
-		color: var(--text-primary);
+		font-size: 0.78rem;
+		color: var(--text-secondary);
+		line-height: 1.45;
+		max-width: 26ch;
 	}
+
+	/* ─── Connect (modal) ─── */
 	.connect-sub {
 		margin: 0;
 		font-size: 0.75rem;
 		color: var(--text-secondary);
 		line-height: 1.45;
-		max-width: 34ch;
 	}
 	.create-token-btn {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 		width: 100%;
-		max-width: 320px;
 		margin-top: 0.35rem;
 		padding: 0.6rem 0.9rem;
 		background: #f6821f;
@@ -803,7 +861,6 @@
 		font-size: 0.68rem;
 		color: var(--text-secondary);
 		line-height: 1.5;
-		max-width: 32ch;
 	}
 	.connect-hint strong { color: var(--text-primary); }
 	.connect-divider {
@@ -828,7 +885,6 @@
 	.manual-link:hover { text-decoration: underline; opacity: 1; }
 	.token-input {
 		width: 100%;
-		max-width: 320px;
 		padding: 0.55rem 0.7rem;
 		border: 2px solid var(--border);
 		border-radius: 0.5rem;
@@ -858,6 +914,7 @@
 		cursor: pointer;
 		transition: filter 0.15s, transform 0.1s;
 	}
+	.connect-btn.wide { width: 100%; }
 	.connect-btn:hover:not(:disabled) { filter: brightness(1.08); }
 	.connect-btn:active:not(:disabled) { transform: scale(0.97); }
 	.connect-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -912,37 +969,115 @@
 	.icon-btn.spinning { animation: spin 0.8s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
 
-	.account-menu {
+	/* ─── Settings / Connect modal ─── */
+	.settings-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.55);
+		backdrop-filter: blur(4px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 100000;
+		padding: 1rem;
+	}
+	.settings-panel {
 		background: var(--surface);
 		border: 1px solid var(--border);
-		border-radius: 0.5rem;
-		padding: 0.3rem;
-		box-shadow: 0 6px 20px var(--shadow-strong);
+		border-radius: 1rem;
+		padding: 1.25rem;
+		width: min(400px, 92vw);
+		max-height: 85vh;
+		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
-		gap: 0.1rem;
+		align-items: stretch;
+		gap: 0.7rem;
+		box-shadow: 0 12px 48px var(--shadow-strong);
 	}
-	.menu-label {
-		font-size: 0.6rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--text-secondary);
-		padding: 0.25rem 0.5rem 0.1rem;
+	.settings-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 	}
-	.menu-item {
-		text-align: left;
+	.settings-title {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.settings-title h3 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 800;
+		color: var(--text-primary);
+	}
+	.settings-close {
 		background: none;
 		border: none;
-		padding: 0.4rem 0.5rem;
-		border-radius: 0.375rem;
-		font-size: 0.78rem;
+		font-size: 1.1rem;
+		color: var(--text-secondary);
+		cursor: pointer;
+		padding: 0.2rem 0.4rem;
+		border-radius: 0.25rem;
+		line-height: 1;
+	}
+	.settings-close:hover { color: var(--text-primary); background: var(--surface-variant); }
+	.settings-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		padding: 0.75rem;
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		background: var(--background);
+	}
+	.settings-section-title {
+		font-size: 0.8rem;
+		font-weight: 700;
 		color: var(--text-primary);
+	}
+	.settings-hint {
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+	}
+	.settings-select {
+		padding: 0.5rem 0.7rem;
+		background: var(--surface-variant);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		font-size: 0.8rem;
 		cursor: pointer;
 	}
-	.menu-item:hover { background: var(--surface-variant); }
-	.menu-item.active { color: #f6821f; font-weight: 700; }
-	.menu-item.danger { color: var(--error); }
-	.menu-divider { height: 1px; background: var(--border); margin: 0.2rem 0; }
+	.settings-select:focus { outline: 2px solid #f6821f; outline-offset: 1px; }
+	.settings-actions {
+		display: flex;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-top: 0.1rem;
+	}
+	.disconnect-btn {
+		padding: 0.5rem 1rem;
+		background: var(--surface-variant);
+		color: var(--error);
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 0.78rem;
+		cursor: pointer;
+	}
+	.disconnect-btn:hover { border-color: var(--error); }
+	.done-btn {
+		padding: 0.5rem 1.25rem;
+		background: #f6821f;
+		color: #fff;
+		border: none;
+		border-radius: 0.5rem;
+		font-weight: 700;
+		font-size: 0.78rem;
+		cursor: pointer;
+	}
+	.done-btn:hover { filter: brightness(1.08); }
 
 	/* ─── Tabs ─── */
 	.cf-tabs {

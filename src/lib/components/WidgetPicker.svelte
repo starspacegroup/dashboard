@@ -136,7 +136,7 @@
 		// First-time setup flow: widgets with settings open them immediately
 		// and reveal (scroll + flash) once setup closes; widgets without
 		// settings reveal right away so it's clear where they landed.
-		const SETUP_TYPES: Widget['type'][] = ['weather', 'traffic', 'google-analytics'];
+		const SETUP_TYPES: Widget['type'][] = ['weather', 'traffic', 'google-analytics', 'cloudflare'];
 		if (SETUP_TYPES.includes(newWidget.type)) {
 			pendingSetupWidgetId.set(newWidget.id);
 		} else {
