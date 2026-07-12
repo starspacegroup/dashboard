@@ -37,15 +37,15 @@ user count (30s poll). Every tick → `widgets.updateTitle()` → `saveWidgets()
 Full diagnosis and implementation plan: **`../planning/kv-write-amplification.md`**.
 
 **Fixes (in order):**
-- [ ] Make dynamic widget titles display-only (non-persisted `liveTitles` store);
-      `updateTitle` should only fire on deliberate user renames. This is the
-      real fix — see the planning doc.
-- [ ] Debounce/coalesce the sync `push()` harder — cap to ≤1 write / 30–60s and
-      only when the snapshot actually changed (compare hash); flush on
-      `visibilitychange`/`beforeunload` instead of on every settle. KV also
-      throttles to ~1 write/sec per key.
-- [ ] Move the GitHub cache off KV, or lengthen the fresh window and gate writes
-      behind an actual-change check so identical payloads don't rewrite.
+- [x] Make dynamic widget titles display-only (non-persisted `liveTitles` store);
+      `updateTitle` now only fires on deliberate renames (Weather location).
+      This is the real fix — see the planning doc. *(2026-07-11)*
+- [x] Only push when the snapshot actually changed — `push()` skips the PUT when
+      the serialized snapshot matches the last pushed/pulled state.
+      *(Not done: the ≤1-write/30–60s cap and `beforeunload` flush — deferred;
+      the diff guard + title fix already remove the churn.)*
+- [x] GitHub cache: gate `kv.put` behind an actual-change check so identical
+      payloads don't rewrite. *(2026-07-11)*
 - [ ] **Structural:** move mutable per-user dashboard state off KV entirely.
       Dashboard already binds a D1 `DB`; D1 (or a Durable Object) has far higher
       write limits and is the right home for frequently-mutated per-user state.

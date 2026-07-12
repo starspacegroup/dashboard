@@ -34,6 +34,11 @@ let syncAvailable = true; // set false on 501 (KV not configured) or 401
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 let pushPending = false;
 let applyingRemote = false;
+// Serialized snapshot of the last state we pushed (or just pulled+applied).
+// Guards against redundant KV writes when a `dashboard-state-changed` event
+// fires but the synced state didn't actually change — belt-and-suspenders on
+// top of moving volatile widget titles out of synced state entirely.
+let lastPushedState = '';
 
 function localUpdatedAt(): number {
 	const raw = localStorage.getItem(LOCAL_META_KEY);
@@ -90,6 +95,10 @@ function applySnapshot(state: Record<string, string | null>) {
 				window.dispatchEvent(new CustomEvent('location-cleared'));
 			}
 		}
+
+		// We now hold exactly the remote state — record it so an incidental
+		// markDirty right after a pull doesn't push the same bytes back.
+		lastPushedState = JSON.stringify(snapshot());
 	} finally {
 		applyingRemote = false;
 	}
@@ -130,12 +139,18 @@ async function pull() {
 async function push() {
 	if (!syncAvailable) return;
 	pushPending = false;
+
+	// Nothing actually changed since the last push/pull? Don't burn a KV write.
+	const state = snapshot();
+	const stateStr = JSON.stringify(state);
+	if (stateStr === lastPushedState) return;
+
 	const updatedAt = Date.now();
 	try {
 		const res = await fetch('/api/dashboard-state', {
 			method: 'PUT',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ state: snapshot(), updatedAt })
+			body: JSON.stringify({ state, updatedAt })
 		});
 		if (res.status === 501 || res.status === 401) {
 			syncAvailable = false;
@@ -144,6 +159,7 @@ async function push() {
 		if (res.ok) {
 			const data = (await res.json()) as { ok: boolean; conflict?: boolean; updatedAt: number };
 			if (data.ok) {
+				lastPushedState = stateStr;
 				localStorage.setItem(LOCAL_META_KEY, String(updatedAt));
 			} else if (data.conflict) {
 				// Remote is newer than us — pick it up
@@ -176,6 +192,7 @@ function clearLocalState() {
 		localStorage.removeItem(key);
 	}
 	localStorage.removeItem(LOCAL_META_KEY);
+	lastPushedState = ''; // different user — forget the previous account's snapshot
 
 	// Per-widget weather caches hold the previous user's locations
 	const stale: string[] = [];

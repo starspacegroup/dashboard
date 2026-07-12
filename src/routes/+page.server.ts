@@ -518,7 +518,11 @@ export const load: PageServerLoad = async ({ locals, fetch, platform }) => {
 			copilotMetrics
 		};
 
-		if (kv && !rateLimited) {
+		// Only write the cache when the payload actually changed. An open tab
+		// re-fetches GitHub on a cadence (invalidateAll every 5 min); if the data
+		// is identical, rewriting KV just burns a scarce free-tier write
+		// (1,000/day account-wide). See planning/kv-write-amplification.md.
+		if (kv && !rateLimited && JSON.stringify(cached?.data) !== JSON.stringify(data)) {
 			try {
 				await kv.put(
 					cacheKey,
