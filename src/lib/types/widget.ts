@@ -39,9 +39,11 @@ export interface WidgetConfig {
 	cloudflare?: {
 		accountId?: string; // Selected Cloudflare account tag
 		accountName?: string; // Friendly account name
-		view?: 'overview' | 'domains' | 'pages' | 'workers'; // Active tab
+		view?: 'overview' | 'domains' | 'pages' | 'workers' | 'storage' | 'vitals'; // Active tab
+		storageKind?: 'kv' | 'r2' | 'd1' | 'queues' | 'do'; // Active storage sub-tab
 		zoneId?: string; // Last-viewed zone in the Domains tab
 		days?: number; // Analytics window in days (1, 7, 14, 30)
+		plan?: 'free' | 'paid'; // Which limit tier drives the usage meters
 	};
 }
 
