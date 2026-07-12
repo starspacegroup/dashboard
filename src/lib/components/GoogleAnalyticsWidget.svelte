@@ -4,6 +4,7 @@
 	import { get } from 'svelte/store';
 	import type { Widget } from '$lib/types/widget';
 	import { widgets, pendingSetupWidgetId } from '$lib/stores/widgets';
+	import { setLiveTitle } from '$lib/stores/liveTitles';
 	import { analyticsConnection } from '$lib/stores/analyticsConnection';
 	import { revealWidget } from '$lib/utils/revealWidget';
 
@@ -655,9 +656,9 @@
 		fetchReport(true);
 	}
 
-	// Dynamically update widget title with URL and live count
+	// Dynamic title with live count — display-only, never persisted/synced.
 	$: if (browser && propertyName && realtimeUsers !== undefined) {
-		widgets.updateTitle(widget.id, `${propertyName} · ${realtimeUsers} live`);
+		setLiveTitle(widget.id, `${propertyName} · ${realtimeUsers} live`);
 	}
 </script>
 

@@ -4,6 +4,7 @@
 	import { get } from 'svelte/store';
 	import type { Widget } from '$lib/types/widget';
 	import { widgets, pendingSetupWidgetId } from '$lib/stores/widgets';
+	import { setLiveTitle, clearLiveTitle } from '$lib/stores/liveTitles';
 	import { cloudflareConnection } from '$lib/stores/cloudflareConnection';
 	import { revealWidget } from '$lib/utils/revealWidget';
 	import { computeMeter, limitsFor, WORKERS_CPU_MS_FREE, WORKERS_CPU_MS_PAID, type Meter, type PlanTier } from '$lib/cloudflare/limits';
@@ -403,6 +404,7 @@
 	function disconnect() {
 		cloudflareConnection.disconnect();
 		stopAutoRefresh();
+		clearLiveTitle(widget.id);
 		bootstrapped = false;
 		accounts = [];
 		accountId = '';
@@ -644,7 +646,7 @@
 		window.addEventListener('cloudflare-disconnected', handleDisconnectedEvent);
 
 		// Update title with account name
-		if (accountName) widgets.updateTitle(widget.id, `Cloudflare · ${accountName}`);
+		if (accountName) setLiveTitle(widget.id, `Cloudflare · ${accountName}`);
 	});
 
 	// Bootstrap as soon as a token is available — whether it was already in
@@ -666,7 +668,7 @@
 	});
 
 	// Keep title in sync
-	$: if (browser && accountName) widgets.updateTitle(widget.id, `Cloudflare · ${accountName}`);
+	$: if (browser && accountName) setLiveTitle(widget.id, `Cloudflare · ${accountName}`);
 
 	// x-axis labels
 	$: xLabels = (() => {

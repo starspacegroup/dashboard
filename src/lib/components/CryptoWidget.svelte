@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import type { Widget } from '$lib/types/widget';
 	import { widgets } from '$lib/stores/widgets';
+	import { setLiveTitle } from '$lib/stores/liveTitles';
 
 	export let widget: Widget;
 
@@ -100,12 +101,9 @@
 
 	$: vsSymbol = VS_CURRENCIES.find(c => c.id === vsCurrency)?.symbol || '$';
 
-	// ─── Dynamic Widget Title ─────────────────────────
+	// ─── Dynamic Widget Title (display-only, never persisted/synced) ───
 	$: if (coinSymbol && currentPrice > 0) {
-		const titleStr = `${coinSymbol}${vsCurrency.toUpperCase()} — ${vsSymbol}${formatPrice(currentPrice)}`;
-		if (titleStr !== widget.title) {
-			widgets.updateTitle(widget.id, titleStr);
-		}
+		setLiveTitle(widget.id, `${coinSymbol}${vsCurrency.toUpperCase()} — ${vsSymbol}${formatPrice(currentPrice)}`);
 	}
 
 	// ─── Chart SVG computation ───────────────────────────

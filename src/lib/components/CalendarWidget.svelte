@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { widgets } from '$lib/stores/widgets';
+	import { setLiveTitle } from '$lib/stores/liveTitles';
 
 	type ViewMode = 'days' | 'months' | 'years' | 'decades';
 
@@ -35,9 +35,9 @@
 	// Format today's date as "Today: 2025 October 23rd"
 	const todayFormatted = `(Today: ${currentYear} ${monthNames[currentMonth]} ${currentDay}${getOrdinalSuffix(currentDay)})`;
 
-	// Update the calendar widget title on mount
+	// Update the calendar widget title on mount (display-only, not persisted)
 	onMount(() => {
-		widgets.updateTitle('calendar-1', `Calendar ${todayFormatted}`);
+		setLiveTitle('calendar-1', `Calendar ${todayFormatted}`);
 	});
 
 	function getDaysInMonth(year: number, month: number): number {

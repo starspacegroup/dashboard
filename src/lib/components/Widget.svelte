@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Widget } from '$lib/types/widget';
 	import { widgets, isDraggingAny } from '$lib/stores/widgets';
+	import { liveTitles } from '$lib/stores/liveTitles';
 	import { createEventDispatcher, onDestroy } from 'svelte';
 
 	export let widget: Widget;
@@ -385,7 +386,7 @@
 >
 	<div class="widget-header">
 		<button class="drag-handle" on:mousedown={handleMouseDown} on:touchstart={handleTouchStart} aria-label="Drag widget" type="button">⋮⋮</button>
-		<h3>{widget.title}</h3>
+		<h3>{$liveTitles[widget.id] ?? widget.title}</h3>
 		<div class="header-buttons">
 			{#if onSettingsClick}
 				<button
