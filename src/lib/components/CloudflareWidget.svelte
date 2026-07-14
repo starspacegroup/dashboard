@@ -84,6 +84,10 @@
 	let tokenInput = '';
 	let connecting = false;
 	let connectError = '';
+	// True when the settings modal should show the token-gathering flow even
+	// though we're already connected — i.e. the user wants to swap in a new,
+	// broader-scoped token to unlock more data.
+	let rekeying = false;
 
 	// ─── Account picker ─────────────────────────────────
 	let accounts: { id: string; name: string }[] = [];
@@ -401,8 +405,11 @@
 		}
 	}
 
-	function disconnect() {
-		cloudflareConnection.disconnect();
+	// Clear this widget instance's cached data + refresh loop. Does NOT touch the
+	// shared connection store, so it's safe to call from the `cloudflare-disconnected`
+	// event handler without re-triggering another disconnect (which used to recurse
+	// infinitely and make the Disconnect button appear dead).
+	function resetLocalState() {
 		stopAutoRefresh();
 		clearLiveTitle(widget.id);
 		bootstrapped = false;
@@ -422,6 +429,14 @@
 		d1 = null;
 		queues = null;
 		durableObjects = null;
+	}
+
+	function disconnect() {
+		// Flips apiToken='' for every widget instance (shared store) and fires the
+		// `cloudflare-disconnected` event so the others reset their local caches.
+		cloudflareConnection.disconnect();
+		resetLocalState();
+		rekeying = false;
 		saveConfig();
 	}
 
@@ -435,9 +450,25 @@
 	function openSettings() {
 		showSettingsModal = true;
 	}
+	// Open the settings modal straight into the token-gathering flow so the user
+	// can paste a broader-scoped token. Invoked from the settings panel and from
+	// the inline "add this scope" hints scattered through the widget.
+	function beginRekey() {
+		rekeying = true;
+		tokenInput = '';
+		connectError = '';
+		showSettingsModal = true;
+	}
+	function cancelRekey() {
+		rekeying = false;
+		tokenInput = '';
+		connectError = '';
+	}
 	function closeSettings() {
 		showSettingsModal = false;
 		connectError = '';
+		rekeying = false;
+		tokenInput = '';
 		// First-time-setup reveal, mirroring the Weather/Analytics widgets.
 		if (isFirstTimeSetup) {
 			isFirstTimeSetup = false;
@@ -622,7 +653,10 @@
 	}
 
 	function handleDisconnectedEvent() {
-		disconnect();
+		// Another widget instance (or this one) already emptied the shared store;
+		// just drop our local cache. Must NOT call disconnect() — that re-emits the
+		// event and recurses until the stack overflows.
+		resetLocalState();
 	}
 
 	onMount(() => {
@@ -801,7 +835,7 @@
 					{#if healthMeters.length > 0}
 						<CloudflareMeters meters={healthMeters} />
 					{:else}
-						<p class="hint-line">No usage analytics on this token yet. Add <b>Account Analytics: Read</b> to see limit meters.</p>
+						<p class="hint-line">No usage analytics on this token yet. Add <b>Account Analytics: Read</b> to see limit meters. <button class="hint-cta" on:click={beginRekey}>Update token</button></p>
 					{/if}
 
 					<div class="stat-grid">
@@ -937,7 +971,7 @@
 					<div class="state-msg"><p>No Workers found.</p></div>
 				{:else}
 					{#if !workers.analyticsAvailable}
-						<p class="hint-line">Add <b>Account Analytics: Read</b> to your token to see invocation stats.</p>
+						<p class="hint-line">Add <b>Account Analytics: Read</b> to your token to see invocation stats. <button class="hint-cta" on:click={beginRekey}>Update token</button></p>
 					{/if}
 					{#if workers.today}<CloudflareMeters meters={workerMeters} />{/if}
 					<div class="wk-stats">
@@ -975,7 +1009,7 @@
 							<div class="state-msg small"><div class="spinner"></div></div>
 						{:else if kv}
 							{#if !kv.analyticsAvailable && kv.namespaces.length > 0}
-								<p class="hint-line">Reconnect with <b>Account Analytics: Read</b> to see KV usage.</p>
+								<p class="hint-line">Reconnect with <b>Account Analytics: Read</b> to see KV usage. <button class="hint-cta" on:click={beginRekey}>Update token</button></p>
 							{/if}
 							<CloudflareMeters meters={kvMeters} />
 							{#if kv.namespaces.length === 0}
@@ -1174,14 +1208,18 @@
 							<path fill="#f6821f" d="M35.9 20.2c.3-1 .2-1.9-.3-2.6-.4-.6-1.2-1-2.1-1l-17-.2c-.1 0-.2-.1-.3-.2 0-.1 0-.2.1-.2 0-.1.1-.2.3-.2l17.1-.2c2-.1 4.2-1.7 5-3.7l1-2.6c0-.1.1-.2 0-.3C35.6 3.3 30.9 0 25.4 0c-5.1 0-9.4 3.3-11 7.8-1-.8-2.4-1.2-3.8-1-2.6.3-4.6 2.4-4.9 5 0 .7 0 1.3.2 1.9C1.7 13.8 0 15.6 0 17.9c0 .2 0 .4.1.6 0 .1.1.2.2.2h31.4c.1 0 .2-.1.3-.2l.9-2.6z"/>
 							<path fill="#fbad41" d="M40.6 9.3h-.5c-.1 0-.2.1-.2.2l-.6 2.1c-.3 1-.2 1.9.3 2.6.4.6 1.2 1 2.1 1l3.6.2c.1 0 .2.1.3.2 0 .1 0 .2-.1.2 0 .1-.1.2-.3.2l-3.8.2c-2 .1-4.2 1.7-5 3.7l-.2.7c-.1.1 0 .3.2.3h13c.1 0 .2-.1.2-.2.2-.8.4-1.7.4-2.6 0-4.9-4-8.9-9-8.9z"/>
 						</svg>
-						<h3>{apiToken ? 'Cloudflare Settings' : 'Connect Cloudflare'}</h3>
+						<h3>{rekeying ? 'Update Cloudflare token' : apiToken ? 'Cloudflare Settings' : 'Connect Cloudflare'}</h3>
 					</div>
 					<button class="settings-close" on:click={closeSettings} aria-label="Close">✕</button>
 				</div>
 
-				{#if !apiToken}
-					<!-- Connect flow -->
-					<p class="connect-sub">The button below opens Cloudflare with a read-only token already scoped for you. Tokens don't expire, so you stay connected on every device.</p>
+				{#if !apiToken || rekeying}
+					<!-- Connect / re-key flow -->
+					{#if rekeying}
+						<p class="connect-sub">Create a fresh token with the permissions you're missing, then paste it below. It replaces your current token everywhere.</p>
+					{:else}
+						<p class="connect-sub">The button below opens Cloudflare with a read-only token already scoped for you. Tokens don't expire, so you stay connected on every device.</p>
+					{/if}
 
 					<a class="create-token-btn" href={CREATE_TOKEN_URL} target="_blank" rel="noopener noreferrer">
 						<span class="step-num">1</span>
@@ -1204,14 +1242,24 @@
 						<p class="connect-error">⚠️ {connectError}</p>
 					{/if}
 					<button class="connect-btn wide" on:click={connect} disabled={connecting || !tokenInput.trim()}>
-						{connecting ? 'Verifying…' : 'Connect'}
+						{connecting ? 'Verifying…' : rekeying ? 'Update token' : 'Connect'}
 					</button>
-					<a class="manual-link" href={TOKEN_URL} target="_blank" rel="noopener noreferrer">or create a token manually</a>
+					{#if rekeying}
+						<button class="link-btn" on:click={cancelRekey}>Cancel</button>
+					{:else}
+						<a class="manual-link" href={TOKEN_URL} target="_blank" rel="noopener noreferrer">or create a token manually</a>
+					{/if}
 				{:else}
 					<!-- Manage connection -->
 					<div class="settings-section">
 						<span class="settings-section-title">Connected</span>
 						<span class="settings-hint">You're connected with a read-only API token.</span>
+					</div>
+
+					<div class="settings-section">
+						<span class="settings-section-title">API token</span>
+						<span class="settings-hint">Missing a tab or usage meter? Swap in a token with broader permissions.</span>
+						<button class="rekey-btn" on:click={beginRekey}>Update token…</button>
 					</div>
 
 					<div class="settings-section">
@@ -1339,6 +1387,16 @@
 		opacity: 0.75;
 	}
 	.manual-link:hover { text-decoration: underline; opacity: 1; }
+	.link-btn {
+		align-self: center;
+		background: none;
+		border: none;
+		padding: 0.2rem;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+	.link-btn:hover { color: var(--text-primary); text-decoration: underline; }
 	.token-input {
 		width: 100%;
 		padding: 0.55rem 0.7rem;
@@ -1534,6 +1592,19 @@
 		cursor: pointer;
 	}
 	.done-btn:hover { filter: brightness(1.08); }
+	.rekey-btn {
+		align-self: flex-start;
+		margin-top: 0.15rem;
+		padding: 0.4rem 0.85rem;
+		background: var(--surface-variant);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 0.75rem;
+		cursor: pointer;
+	}
+	.rekey-btn:hover { border-color: #f6821f; }
 
 	/* ─── Tabs ─── */
 	.cf-tabs {
@@ -1796,6 +1867,19 @@
 		padding: 0.35rem 0.5rem;
 	}
 	.hint-line b { color: var(--text-primary); }
+	.hint-cta {
+		display: inline;
+		margin-left: 0.15rem;
+		padding: 0;
+		background: none;
+		border: none;
+		font-size: inherit;
+		font-weight: 700;
+		color: #f6821f;
+		cursor: pointer;
+		text-decoration: underline;
+	}
+	.hint-cta:hover { filter: brightness(1.1); }
 
 	/* ─── Chart ─── */
 	.chart-block { display: flex; gap: 0.35rem; }
