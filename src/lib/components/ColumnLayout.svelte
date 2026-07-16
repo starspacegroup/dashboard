@@ -121,6 +121,7 @@
 		<div 
 			class="section"
 			class:dragging={$isDraggingAny}
+			data-section-id={section.id}
 			style="grid-column: {section.gridColumn} / span {section.gridColumnSpan}; grid-row: {section.gridRow};"
 			role="region"
 			aria-label="Section {section.id}"

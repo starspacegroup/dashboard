@@ -164,42 +164,45 @@
 		
 		// Find the target section and position
 		const sections = document.querySelectorAll('.section-content');
-		
-		sections.forEach((section, sectionIndex) => {
+
+		sections.forEach((section) => {
 			const rect = section.getBoundingClientRect();
 			if (clientX >= rect.left && clientX <= rect.right &&
 				clientY >= rect.top && clientY <= rect.bottom) {
-				const targetSection = sectionIndex;
-				
-				// Find the insertion point within the section
-				const widgetElements = section.querySelectorAll('.widget-container');
-				let insertIndex = widgetElements.length;
-				let insertBeforeElement: Element | null = null;
-				
-				widgetElements.forEach((w, index) => {
-					const wRect = w.getBoundingClientRect();
+				// Use the real section id (not the DOM index) so drops land in the
+				// visually-targeted column even after sections are moved / in custom
+				// layouts where id !== DOM order.
+				const sectionEl = section.closest('.section') as HTMLElement | null;
+				const sectionId = Number(sectionEl?.dataset.sectionId);
+				if (Number.isNaN(sectionId)) return;
+
+				// Insertion index within the section's widgets *with the dragged
+				// widget removed* — this is exactly the index reorderWidgets splices
+				// into, so the widget lands at the indicator (no off-by-one).
+				const others = Array.from(section.querySelectorAll('.widget-container'))
+					.filter((w) => (w as HTMLElement).dataset.widgetId !== widget.id);
+				let insertIndex = others.length;
+				for (let i = 0; i < others.length; i++) {
+					const wRect = others[i].getBoundingClientRect();
 					if (clientY < wRect.top + wRect.height / 2) {
-						if (insertIndex > index) {
-							insertIndex = index;
-							insertBeforeElement = w;
-						}
+						insertIndex = i;
+						break;
 					}
-				});
-				
-				const targetOrder = insertIndex;
-				
+				}
+
 				// Create and insert drop indicator
 				dropIndicator = document.createElement('div');
 				dropIndicator.className = 'drop-indicator';
 				dropIndicator.style.cssText = 'height: 3px; background: var(--primary-color); border-radius: 2px; margin: 0.5rem 0; transition: all 0.2s; box-shadow: 0 0 8px var(--primary-color);';
-				
+
+				const insertBeforeElement = others[insertIndex] ?? null;
 				if (insertBeforeElement) {
 					section.insertBefore(dropIndicator, insertBeforeElement);
 				} else {
 					section.appendChild(dropIndicator);
 				}
-				
-				currentDropPosition = { section: targetSection, order: targetOrder };
+
+				currentDropPosition = { section: sectionId, order: insertIndex };
 			}
 		});
 	}
@@ -225,44 +228,51 @@
 			targetSection = currentDropPosition.section;
 			targetOrder = currentDropPosition.order;
 		} else {
-			// Fallback to finding the target section
+			// Fallback to finding the target section (drop landed outside any
+			// section-content, e.g. in a gap).
 			const sections = document.querySelectorAll('.section');
-			let closestSectionIndex = widget.section;
+			let closestSectionEl: HTMLElement | null = null;
 			let closestDistance = Infinity;
-			
-			sections.forEach((sectionEl, sectionIndex) => {
+
+			sections.forEach((sectionEl) => {
 				const rect = sectionEl.getBoundingClientRect();
+				const inside = clientX >= rect.left && clientX <= rect.right &&
+					clientY >= rect.top && clientY <= rect.bottom;
 				const centerX = rect.left + rect.width / 2;
 				const centerY = rect.top + rect.height / 2;
 				const distance = Math.sqrt(
-					Math.pow(clientX - centerX, 2) + 
+					Math.pow(clientX - centerX, 2) +
 					Math.pow(clientY - centerY, 2)
 				);
-				
-				if ((clientX >= rect.left && clientX <= rect.right &&
-					 clientY >= rect.top && clientY <= rect.bottom) ||
-					distance < closestDistance) {
+
+				if (inside) {
+					closestSectionEl = sectionEl as HTMLElement;
+					closestDistance = -Infinity;
+				} else if (distance < closestDistance) {
 					closestDistance = distance;
-					closestSectionIndex = sectionIndex;
+					closestSectionEl = sectionEl as HTMLElement;
 				}
 			});
-			
-			targetSection = closestSectionIndex;
-			
-			// Find the insertion point
-			const sectionContent = sections[closestSectionIndex]?.querySelector('.section-content');
-			if (sectionContent) {
-				const widgetElements = sectionContent.querySelectorAll('.widget-container');
-				let insertIndex = widgetElements.length;
-				
-				widgetElements.forEach((w: Element, index: number) => {
-					const wRect = w.getBoundingClientRect();
-					if (clientY < wRect.top + wRect.height / 2) {
-						insertIndex = Math.min(insertIndex, index);
+
+			if (closestSectionEl) {
+				const sid = Number((closestSectionEl as HTMLElement).dataset.sectionId);
+				if (!Number.isNaN(sid)) targetSection = sid;
+
+				// Insertion point within the section's widgets, dragged widget excluded.
+				const sectionContent = (closestSectionEl as HTMLElement).querySelector('.section-content');
+				if (sectionContent) {
+					const others = Array.from(sectionContent.querySelectorAll('.widget-container'))
+						.filter((w) => (w as HTMLElement).dataset.widgetId !== widget.id);
+					let insertIndex = others.length;
+					for (let i = 0; i < others.length; i++) {
+						const wRect = others[i].getBoundingClientRect();
+						if (clientY < wRect.top + wRect.height / 2) {
+							insertIndex = i;
+							break;
+						}
 					}
-				});
-				
-				targetOrder = insertIndex;
+					targetOrder = insertIndex;
+				}
 			}
 		}
 		

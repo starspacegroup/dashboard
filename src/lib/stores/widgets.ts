@@ -354,31 +354,47 @@ function calculateSectionRows(sections: Section[]): Section[] {
 	});
 }
 
-// Reorder widgets within a section or move between sections
+// Reorder widgets within a section or move between sections.
+//
+// Implemented as an explicit remove-then-insert over each affected section's
+// ordered list, reassigning contiguous 0..n-1 orders. The previous per-widget
+// ±1 approach used an if/else-if chain that, for a same-section move, could only
+// apply the source decrement OR the dest increment to a widget between the two
+// positions — never both — producing duplicate `order` values and unstable
+// rendering. `toOrder` is an index into the section's list with the moved widget
+// already removed (see Widget.svelte), and is clamped defensively.
 function reorderWidgets(widgets: Widget[], fromSection: number, fromOrder: number, toSection: number, toOrder: number): Widget[] {
-	// Get the widget being moved
 	const movedWidget = widgets.find(w => w.section === fromSection && w.order === fromOrder);
 	if (!movedWidget) return widgets;
 
-	// Update all widgets
-	return widgets.map(widget => {
-		if (widget.id === movedWidget.id) {
-			// Update the moved widget
-			return { ...widget, section: toSection, order: toOrder };
-		}
+	// Widgets in sections not involved in this move pass through untouched.
+	const untouched = widgets.filter(w => w.section !== fromSection && w.section !== toSection);
 
-		// Adjust order for widgets in the source section
-		if (widget.section === fromSection && widget.order > fromOrder) {
-			return { ...widget, order: widget.order - 1 };
-		}
+	if (fromSection === toSection) {
+		// Single section: drop the moved widget out, splice it back in at the
+		// target index, then reindex the whole list contiguously.
+		const list = widgets
+			.filter(w => w.section === fromSection && w.id !== movedWidget.id)
+			.sort((a, b) => a.order - b.order);
+		const insertAt = Math.max(0, Math.min(toOrder, list.length));
+		list.splice(insertAt, 0, movedWidget);
+		const reindexed = list.map((w, i) => ({ ...w, section: toSection, order: i }));
+		return [...untouched, ...reindexed];
+	}
 
-		// Adjust order for widgets in the destination section
-		if (widget.section === toSection && widget.order >= toOrder && widget.id !== movedWidget.id) {
-			return { ...widget, order: widget.order + 1 };
-		}
-
-		return widget;
-	});
+	// Cross section: reindex the source (moved widget removed), then insert the
+	// moved widget into the destination at the target index and reindex it.
+	const source = widgets
+		.filter(w => w.section === fromSection && w.id !== movedWidget.id)
+		.sort((a, b) => a.order - b.order)
+		.map((w, i) => ({ ...w, order: i }));
+	const dest = widgets
+		.filter(w => w.section === toSection)
+		.sort((a, b) => a.order - b.order);
+	const insertAt = Math.max(0, Math.min(toOrder, dest.length));
+	dest.splice(insertAt, 0, { ...movedWidget, section: toSection });
+	const reindexedDest = dest.map((w, i) => ({ ...w, order: i }));
+	return [...untouched, ...source, ...reindexedDest];
 }
 
 function createWidgetStore() {
