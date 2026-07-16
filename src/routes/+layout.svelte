@@ -4,6 +4,7 @@
 	import { page } from '$app/stores';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import WeatherWidgetSettings from '$lib/components/WeatherWidgetSettings.svelte';
+	import CloudflareWidgetSettings from '$lib/components/CloudflareWidgetSettings.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import UserDropdown from '$lib/components/UserDropdown.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
@@ -63,6 +64,8 @@
 	title={$weatherSettings.variant === 'traffic' ? 'Traffic Widget Settings' : 'Weather Widget Settings'}
 	showTemperatureUnit={$weatherSettings.variant !== 'traffic'}
 />
+
+<CloudflareWidgetSettings />
 
 <div class="app">
 	{#if !isMinimalLayout}

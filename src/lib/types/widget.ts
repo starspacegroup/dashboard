@@ -37,6 +37,7 @@ export interface WidgetConfig {
 		refreshToken?: string; // Google OAuth refresh token
 	};
 	cloudflare?: {
+		credentialId?: string; // Which saved API key (cloudflareCredentials) this widget uses; unset → first/default key
 		accountId?: string; // Selected Cloudflare account tag
 		accountName?: string; // Friendly account name
 		view?: 'overview' | 'domains' | 'pages' | 'workers' | 'storage' | 'vitals'; // Active tab

@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import { widgets, sections } from '$lib/stores/widgets';
 import { analyticsConnection } from '$lib/stores/analyticsConnection';
 import { cloudflareConnection } from '$lib/stores/cloudflareConnection';
+import { cloudflareCredentials } from '$lib/stores/cloudflareCredentials';
 
 /**
  * Cross-instance dashboard sync.
@@ -21,7 +22,8 @@ const SYNCED_KEYS = [
 	'dashboard-zip-code',
 	'dashboard-temp-unit-global',
 	'dashboard-analytics-connection',
-	'dashboard-cloudflare-connection'
+	'dashboard-cloudflare-connection',
+	'dashboard-cloudflare-credentials'
 ] as const;
 
 const LOCAL_META_KEY = 'dashboard-sync-updated-at';
@@ -79,6 +81,7 @@ function applySnapshot(state: Record<string, string | null>) {
 		widgets.load();
 		analyticsConnection.reload();
 		cloudflareConnection.reload();
+		cloudflareCredentials.reload();
 
 		// Notify widgets that listen for location changes
 		const newLocation = localStorage.getItem('dashboard-location');

@@ -5,38 +5,14 @@
 	import type { Widget } from '$lib/types/widget';
 	import { widgets, pendingSetupWidgetId } from '$lib/stores/widgets';
 	import { setLiveTitle, clearLiveTitle } from '$lib/stores/liveTitles';
-	import { cloudflareConnection } from '$lib/stores/cloudflareConnection';
+	import { cloudflareCredentials, resolveToken } from '$lib/stores/cloudflareCredentials';
+	import { cloudflareSettings } from '$lib/stores/cloudflareSettings';
 	import { revealWidget } from '$lib/utils/revealWidget';
 	import { computeMeter, limitsFor, WORKERS_CPU_MS_FREE, WORKERS_CPU_MS_PAID, type Meter, type PlanTier } from '$lib/cloudflare/limits';
 	import CloudflareMeters from './CloudflareMeters.svelte';
 
 	export let widget: Widget;
 
-	// Deep-link that opens Cloudflare's "Create Token" page with everything
-	// pre-filled: a read-only permission set covering every widget tab, scoped
-	// to all accounts + all zones, and a token name. The user just clicks
-	// Continue to summary → Create Token → Copy. Verified against the live
-	// dashboard — `page` is Cloudflare Pages, `analytics` is Zone Analytics.
-	const TOKEN_PERMISSION_KEYS = [
-		{ key: 'account_analytics', type: 'read' }, // Overview + Workers/KV/R2/D1/DO stats
-		{ key: 'analytics', type: 'read' }, // Zone (domain) traffic analytics
-		{ key: 'zone', type: 'read' }, // List domains
-		{ key: 'page', type: 'read' }, // Cloudflare Pages projects
-		{ key: 'workers_scripts', type: 'read' }, // Workers scripts
-		{ key: 'workers_kv_storage', type: 'read' }, // KV namespaces + usage
-		{ key: 'workers_r2', type: 'read' }, // R2 buckets + usage
-		{ key: 'd1', type: 'read' }, // D1 databases + query analytics
-		{ key: 'queues', type: 'read' }, // Queues
-		{ key: 'waf', type: 'read' }, // Firewall / WAF security events
-		{ key: 'rum', type: 'read' } // Web Analytics (Core Web Vitals)
-	];
-	const CREATE_TOKEN_URL =
-		'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=' +
-		encodeURIComponent(JSON.stringify(TOKEN_PERMISSION_KEYS)) +
-		'&accountId=*&zoneId=all&name=' +
-		encodeURIComponent('Dashboard (read-only)');
-	// Plain tokens page, in case the user wants to manage tokens directly.
-	const TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens';
 	const REFRESH_INTERVAL = 5 * 60 * 1000;
 
 	type View = 'overview' | 'domains' | 'pages' | 'workers' | 'storage' | 'vitals';
@@ -66,11 +42,12 @@
 		{ days: 30, label: '30D' }
 	];
 
-	// ─── Connection ─────────────────────────────────────
-	let apiToken = '';
-	const unsubConn = cloudflareConnection.subscribe((c) => {
-		apiToken = c.apiToken;
-	});
+	// ─── Connection (resolved from the shared key pool) ─
+	// The widget's key + account now live in its config and are managed by the
+	// external settings panel (cloudflareSettings). apiToken is derived: the
+	// widget's chosen key, else the first/default key for back-compat.
+	$: cfConfig = widget.config?.cloudflare ?? {};
+	$: apiToken = resolveToken($cloudflareCredentials.credentials, cfConfig.credentialId);
 
 	// ─── Config-backed state ────────────────────────────
 	let accountId = widget.config?.cloudflare?.accountId ?? '';
@@ -80,31 +57,11 @@
 	let selectedZoneId = widget.config?.cloudflare?.zoneId ?? '';
 	let planTier: PlanTier = widget.config?.cloudflare?.plan ?? 'free';
 
-	// ─── Connect-screen state ───────────────────────────
-	let tokenInput = '';
-	let connecting = false;
-	let connectError = '';
-	// True when the settings modal should show the token-gathering flow even
-	// though we're already connected — i.e. the user wants to swap in a new,
-	// broader-scoped token to unlock more data.
-	let rekeying = false;
+	// Plan tier is owned by the settings panel now — mirror it into local state.
+	$: if (cfConfig.plan && cfConfig.plan !== planTier) planTier = cfConfig.plan;
 
-	// ─── Account picker ─────────────────────────────────
+	// ─── Account list (for the header pill / chevron) ───
 	let accounts: { id: string; name: string }[] = [];
-	// Connect / manage settings live in a modal (like the Weather widget),
-	// not inline in the widget body.
-	let showSettingsModal = false;
-
-	// Moves an element to <body> so the modal overlay escapes the widget's
-	// transformed/clipped stacking context.
-	function portal(node: HTMLElement) {
-		document.body.appendChild(node);
-		return {
-			destroy() {
-				if (node.parentNode) node.parentNode.removeChild(node);
-			}
-		};
-	}
 
 	// ─── Per-view data ──────────────────────────────────
 	interface OverviewUsage {
@@ -139,13 +96,6 @@
 	let error = '';
 	let needsReconnect = false;
 	let refreshTimer: ReturnType<typeof setInterval> | null = null;
-	// True once we've kicked off the initial account/data load for the current
-	// token. Guards against loading twice when the token arrives via both mount
-	// and the reactive cross-device-sync path. Reset in disconnect().
-	let bootstrapped = false;
-
-	// First-time setup reveal
-	let isFirstTimeSetup = false;
 
 	// ─── Domains: which metric drives the chart ─────────
 	const ZONE_METRICS: { id: 'requests' | 'bytes' | 'threats' | 'pageViews'; label: string; format: 'number' | 'bytes' }[] = [
@@ -370,52 +320,18 @@
 		return data;
 	}
 
-	// ─── Connect flow ───────────────────────────────────
-	async function connect() {
-		const token = tokenInput.trim();
-		if (!token) return;
-		connecting = true;
-		connectError = '';
-		try {
-			const res = await fetch('/api/cloudflare?action=verify', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ apiToken: token })
-			});
-			const data = await res.json();
-			if (!res.ok || !data.valid) {
-				connectError = data.error || 'That token could not be verified.';
-				return;
-			}
-			// Claim the bootstrap synchronously so the reactive block that also
-			// watches apiToken doesn't fire a duplicate load for this token.
-			bootstrapped = true;
-			cloudflareConnection.connect(token);
-			apiToken = token;
-			tokenInput = '';
-			needsReconnect = false;
-			error = '';
-			startAutoRefresh();
-			closeSettings();
-			await loadAccounts();
-		} catch (e) {
-			connectError = e instanceof Error ? e.message : 'Failed to verify token.';
-		} finally {
-			connecting = false;
-		}
-	}
-
-	// Clear this widget instance's cached data + refresh loop. Does NOT touch the
-	// shared connection store, so it's safe to call from the `cloudflare-disconnected`
-	// event handler without re-triggering another disconnect (which used to recurse
-	// infinitely and make the Disconnect button appear dead).
+	// ─── Local cache reset (token gone / switched away) ──
 	function resetLocalState() {
 		stopAutoRefresh();
 		clearLiveTitle(widget.id);
-		bootstrapped = false;
 		accounts = [];
 		accountId = '';
 		accountName = '';
+		resetViewData();
+	}
+
+	// Clear all per-view datasets (on account switch + full reset).
+	function resetViewData() {
 		overview = null;
 		zones = [];
 		zoneAnalytics = null;
@@ -431,88 +347,69 @@
 		durableObjects = null;
 	}
 
-	function disconnect() {
-		// Flips apiToken='' for every widget instance (shared store) and fires the
-		// `cloudflare-disconnected` event so the others reset their local caches.
-		cloudflareConnection.disconnect();
-		resetLocalState();
-		rekeying = false;
-		saveConfig();
+	// ─── Settings panel (external, shared) ──────────────
+	// Key + account management lives in CloudflareWidgetSettings, opened from
+	// the widget-frame gear (like the Weather widget) via this exported hook.
+	export function openSettings() {
+		cloudflareSettings.open(widget.id);
+	}
+	// The error banner's button — reopen settings so the user can fix/replace
+	// the key when the token has died.
+	function beginReconnect() {
+		openSettings();
 	}
 
-	function setPlan(tier: PlanTier) {
-		if (planTier === tier) return;
-		planTier = tier;
-		saveConfig();
-	}
-
-	// ─── Settings / connect modal ───────────────────────
-	function openSettings() {
-		showSettingsModal = true;
-	}
-	// Open the settings modal straight into the token-gathering flow so the user
-	// can paste a broader-scoped token. Invoked from the settings panel and from
-	// the inline "add this scope" hints scattered through the widget.
-	function beginRekey() {
-		rekeying = true;
-		tokenInput = '';
-		connectError = '';
-		showSettingsModal = true;
-	}
-	function cancelRekey() {
-		rekeying = false;
-		tokenInput = '';
-		connectError = '';
-	}
-	function closeSettings() {
-		showSettingsModal = false;
-		connectError = '';
-		rekeying = false;
-		tokenInput = '';
-		// First-time-setup reveal, mirroring the Weather/Analytics widgets.
-		if (isFirstTimeSetup) {
-			isFirstTimeSetup = false;
-			revealWidget(widget.id, 300);
-		}
-	}
-
-	async function loadAccounts() {
+	// Fetch the accounts this token can see (for the header pill) and, for a
+	// fresh widget with no saved account, auto-pick the first one and persist it.
+	async function ensureAccounts() {
 		try {
 			const data = await api('accounts');
 			accounts = data.accounts ?? [];
-			if (accounts.length === 0) {
-				error = 'This token has no accessible accounts.';
-				return;
-			}
-			// Restore saved account or auto-pick the only/first one
-			const saved = accounts.find((a) => a.id === accountId);
-			const chosen = saved ?? accounts[0];
-			await selectAccount(chosen.id, chosen.name);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load accounts.';
+			accounts = [];
+			return;
+		}
+		if (accounts.length === 0) {
+			error = 'This token has no accessible accounts.';
+			return;
+		}
+		if (!accountId || !accounts.some((a) => a.id === accountId)) {
+			const chosen = accounts[0];
+			accountId = chosen.id;
+			accountName = chosen.name;
+			// Persist the pick → re-triggers the connection sync, which loads the view.
+			saveConfig();
 		}
 	}
 
-	async function selectAccount(id: string, name: string) {
-		accountId = id;
-		accountName = name;
-		saveConfig();
-		zones = [];
-		selectedZoneId = '';
-		overview = null;
-		zoneAnalytics = null;
-		security = null;
-		pages = [];
-		pagesBuilds = null;
-		workers = null;
-		vitals = null;
-		kv = null;
-		r2 = null;
-		d1 = null;
-		queues = null;
-		durableObjects = null;
+	// ─── Connection sync ────────────────────────────────
+	// Re-bootstrap whenever the resolved token or the chosen account changes —
+	// both are driven externally by the settings panel writing widget config.
+	let connSig = '__init__';
+	async function applyConnection(sig: string) {
+		if (sig === connSig) return;
+		connSig = sig;
+		if (!apiToken) {
+			resetLocalState();
+			connSig = '|'; // matches the post-reset state (empty token + account)
+			return;
+		}
+		error = '';
+		needsReconnect = false;
+		startAutoRefresh();
+		await ensureAccounts();
+		if (!accountId) return; // ensureAccounts persisted one → sync re-runs and loads
+		resetViewData();
 		await loadView();
 	}
+
+	// Keep local account in step with config (the settings panel owns it).
+	$: if (cfConfig.accountId !== undefined && cfConfig.accountId !== accountId) accountId = cfConfig.accountId;
+	$: if (cfConfig.accountName !== undefined && cfConfig.accountName !== accountName) accountName = cfConfig.accountName;
+	// The template literal makes apiToken + accountId reactive dependencies, so
+	// this re-runs (and re-bootstraps) whenever the resolved key or account changes.
+	$: if (browser) applyConnection(`${apiToken}|${accountId}`);
 
 	// ─── Load data for the active tab ───────────────────
 	async function loadView(skipCache = false) {
@@ -633,13 +530,17 @@
 
 	function saveConfig() {
 		widgets.updateWidgetConfig(widget.id, {
-			cloudflare: { accountId, accountName, view, storageKind, zoneId: selectedZoneId, days, plan: planTier }
+			cloudflare: {
+				credentialId: cfConfig.credentialId,
+				accountId,
+				accountName,
+				view,
+				storageKind,
+				zoneId: selectedZoneId,
+				days,
+				plan: planTier
+			}
 		});
-	}
-
-	// ─── Reconnect (token died) ─────────────────────────
-	function beginReconnect() {
-		disconnect();
 	}
 
 	// ─── Lifecycle ──────────────────────────────────────
@@ -652,23 +553,16 @@
 		refreshTimer = null;
 	}
 
-	function handleDisconnectedEvent() {
-		// Another widget instance (or this one) already emptied the shared store;
-		// just drop our local cache. Must NOT call disconnect() — that re-emits the
-		// event and recurses until the stack overflows.
-		resetLocalState();
-	}
-
 	onMount(() => {
 		if (!browser) return;
 
-		// Freshly added from the picker with no connection yet: open the connect
-		// modal right away (like the Weather widget opens its settings on add).
+		// Freshly added from the picker: if there's no usable key yet, open the
+		// settings panel to gather one (like the Weather widget opens its settings
+		// on add); otherwise it auto-connects via the default key — just reveal it.
 		if (get(pendingSetupWidgetId) === widget.id) {
 			pendingSetupWidgetId.set(null);
 			if (!apiToken) {
-				isFirstTimeSetup = true;
-				setTimeout(() => openSettings(), 150);
+				setTimeout(() => cloudflareSettings.open(widget.id, true), 150);
 			} else {
 				revealWidget(widget.id, 300);
 			}
@@ -677,28 +571,13 @@
 		chartResizeObserver = new ResizeObserver(() => measureChart());
 		if (chartContainer) chartResizeObserver.observe(chartContainer);
 
-		window.addEventListener('cloudflare-disconnected', handleDisconnectedEvent);
-
 		// Update title with account name
 		if (accountName) setLiveTitle(widget.id, `Cloudflare · ${accountName}`);
 	});
 
-	// Bootstrap as soon as a token is available — whether it was already in
-	// localStorage at mount, or it arrives later via a cross-device KV sync
-	// pull (fresh browser / other device). This is what guarantees the widget
-	// never shows the Connect screen again once the account is connected
-	// anywhere, without a manual page reload.
-	$: if (browser && apiToken && !bootstrapped) {
-		bootstrapped = true;
-		loadAccounts();
-		startAutoRefresh();
-	}
-
 	onDestroy(() => {
 		chartResizeObserver?.disconnect();
 		stopAutoRefresh();
-		unsubConn();
-		if (browser) window.removeEventListener('cloudflare-disconnected', handleDisconnectedEvent);
 	});
 
 	// Keep title in sync
@@ -835,7 +714,7 @@
 					{#if healthMeters.length > 0}
 						<CloudflareMeters meters={healthMeters} />
 					{:else}
-						<p class="hint-line">No usage analytics on this token yet. Add <b>Account Analytics: Read</b> to see limit meters. <button class="hint-cta" on:click={beginRekey}>Update token</button></p>
+						<p class="hint-line">No usage analytics on this token yet. Add <b>Account Analytics: Read</b> to see limit meters. <button class="hint-cta" on:click={openSettings}>Update key</button></p>
 					{/if}
 
 					<div class="stat-grid">
@@ -971,7 +850,7 @@
 					<div class="state-msg"><p>No Workers found.</p></div>
 				{:else}
 					{#if !workers.analyticsAvailable}
-						<p class="hint-line">Add <b>Account Analytics: Read</b> to your token to see invocation stats. <button class="hint-cta" on:click={beginRekey}>Update token</button></p>
+						<p class="hint-line">Add <b>Account Analytics: Read</b> to your token to see invocation stats. <button class="hint-cta" on:click={openSettings}>Update key</button></p>
 					{/if}
 					{#if workers.today}<CloudflareMeters meters={workerMeters} />{/if}
 					<div class="wk-stats">
@@ -1009,7 +888,7 @@
 							<div class="state-msg small"><div class="spinner"></div></div>
 						{:else if kv}
 							{#if !kv.analyticsAvailable && kv.namespaces.length > 0}
-								<p class="hint-line">Reconnect with <b>Account Analytics: Read</b> to see KV usage. <button class="hint-cta" on:click={beginRekey}>Update token</button></p>
+								<p class="hint-line">Reconnect with <b>Account Analytics: Read</b> to see KV usage. <button class="hint-cta" on:click={openSettings}>Update key</button></p>
 							{/if}
 							<CloudflareMeters meters={kvMeters} />
 							{#if kv.namespaces.length === 0}
@@ -1195,101 +1074,6 @@
 			{/if}
 		</div>
 	{/if}
-
-	<!-- ─── Settings / Connect modal ─── -->
-	{#if showSettingsModal}
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div class="settings-overlay" use:portal on:click={closeSettings}>
-			<div class="settings-panel" on:click|stopPropagation>
-				<div class="settings-header">
-					<div class="settings-title">
-						<svg viewBox="0 0 48 32" width="26" height="18" aria-hidden="true">
-							<path fill="#f6821f" d="M35.9 20.2c.3-1 .2-1.9-.3-2.6-.4-.6-1.2-1-2.1-1l-17-.2c-.1 0-.2-.1-.3-.2 0-.1 0-.2.1-.2 0-.1.1-.2.3-.2l17.1-.2c2-.1 4.2-1.7 5-3.7l1-2.6c0-.1.1-.2 0-.3C35.6 3.3 30.9 0 25.4 0c-5.1 0-9.4 3.3-11 7.8-1-.8-2.4-1.2-3.8-1-2.6.3-4.6 2.4-4.9 5 0 .7 0 1.3.2 1.9C1.7 13.8 0 15.6 0 17.9c0 .2 0 .4.1.6 0 .1.1.2.2.2h31.4c.1 0 .2-.1.3-.2l.9-2.6z"/>
-							<path fill="#fbad41" d="M40.6 9.3h-.5c-.1 0-.2.1-.2.2l-.6 2.1c-.3 1-.2 1.9.3 2.6.4.6 1.2 1 2.1 1l3.6.2c.1 0 .2.1.3.2 0 .1 0 .2-.1.2 0 .1-.1.2-.3.2l-3.8.2c-2 .1-4.2 1.7-5 3.7l-.2.7c-.1.1 0 .3.2.3h13c.1 0 .2-.1.2-.2.2-.8.4-1.7.4-2.6 0-4.9-4-8.9-9-8.9z"/>
-						</svg>
-						<h3>{rekeying ? 'Update Cloudflare token' : apiToken ? 'Cloudflare Settings' : 'Connect Cloudflare'}</h3>
-					</div>
-					<button class="settings-close" on:click={closeSettings} aria-label="Close">✕</button>
-				</div>
-
-				{#if !apiToken || rekeying}
-					<!-- Connect / re-key flow -->
-					{#if rekeying}
-						<p class="connect-sub">Create a fresh token with the permissions you're missing, then paste it below. It replaces your current token everywhere.</p>
-					{:else}
-						<p class="connect-sub">The button below opens Cloudflare with a read-only token already scoped for you. Tokens don't expire, so you stay connected on every device.</p>
-					{/if}
-
-					<a class="create-token-btn" href={CREATE_TOKEN_URL} target="_blank" rel="noopener noreferrer">
-						<span class="step-num">1</span>
-						Create token on Cloudflare
-						<span class="ext">↗</span>
-					</a>
-					<p class="connect-hint">Permissions are pre-selected — just click <strong>Continue to summary</strong> → <strong>Create Token</strong> → <strong>Copy</strong>.</p>
-
-					<div class="connect-divider"><span class="step-num">2</span> Paste it here</div>
-					<input
-						class="token-input"
-						type="password"
-						bind:value={tokenInput}
-						placeholder="Paste API token"
-						autocomplete="off"
-						spellcheck="false"
-						on:keydown={(e) => e.key === 'Enter' && connect()}
-					/>
-					{#if connectError}
-						<p class="connect-error">⚠️ {connectError}</p>
-					{/if}
-					<button class="connect-btn wide" on:click={connect} disabled={connecting || !tokenInput.trim()}>
-						{connecting ? 'Verifying…' : rekeying ? 'Update token' : 'Connect'}
-					</button>
-					{#if rekeying}
-						<button class="link-btn" on:click={cancelRekey}>Cancel</button>
-					{:else}
-						<a class="manual-link" href={TOKEN_URL} target="_blank" rel="noopener noreferrer">or create a token manually</a>
-					{/if}
-				{:else}
-					<!-- Manage connection -->
-					<div class="settings-section">
-						<span class="settings-section-title">Connected</span>
-						<span class="settings-hint">You're connected with a read-only API token.</span>
-					</div>
-
-					<div class="settings-section">
-						<span class="settings-section-title">API token</span>
-						<span class="settings-hint">Missing a tab or usage meter? Swap in a token with broader permissions.</span>
-						<button class="rekey-btn" on:click={beginRekey}>Update token…</button>
-					</div>
-
-					<div class="settings-section">
-						<span class="settings-section-title">Plan tier</span>
-						<span class="settings-hint">Usage meters compare against this tier's limits.</span>
-						<div class="plan-toggle">
-							<button class="plan-opt" class:active={planTier === 'free'} on:click={() => setPlan('free')}>Free</button>
-							<button class="plan-opt" class:active={planTier === 'paid'} on:click={() => setPlan('paid')}>Workers Paid</button>
-						</div>
-					</div>
-
-					{#if accounts.length > 1}
-						<div class="settings-section">
-							<span class="settings-section-title">Account</span>
-							<select class="settings-select" value={accountId} on:change={(e) => { const a = accounts.find((x) => x.id === e.currentTarget.value); if (a) selectAccount(a.id, a.name); }}>
-								{#each accounts as acc}
-									<option value={acc.id}>{acc.name}</option>
-								{/each}
-							</select>
-						</div>
-					{/if}
-
-					<div class="settings-actions">
-						<button class="disconnect-btn" on:click={disconnect}>Disconnect Cloudflare</button>
-						<button class="done-btn" on:click={closeSettings}>Done</button>
-					</div>
-				{/if}
-			</div>
-		</div>
-	{/if}
 </div>
 
 <style>
@@ -1322,100 +1106,6 @@
 		max-width: 26ch;
 	}
 
-	/* ─── Connect (modal) ─── */
-	.connect-sub {
-		margin: 0;
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		line-height: 1.45;
-	}
-	.create-token-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		width: 100%;
-		margin-top: 0.35rem;
-		padding: 0.6rem 0.9rem;
-		background: #f6821f;
-		color: #fff;
-		border-radius: 0.5rem;
-		font-weight: 700;
-		font-size: 0.82rem;
-		text-decoration: none;
-		justify-content: center;
-		transition: filter 0.15s, transform 0.1s;
-	}
-	.create-token-btn:hover { filter: brightness(1.08); }
-	.create-token-btn:active { transform: scale(0.98); }
-	.create-token-btn .ext { font-weight: 400; opacity: 0.9; }
-	.step-num {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 1.15rem;
-		height: 1.15rem;
-		border-radius: 50%;
-		background: rgba(255, 255, 255, 0.25);
-		font-size: 0.7rem;
-		font-weight: 800;
-		flex-shrink: 0;
-	}
-	.connect-hint {
-		margin: 0;
-		font-size: 0.68rem;
-		color: var(--text-secondary);
-		line-height: 1.5;
-	}
-	.connect-hint strong { color: var(--text-primary); }
-	.connect-divider {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		margin-top: 0.35rem;
-		font-size: 0.72rem;
-		font-weight: 700;
-		color: var(--text-secondary);
-	}
-	.connect-divider .step-num {
-		background: var(--surface-variant);
-		color: var(--text-secondary);
-	}
-	.manual-link {
-		font-size: 0.66rem;
-		color: var(--text-secondary);
-		text-decoration: none;
-		opacity: 0.75;
-	}
-	.manual-link:hover { text-decoration: underline; opacity: 1; }
-	.link-btn {
-		align-self: center;
-		background: none;
-		border: none;
-		padding: 0.2rem;
-		font-size: 0.72rem;
-		color: var(--text-secondary);
-		cursor: pointer;
-	}
-	.link-btn:hover { color: var(--text-primary); text-decoration: underline; }
-	.token-input {
-		width: 100%;
-		padding: 0.55rem 0.7rem;
-		border: 2px solid var(--border);
-		border-radius: 0.5rem;
-		background: var(--surface-variant);
-		color: var(--text-primary);
-		font-size: 0.8rem;
-		font-family: ui-monospace, monospace;
-	}
-	.token-input:focus {
-		outline: none;
-		border-color: #f6821f;
-	}
-	.connect-error {
-		margin: 0;
-		font-size: 0.72rem;
-		color: var(--error);
-	}
 	.connect-btn {
 		margin-top: 0.15rem;
 		padding: 0.55rem 1.5rem;
@@ -1428,7 +1118,6 @@
 		cursor: pointer;
 		transition: filter 0.15s, transform 0.1s;
 	}
-	.connect-btn.wide { width: 100%; }
 	.connect-btn:hover:not(:disabled) { filter: brightness(1.08); }
 	.connect-btn:active:not(:disabled) { transform: scale(0.97); }
 	.connect-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1483,128 +1172,6 @@
 	.icon-btn.spinning { animation: spin 0.8s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
 
-	/* ─── Settings / Connect modal ─── */
-	.settings-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.55);
-		backdrop-filter: blur(4px);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 100000;
-		padding: 1rem;
-	}
-	.settings-panel {
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: 1rem;
-		padding: 1.25rem;
-		width: min(400px, 92vw);
-		max-height: 85vh;
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		align-items: stretch;
-		gap: 0.7rem;
-		box-shadow: 0 12px 48px var(--shadow-strong);
-	}
-	.settings-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-	.settings-title {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-	.settings-title h3 {
-		margin: 0;
-		font-size: 1rem;
-		font-weight: 800;
-		color: var(--text-primary);
-	}
-	.settings-close {
-		background: none;
-		border: none;
-		font-size: 1.1rem;
-		color: var(--text-secondary);
-		cursor: pointer;
-		padding: 0.2rem 0.4rem;
-		border-radius: 0.25rem;
-		line-height: 1;
-	}
-	.settings-close:hover { color: var(--text-primary); background: var(--surface-variant); }
-	.settings-section {
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-		padding: 0.75rem;
-		border: 1px solid var(--border);
-		border-radius: 0.5rem;
-		background: var(--background);
-	}
-	.settings-section-title {
-		font-size: 0.8rem;
-		font-weight: 700;
-		color: var(--text-primary);
-	}
-	.settings-hint {
-		font-size: 0.7rem;
-		color: var(--text-secondary);
-	}
-	.settings-select {
-		padding: 0.5rem 0.7rem;
-		background: var(--surface-variant);
-		color: var(--text-primary);
-		border: 1px solid var(--border);
-		border-radius: 0.5rem;
-		font-size: 0.8rem;
-		cursor: pointer;
-	}
-	.settings-select:focus { outline: 2px solid #f6821f; outline-offset: 1px; }
-	.settings-actions {
-		display: flex;
-		justify-content: space-between;
-		gap: 0.5rem;
-		margin-top: 0.1rem;
-	}
-	.disconnect-btn {
-		padding: 0.5rem 1rem;
-		background: var(--surface-variant);
-		color: var(--error);
-		border: 1px solid var(--border);
-		border-radius: 0.5rem;
-		font-weight: 600;
-		font-size: 0.78rem;
-		cursor: pointer;
-	}
-	.disconnect-btn:hover { border-color: var(--error); }
-	.done-btn {
-		padding: 0.5rem 1.25rem;
-		background: #f6821f;
-		color: #fff;
-		border: none;
-		border-radius: 0.5rem;
-		font-weight: 700;
-		font-size: 0.78rem;
-		cursor: pointer;
-	}
-	.done-btn:hover { filter: brightness(1.08); }
-	.rekey-btn {
-		align-self: flex-start;
-		margin-top: 0.15rem;
-		padding: 0.4rem 0.85rem;
-		background: var(--surface-variant);
-		color: var(--text-primary);
-		border: 1px solid var(--border);
-		border-radius: 0.5rem;
-		font-weight: 600;
-		font-size: 0.75rem;
-		cursor: pointer;
-	}
-	.rekey-btn:hover { border-color: #f6821f; }
 
 	/* ─── Tabs ─── */
 	.cf-tabs {
@@ -2032,21 +1599,4 @@
 	.mini-chip b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
 	.mini-chip.subtle { opacity: 0.75; }
 
-	/* ─── Settings: plan tier toggle ─── */
-	.plan-toggle {
-		display: flex;
-		gap: 0.3rem;
-	}
-	.plan-opt {
-		flex: 1;
-		padding: 0.4rem 0.5rem;
-		border: 1px solid var(--border);
-		border-radius: 0.4rem;
-		background: var(--surface-variant);
-		color: var(--text-secondary);
-		font-size: 0.72rem;
-		font-weight: 600;
-		cursor: pointer;
-	}
-	.plan-opt.active { background: #f6821f; color: #fff; border-color: #f6821f; }
 </style>
