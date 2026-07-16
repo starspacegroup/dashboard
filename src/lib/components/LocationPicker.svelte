@@ -18,10 +18,16 @@
 	let isSearching = false;
 	let hoveredLocation: Location | null = null;
 	let searchTimeout: number;
+	let lastSyncedLocation: Location | null = null;
 
-	// Initialize search query if there's a selected location
-	$: if (selectedLocation && !searchQuery) {
-		searchQuery = selectedLocation.displayName;
+	// Pre-fill the search box when the selected location itself changes.
+	// Keyed on the location (not searchQuery) so editing the text doesn't
+	// get snapped back to the current location's name mid-keystroke.
+	$: if (selectedLocation !== lastSyncedLocation) {
+		lastSyncedLocation = selectedLocation;
+		if (selectedLocation) {
+			searchQuery = selectedLocation.displayName;
+		}
 	}
 
 	// Search for locations with debounce
