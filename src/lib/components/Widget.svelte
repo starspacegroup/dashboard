@@ -2,10 +2,16 @@
 	import type { Widget } from '$lib/types/widget';
 	import { widgets, isDraggingAny } from '$lib/stores/widgets';
 	import { liveTitles } from '$lib/stores/liveTitles';
+	import { widgetAlerts, alertColorFor } from '$lib/stores/widgetAlerts';
 	import { createEventDispatcher, onDestroy } from 'svelte';
 
 	export let widget: Widget;
 	export let onSettingsClick: (() => void) | undefined = undefined;
+
+	// An active alert in the widget's content tints the frame. This is the only
+	// alert signal that survives collapsing, since the body is display:none.
+	$: alert = $widgetAlerts[widget.id];
+	$: alertColor = alert ? alertColorFor(alert.severity) : '';
 
 	const dispatch = createEventDispatcher();
 	
@@ -393,10 +399,19 @@
 	class="widget"
 	class:dragging={isDragging}
 	class:collapsed={widget.collapsed}
+	class:has-alert={!!alert}
+	style={alert ? `--alert-color: ${alertColor}` : ''}
 >
-	<div class="widget-header">
+	<div class="widget-header" title={alert ? alert.headline : ''}>
 		<button class="drag-handle" on:mousedown={handleMouseDown} on:touchstart={handleTouchStart} aria-label="Drag widget" type="button">⋮⋮</button>
 		<h3>{$liveTitles[widget.id] ?? widget.title}</h3>
+		{#if alert}
+			<span class="header-alert">
+				<span aria-hidden="true">⚠</span>
+				<span class="header-alert-event">{alert.event}</span>
+				{#if alert.count > 1}<span class="header-alert-more">+{alert.count - 1}</span>{/if}
+			</span>
+		{/if}
 		<div class="header-buttons">
 			{#if onSettingsClick}
 				<button
@@ -464,6 +479,74 @@
 
 	.widget.collapsed {
 		margin-bottom: 1rem;
+	}
+
+	/* Active weather alert: the frame carries the severity colour so it reads
+	   from across the room and survives collapsing. */
+	.widget.has-alert {
+		border-color: var(--alert-color);
+	}
+
+	.widget.has-alert .widget-header {
+		background: color-mix(in srgb, var(--alert-color) 14%, var(--surface));
+		border-bottom-color: var(--alert-color);
+	}
+
+	.widget.has-alert .widget-header h3 {
+		color: var(--alert-color);
+	}
+
+	/* Dragging owns the border (dashed + primary); don't fight it. */
+	.widget.has-alert.dragging {
+		border-color: var(--primary-color);
+	}
+
+	.header-alert {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3em;
+		min-width: 0;
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		color: var(--alert-color);
+	}
+
+	.header-alert-event {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.header-alert-more {
+		font-weight: 400;
+		opacity: 0.85;
+		white-space: nowrap;
+	}
+
+	/* The title can shrink; the alert should be the last thing to give up room. */
+	.widget.has-alert .widget-header h3 {
+		flex: 0 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		.widget.has-alert {
+			animation: widget-alert-pulse 2.4s ease-in-out infinite;
+		}
+	}
+
+	@keyframes widget-alert-pulse {
+		0%,
+		100% {
+			box-shadow: 0 0 0 0 color-mix(in srgb, var(--alert-color) 30%, transparent);
+		}
+		50% {
+			box-shadow: 0 0 12px 2px color-mix(in srgb, var(--alert-color) 22%, transparent);
+		}
 	}
 
 	.widget.dragging {

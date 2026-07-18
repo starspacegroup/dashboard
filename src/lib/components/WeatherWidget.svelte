@@ -7,6 +7,7 @@
 	import { weatherSettings } from '$lib/stores/weatherSettings';
 	import { revealWidget } from '$lib/utils/revealWidget';
 	import { getSavedLocation, saveResolvedCoords, getPositionIfGranted } from '$lib/utils/geolocation';
+	import { setWidgetAlert, clearWidgetAlert, alertColorFor } from '$lib/stores/widgetAlerts';
 	import { moonPhase as moonPhaseStore, computeMoonPhase } from '$lib/stores/moonPhase';
 
 	export let widget: Widget;
@@ -103,14 +104,24 @@
 	// Active NWS alert banner: most severe first (server pre-sorts), colored by
 	// severity — same palette as the streamdeck alert tile.
 	$: topAlert = alerts[0] ?? null;
-	$: alertColor = !topAlert
-		? ''
-		: topAlert.severity === 'Extreme' || topAlert.severity === 'Severe'
-			? '#e43a3a'
-			: topAlert.severity === 'Moderate'
-				? '#eb8e28'
-				: '#dcc446';
+	$: alertColor = topAlert ? alertColorFor(topAlert.severity) : '';
 	$: alertEndsText = topAlert?.ends ? formatAlertEnds(topAlert.ends) : '';
+
+	// Publish the top alert so the widget frame can tint its border + header.
+	// That's the only thing still visible when the widget is collapsed, which is
+	// exactly when the in-body banner below can't be seen.
+	$: if (browser) {
+		if (topAlert) {
+			setWidgetAlert(widget.id, {
+				event: topAlert.event,
+				severity: topAlert.severity,
+				count: alerts.length,
+				headline: topAlert.headline
+			});
+		} else {
+			clearWidgetAlert(widget.id);
+		}
+	}
 
 	// "til 9:00 PM" in the widget's own timezone (falls back to browser local).
 	function formatAlertEnds(ends: number): string {
@@ -1275,6 +1286,7 @@
 			window.removeEventListener('location-cleared', handleLocationCleared);
 			resizeObserver?.disconnect();
 			unsubSetupWatch();
+			clearWidgetAlert(widget.id); // don't leave a tint behind on a deleted widget
 		};
 	});
 

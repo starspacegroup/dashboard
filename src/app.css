@@ -36,6 +36,10 @@
 	--warning-bg: rgba(249, 115, 22, 0.2);
 	--info: #3b82f6;
 	--info-bg: rgba(59, 130, 246, 0.2);
+	/* Weather alert severity (NWS): Extreme/Severe, Moderate, everything else */
+	--alert-severe: #e43a3a;
+	--alert-moderate: #eb8e28;
+	--alert-minor: #dcc446;
 	--purple: #a855f7;
 	--purple-bg: rgba(168, 85, 247, 0.2);
 	--gray: #9ca3af;
@@ -82,6 +86,10 @@
 	--warning-bg: rgba(249, 115, 22, 0.2);
 	--info: #3b82f6;
 	--info-bg: rgba(59, 130, 246, 0.2);
+	/* Weather alert severity (NWS): Extreme/Severe, Moderate, everything else */
+	--alert-severe: #e43a3a;
+	--alert-moderate: #eb8e28;
+	--alert-minor: #dcc446;
 	--purple: #a855f7;
 	--purple-bg: rgba(168, 85, 247, 0.2);
 	--gray: #9ca3af;
