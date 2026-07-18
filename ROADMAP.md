@@ -54,3 +54,18 @@ Full diagnosis and implementation plan: **`../planning/kv-write-amplification.md
 > See `CLAUDE.md` → "Cross-Instance Sync" and "GitHub Data Caching" for the
 > mechanisms. Note: SpaceBot drives the separate Workers *request* limit — that
 > is not a KV problem and is tracked in SpaceBot's roadmap.
+
+### Cloudflare widget: CPU-unit bug + misleading Workers error badge — 2026-07-12
+
+The widget renders Cloudflare's `cpuTimeP50/P99` (returned in **microseconds**)
+with an `ms` label — "CPU p99 11386.0ms / 10ms" is really 11.4ms
+(`CloudflareWidget.svelte:944,961`; raw pass-through in
+`api/cloudflare/+server.ts`). Separately, the per-script ERR badge counts
+Cloudflare Workflows engine-teardown exceptions as errors, so a healthy
+`spacebot-ai-orchestrator` shows 27.1K ERR / 35%.
+Plan: **`../planning/cloudflare-widget-fixes.md`**.
+
+- [ ] Convert `cpuTimeP50/P99` µs → ms in the API handler (both
+      `handleWorkersAnalytics` and `handleWorkers`).
+- [ ] Label/mute the ERR badge for Workflows-hosting scripts (tooltip or
+      user-tagged muted style; don't fabricate a "corrected" count).
