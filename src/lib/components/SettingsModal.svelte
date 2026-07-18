@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import LocationPicker from './LocationPicker.svelte';
+	import { requestAndSaveLocation } from '$lib/utils/geolocation';
 	import { analyticsConnection, isAnalyticsConnected } from '$lib/stores/analyticsConnection';
 
 	export let isOpen = false;
@@ -70,38 +71,26 @@
 		}
 	}
 
-	// Request location access
+	// Deliberate "use my current location" request. This is the one place a
+	// prompt is acceptable — it's a tap. On success it persists the fix (via
+	// the shared helper, which also notifies widgets + sync), so widgets reuse
+	// it on later loads instead of re-prompting.
 	async function requestLocationAccess() {
 		if (!browser || !navigator.geolocation) {
 			return;
 		}
 
 		isRequestingLocation = true;
+		const loc = await requestAndSaveLocation();
+		isRequestingLocation = false;
 
-		navigator.geolocation.getCurrentPosition(
-			(position) => {
-				isRequestingLocation = false;
-				locationPermission = 'granted';
-				
-				// Trigger event with browser location
-				window.dispatchEvent(new CustomEvent('browser-location-granted', {
-					detail: {
-						lat: position.coords.latitude,
-						lon: position.coords.longitude
-					}
-				}));
-			},
-			(error) => {
-				isRequestingLocation = false;
-				console.error('Location access denied:', error);
-				checkLocationPermission(); // Update permission status
-			},
-			{
-				enableHighAccuracy: false,
-				timeout: 10000,
-				maximumAge: 0
-			}
-		);
+		if (loc) {
+			savedLocation = loc;
+			selectedLocation = loc;
+			locationPermission = 'granted';
+		} else {
+			checkLocationPermission(); // denied/unavailable — refresh the shown state
+		}
 	}
 
 	// Clear location permission (guide user)

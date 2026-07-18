@@ -6,6 +6,7 @@
 	import { widgets, pendingSetupWidgetId } from '$lib/stores/widgets';
 	import { weatherSettings } from '$lib/stores/weatherSettings';
 	import { revealWidget } from '$lib/utils/revealWidget';
+	import { getSavedLocation, saveResolvedCoords, getPositionIfGranted } from '$lib/utils/geolocation';
 
 	export let widget: Widget | undefined = undefined;
 
@@ -25,7 +26,6 @@
 	});
 
 	const ZIP_CODE_KEY = 'dashboard-zip-code';
-	const DASHBOARD_LOCATION_KEY = 'dashboard-location';
 	
 	let hasLocation = false;
 	let mapCenter = { lat: 0, lng: 0 };
@@ -252,20 +252,16 @@
 			return;
 		}
 
-		// 2) Global location from the settings modal
-		const savedLocation = localStorage.getItem(DASHBOARD_LOCATION_KEY);
-		if (savedLocation) {
-			try {
-				const loc = JSON.parse(savedLocation);
-				if (typeof loc.lat === 'number' && typeof loc.lon === 'number') {
-					mapCenter = { lat: loc.lat, lng: loc.lon };
-					hasLocation = true;
-					isLoading = false;
-					return;
-				}
-			} catch (_e) {
-				// Could not parse saved location
-			}
+		// 2) Global location from the settings modal — show it instantly, then
+		// silently refresh to a live fix only if permission is already granted
+		// (never prompts on reload).
+		const saved = getSavedLocation();
+		if (saved) {
+			mapCenter = { lat: saved.lat, lng: saved.lon };
+			hasLocation = true;
+			isLoading = false;
+			void refreshTrafficLocationSilently();
+			return;
 		}
 
 		// 3) A weather widget with a configured location
@@ -280,24 +276,27 @@
 			return;
 		}
 
-		// 4) Last resort: browser geolocation (this is what triggers the permission prompt)
-		if (navigator.geolocation) {
-			navigator.geolocation.getCurrentPosition(
-				(position) => {
-					mapCenter = {
-						lat: position.coords.latitude,
-						lng: position.coords.longitude
-					};
-					hasLocation = true;
-					isLoading = false;
-				},
-				() => {
-					isLoading = false;
-				}
-			);
-		} else {
-			isLoading = false;
+		// 4) Last resort: a live fix — but ONLY if permission is already granted,
+		// so this never prompts on load. Otherwise leave the widget in its
+		// no-location state; the user grants location deliberately in Settings.
+		const pos = await getPositionIfGranted();
+		if (pos) {
+			mapCenter = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+			hasLocation = true;
+			saveResolvedCoords(pos.coords.latitude, pos.coords.longitude);
 		}
+		isLoading = false;
+	}
+
+	/** Silent, prompt-free live refresh (only acts when permission is granted). */
+	async function refreshTrafficLocationSilently() {
+		const pos = await getPositionIfGranted();
+		if (!pos) return;
+		const { latitude, longitude } = pos.coords;
+		saveResolvedCoords(latitude, longitude);
+		mapCenter = { lat: latitude, lng: longitude };
+		hasLocation = true;
+		if (map) map.setCenter(mapCenter);
 	}
 	
 	async function getCoordinatesFromZipCode(zipCode: string) {

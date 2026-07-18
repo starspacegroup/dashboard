@@ -6,6 +6,7 @@
 	import { widgets, pendingSetupWidgetId } from '$lib/stores/widgets';
 	import { weatherSettings } from '$lib/stores/weatherSettings';
 	import { revealWidget } from '$lib/utils/revealWidget';
+	import { getSavedLocation, saveResolvedCoords, getPositionIfGranted } from '$lib/utils/geolocation';
 	import { moonPhase as moonPhaseStore, computeMoonPhase } from '$lib/stores/moonPhase';
 
 	export let widget: Widget;
@@ -673,48 +674,42 @@
 			return;
 		}
 
-		// Priority 2: Check if there's a saved global location from settings
-		const savedLocationStr = localStorage.getItem('dashboard-location');
-		if (savedLocationStr) {
-			try {
-				const savedLocation = JSON.parse(savedLocationStr);
-				await fetchWeatherFromAPI(savedLocation.lat, savedLocation.lon);
-				return;
-			} catch (e) {
-				console.error('Failed to parse saved location:', e);
-			}
+		// Priority 2: A saved global location — render it instantly (no wait, no
+		// prompt), then silently refresh to a live fix *only* if permission is
+		// already granted (never triggers a prompt on reload).
+		const saved = getSavedLocation();
+		if (saved) {
+			await fetchWeatherFromAPI(saved.lat, saved.lon);
+			void refreshLiveLocationSilently();
+			return;
 		}
 
-		// Fall back to browser location
+		// Nothing saved yet. Don't auto-prompt — that's what nags on every load.
+		// Use a live fix only if we already have permission; otherwise show the
+		// default and let the user grant location deliberately (Settings).
 		await fetchWeatherData();
+	}
+
+	/**
+	 * Refresh to a live location without ever prompting. Only does anything when
+	 * permission is already granted; a meaningful move re-saves + re-fetches via
+	 * the `location-changed` handler, and the move-threshold guard keeps a
+	 * jittery fix from rewriting state on every load.
+	 */
+	async function refreshLiveLocationSilently() {
+		const pos = await getPositionIfGranted();
+		if (pos) saveResolvedCoords(pos.coords.latitude, pos.coords.longitude);
 	}
 
 	async function fetchWeatherData() {
 		try {
-			// Try to get user's location with a timeout
-			if (navigator.geolocation) {
-				// Create a promise that times out after 10 seconds
-				const locationPromise = new Promise<GeolocationPosition>((resolve, reject) => {
-					navigator.geolocation.getCurrentPosition(
-						resolve,
-						reject,
-						{ timeout: 10000, maximumAge: 300000 } // 10s timeout, 5min cache
-					);
-				});
-
-				try {
-					const position = await locationPromise;
-					const { latitude, longitude } = position.coords;
-					await fetchWeatherFromAPI(latitude, longitude);
-				} catch (_geoError) {
-					// Geolocation failed, timed out, or denied
-					// Fall back to default location (Lewiston, ME)
-					console.log('Geolocation unavailable, using default location');
-					await fetchWeatherFromAPI(44.1004, -70.2148);
-				}
+			const pos = await getPositionIfGranted();
+			if (pos) {
+				saveResolvedCoords(pos.coords.latitude, pos.coords.longitude);
+				await fetchWeatherFromAPI(pos.coords.latitude, pos.coords.longitude);
 			} else {
-				// Geolocation not supported - fall back to default location
-				console.log('Geolocation not supported, using default location');
+				// No saved location and no silent fix available — show the default
+				// (Lewiston, ME) rather than prompting on load.
 				await fetchWeatherFromAPI(44.1004, -70.2148);
 			}
 		} catch (error) {
