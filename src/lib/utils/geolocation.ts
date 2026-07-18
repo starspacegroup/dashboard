@@ -10,6 +10,9 @@ export interface SavedLocation {
 }
 
 const LOCATION_KEY = 'dashboard-location';
+// Marks a location we resolved from GPS ourselves, as opposed to a place the
+// user picked in Settings. Only the former may be silently overwritten.
+const CURRENT_LOCATION_NAME = 'Current location';
 // Below this coordinate delta (~1.1 km) a new fix counts as "same place", so we
 // skip persisting it — avoids a KV write + re-render on GPS jitter / every load.
 const MOVE_THRESHOLD_DEG = 0.01;
@@ -46,9 +49,13 @@ export function getSavedLocation(): SavedLocation | null {
  * MOVE_THRESHOLD of the saved one, so a live refresh doesn't rewrite KV or
  * re-render on every reload when the user hasn't meaningfully moved.
  */
-export function saveResolvedCoords(lat: number, lon: number): boolean {
+export function saveResolvedCoords(lat: number, lon: number, force = false): boolean {
 	if (!browser) return false;
 	const prev = getSavedLocation();
+	// A city the user deliberately picked outranks an automatic live fix — only
+	// overwrite our own 'Current location' entries. `force` is for the explicit
+	// "use my current location" tap, which is entitled to replace a chosen city.
+	if (!force && prev && prev.name !== CURRENT_LOCATION_NAME) return false;
 	if (
 		prev &&
 		Math.abs(prev.lat - lat) < MOVE_THRESHOLD_DEG &&
@@ -57,12 +64,12 @@ export function saveResolvedCoords(lat: number, lon: number): boolean {
 		return false; // essentially unchanged — don't churn
 	}
 	const location: SavedLocation = {
-		name: 'Current location',
+		name: CURRENT_LOCATION_NAME,
 		state: '',
 		country: '',
 		lat,
 		lon,
-		displayName: 'Current location'
+		displayName: CURRENT_LOCATION_NAME
 	};
 	localStorage.setItem(LOCATION_KEY, JSON.stringify(location));
 	window.dispatchEvent(new CustomEvent('location-changed', { detail: location }));
@@ -113,7 +120,7 @@ export async function requestAndSaveLocation(
 	return new Promise((resolve) => {
 		navigator.geolocation.getCurrentPosition(
 			(pos) => {
-				saveResolvedCoords(pos.coords.latitude, pos.coords.longitude);
+				saveResolvedCoords(pos.coords.latitude, pos.coords.longitude, true);
 				resolve(getSavedLocation());
 			},
 			() => resolve(null),

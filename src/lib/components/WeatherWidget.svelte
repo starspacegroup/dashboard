@@ -798,6 +798,11 @@
 
 	// Handle location changed event from settings
 	function handleLocationChanged(event: CustomEvent) {
+		// A widget with its own configured city owns its location — the global
+		// location never overrides it. (Without this guard a silent GPS refresh
+		// broadcasts onto every widget and they all snap to the current fix.)
+		if (widget.config?.location) return;
+
 		const location = event.detail;
 		if (location && location.lat && location.lon) {
 			// Clear cache and reload with new location
