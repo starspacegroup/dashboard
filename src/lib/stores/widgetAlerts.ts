@@ -20,13 +20,23 @@ export interface WidgetAlert {
 	event: string;
 	/** Raw NWS severity; may be "Unknown". */
 	severity: string;
-	/** Total active alerts, so the frame can show "+N more". */
-	count: number;
-	/** Full NWS headline, used as the header tooltip. */
+	/** Full NWS headline — the actual detail, shown in the tap-out panel. */
 	headline: string;
+	/**
+	 * Pre-formatted end time ("9:00 PM"), or '' when the alert has no end.
+	 * Formatted by the publisher because it knows the widget's timezone; the
+	 * frame just renders the string.
+	 */
+	endsText: string;
 }
 
-export const widgetAlerts = writable<Record<string, WidgetAlert>>({});
+/**
+ * Every active alert for the widget, most severe first — not just the top one.
+ * The header shows the first and a +N count; tapping it opens the full list,
+ * which is the only way to read alerts 2..N (and the only way to see any
+ * detail at all on touch, where `title` tooltips don't exist).
+ */
+export const widgetAlerts = writable<Record<string, WidgetAlert[]>>({});
 
 /**
  * Severity → theme colour. NWS sends "Unknown" for a fair number of products
@@ -39,19 +49,23 @@ export function alertColorFor(severity: string): string {
 	return 'var(--alert-minor)';
 }
 
-/** Publish a widget's top alert (no-op if unchanged, to avoid render churn). */
-export function setWidgetAlert(id: string, alert: WidgetAlert) {
+/** Publish a widget's active alerts (no-op if unchanged, to avoid render churn). */
+export function setWidgetAlerts(id: string, alerts: WidgetAlert[]) {
 	widgetAlerts.update((m) => {
 		const prev = m[id];
 		if (
 			prev &&
-			prev.event === alert.event &&
-			prev.severity === alert.severity &&
-			prev.count === alert.count
+			prev.length === alerts.length &&
+			prev.every(
+				(p, i) =>
+					p.event === alerts[i].event &&
+					p.severity === alerts[i].severity &&
+					p.endsText === alerts[i].endsText
+			)
 		) {
 			return m;
 		}
-		return { ...m, [id]: alert };
+		return { ...m, [id]: alerts };
 	});
 }
 

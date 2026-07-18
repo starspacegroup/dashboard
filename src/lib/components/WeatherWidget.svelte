@@ -7,7 +7,7 @@
 	import { weatherSettings } from '$lib/stores/weatherSettings';
 	import { revealWidget } from '$lib/utils/revealWidget';
 	import { getSavedLocation, saveResolvedCoords, getPositionIfGranted } from '$lib/utils/geolocation';
-	import { setWidgetAlert, clearWidgetAlert, alertColorFor } from '$lib/stores/widgetAlerts';
+	import { setWidgetAlerts, clearWidgetAlert, alertColorFor } from '$lib/stores/widgetAlerts';
 	import { moonPhase as moonPhaseStore, computeMoonPhase } from '$lib/stores/moonPhase';
 
 	export let widget: Widget;
@@ -111,13 +111,16 @@
 	// That's the only thing still visible when the widget is collapsed, which is
 	// exactly when the in-body banner below can't be seen.
 	$: if (browser) {
-		if (topAlert) {
-			setWidgetAlert(widget.id, {
-				event: topAlert.event,
-				severity: topAlert.severity,
-				count: alerts.length,
-				headline: topAlert.headline
-			});
+		if (alerts.length) {
+			setWidgetAlerts(
+				widget.id,
+				alerts.map((a) => ({
+					event: a.event,
+					severity: a.severity,
+					headline: a.headline,
+					endsText: a.ends ? formatAlertEnds(a.ends) : ''
+				}))
+			);
 		} else {
 			clearWidgetAlert(widget.id);
 		}

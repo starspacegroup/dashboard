@@ -10,8 +10,58 @@
 
 	// An active alert in the widget's content tints the frame. This is the only
 	// alert signal that survives collapsing, since the body is display:none.
-	$: alert = $widgetAlerts[widget.id];
-	$: alertColor = alert ? alertColorFor(alert.severity) : '';
+	$: alerts = $widgetAlerts[widget.id] ?? [];
+	$: topAlert = alerts[0];
+	$: alertColor = topAlert ? alertColorFor(topAlert.severity) : '';
+
+	// Tap-out detail panel. `title` tooltips don't exist on touch, and the
+	// header text truncates hard on a phone, so the full headline (and alerts
+	// 2..N, which have no other surface at all) live here.
+	let alertsOpen = false;
+
+	function toggleAlerts() {
+		alertsOpen = !alertsOpen;
+	}
+
+	function closeAlerts() {
+		alertsOpen = false;
+	}
+
+	function handleAlertKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && alertsOpen) {
+			alertsOpen = false;
+			event.stopPropagation();
+		}
+	}
+
+	// Any tap outside the panel dismisses it. Registered only while open so we
+	// aren't holding a document listener per widget for the common no-alert case.
+	function handleDocumentPointer(event: PointerEvent) {
+		const target = event.target as HTMLElement | null;
+		if (target?.closest(`[data-alert-scope="${widget.id}"]`)) return;
+		alertsOpen = false;
+	}
+
+	$: if (typeof document !== 'undefined') {
+		if (alertsOpen) {
+			document.addEventListener('pointerdown', handleDocumentPointer);
+			document.addEventListener('keydown', handleAlertKeydown);
+		} else {
+			document.removeEventListener('pointerdown', handleDocumentPointer);
+			document.removeEventListener('keydown', handleAlertKeydown);
+		}
+	}
+
+	// Alerts can clear themselves out from under an open panel (expired, or the
+	// widget's location changed) — don't strand it open over nothing.
+	$: if (!alerts.length && alertsOpen) alertsOpen = false;
+
+	onDestroy(() => {
+		if (typeof document !== 'undefined') {
+			document.removeEventListener('pointerdown', handleDocumentPointer);
+			document.removeEventListener('keydown', handleAlertKeydown);
+		}
+	});
 
 	const dispatch = createEventDispatcher();
 	
@@ -399,18 +449,30 @@
 	class="widget"
 	class:dragging={isDragging}
 	class:collapsed={widget.collapsed}
-	class:has-alert={!!alert}
-	style={alert ? `--alert-color: ${alertColor}` : ''}
+	class:has-alert={!!topAlert}
+	style={topAlert ? `--alert-color: ${alertColor}` : ''}
 >
-	<div class="widget-header" title={alert ? alert.headline : ''}>
+	<div class="widget-header">
 		<button class="drag-handle" on:mousedown={handleMouseDown} on:touchstart={handleTouchStart} aria-label="Drag widget" type="button">⋮⋮</button>
 		<h3>{$liveTitles[widget.id] ?? widget.title}</h3>
-		{#if alert}
-			<span class="header-alert">
+		{#if topAlert}
+			<button
+				class="header-alert"
+				data-alert-scope={widget.id}
+				on:click|stopPropagation={toggleAlerts}
+				aria-expanded={alertsOpen}
+				aria-label="{alerts.length} active weather {alerts.length === 1
+					? 'alert'
+					: 'alerts'}: {topAlert.event}. Show details."
+				type="button"
+			>
 				<span aria-hidden="true">⚠</span>
-				<span class="header-alert-event">{alert.event}</span>
-				{#if alert.count > 1}<span class="header-alert-more">+{alert.count - 1}</span>{/if}
-			</span>
+				<span class="header-alert-event">{topAlert.event}</span>
+				{#if alerts.length > 1}<span class="header-alert-more">+{alerts.length - 1}</span>{/if}
+				<!-- Narrow screens: the event name truncates to noise ("Air…"), so
+				     show a plain count instead and let the panel carry the detail. -->
+				{#if alerts.length > 1}<span class="header-alert-count">{alerts.length}</span>{/if}
+			</button>
 		{/if}
 		<div class="header-buttons">
 			{#if onSettingsClick}
@@ -442,6 +504,20 @@
 			</button>
 		</div>
 	</div>
+	{#if alertsOpen && alerts.length}
+		<div class="alert-panel" data-alert-scope={widget.id} role="group" aria-label="Active weather alerts">
+			{#each alerts as a (a.event + a.headline)}
+				<div class="alert-row" style="--row-color: {alertColorFor(a.severity)}">
+					<div class="alert-row-head">
+						<span class="alert-row-event">{a.event}</span>
+						{#if a.endsText}<span class="alert-row-ends">til {a.endsText}</span>{/if}
+					</div>
+					{#if a.headline}<p class="alert-row-headline">{a.headline}</p>{/if}
+				</div>
+			{/each}
+			<button class="alert-panel-close" on:click|stopPropagation={closeAlerts} type="button">Close</button>
+		</div>
+	{/if}
 	<div class="widget-content" class:collapsed={widget.collapsed}>
 		<slot />
 	</div>
@@ -510,6 +586,99 @@
 		font-weight: 700;
 		letter-spacing: 0.02em;
 		color: var(--alert-color);
+		/* button reset */
+		background: none;
+		border: 1px solid transparent;
+		border-radius: 999px;
+		font-family: inherit;
+		cursor: pointer;
+		/* Comfortable touch target without changing the header's height. */
+		padding: 0.3rem 0.5rem;
+		margin: -0.3rem 0;
+		min-height: 32px;
+	}
+
+	.header-alert:hover,
+	.header-alert:focus-visible {
+		background: color-mix(in srgb, var(--alert-color) 18%, transparent);
+		border-color: color-mix(in srgb, var(--alert-color) 50%, transparent);
+	}
+
+	.header-alert[aria-expanded='true'] {
+		background: color-mix(in srgb, var(--alert-color) 22%, transparent);
+		border-color: var(--alert-color);
+	}
+
+	.alert-panel {
+		position: absolute;
+		z-index: 20;
+		top: 100%;
+		left: 0;
+		right: 0;
+		margin-top: -3px;
+		max-height: 60vh;
+		overflow-y: auto;
+		background: var(--surface);
+		border: 3px solid var(--alert-color);
+		border-top-width: 0;
+		padding: 0.75rem 1rem 0.5rem;
+		box-shadow: 0 12px 28px var(--shadow, rgba(0, 0, 0, 0.35));
+		text-align: left;
+	}
+
+	.alert-row {
+		padding: 0.55rem 0 0.6rem 0.7rem;
+		border-left: 3px solid var(--row-color);
+	}
+
+	.alert-row + .alert-row {
+		border-top: 1px solid var(--border);
+	}
+
+	.alert-row-head {
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
+	.alert-row-event {
+		font-size: 0.8125rem;
+		font-weight: 700;
+		color: var(--row-color);
+	}
+
+	.alert-row-ends {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.alert-row-headline {
+		margin: 0.3rem 0 0;
+		font-size: 0.75rem;
+		line-height: 1.45;
+		color: var(--text-secondary);
+	}
+
+	.alert-panel-close {
+		display: block;
+		width: 100%;
+		margin-top: 0.5rem;
+		padding: 0.6rem;
+		min-height: 40px;
+		background: none;
+		border: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-family: inherit;
+		font-size: 0.75rem;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+		cursor: pointer;
+	}
+
+	.alert-panel-close:hover {
+		color: var(--text-primary);
+		border-color: var(--alert-color);
 	}
 
 	.header-alert-event {
@@ -522,6 +691,22 @@
 		font-weight: 400;
 		opacity: 0.85;
 		white-space: nowrap;
+	}
+
+	.header-alert-count {
+		display: none;
+		font-weight: 700;
+	}
+
+	@media (max-width: 640px) {
+		.header-alert-event,
+		.header-alert-more {
+			display: none;
+		}
+
+		.header-alert-count {
+			display: inline;
+		}
 	}
 
 	/* The title can shrink; the alert should be the last thing to give up room. */
