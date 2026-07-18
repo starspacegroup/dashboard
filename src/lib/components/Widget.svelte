@@ -450,6 +450,7 @@
 	class:dragging={isDragging}
 	class:collapsed={widget.collapsed}
 	class:has-alert={!!topAlert}
+	class:alert-open={alertsOpen}
 	style={topAlert ? `--alert-color: ${alertColor}` : ''}
 >
 	<div class="widget-header">
@@ -503,21 +504,23 @@
 				▼
 			</button>
 		</div>
-	</div>
-	{#if alertsOpen && alerts.length}
-		<div class="alert-panel" data-alert-scope={widget.id} role="group" aria-label="Active weather alerts">
-			{#each alerts as a (a.event + a.headline)}
-				<div class="alert-row" style="--row-color: {alertColorFor(a.severity)}">
-					<div class="alert-row-head">
-						<span class="alert-row-event">{a.event}</span>
-						{#if a.endsText}<span class="alert-row-ends">til {a.endsText}</span>{/if}
+		<!-- Anchored to the header, not the widget: `top: 100%` on the widget
+		     dropped the panel below the whole (tall) widget body. -->
+		{#if alertsOpen && alerts.length}
+			<div class="alert-panel" data-alert-scope={widget.id} role="group" aria-label="Active weather alerts">
+				{#each alerts as a (a.event + a.headline)}
+					<div class="alert-row" style="--row-color: {alertColorFor(a.severity)}">
+						<div class="alert-row-head">
+							<span class="alert-row-event">{a.event}</span>
+							{#if a.endsText}<span class="alert-row-ends">til {a.endsText}</span>{/if}
+						</div>
+						{#if a.headline}<p class="alert-row-headline">{a.headline}</p>{/if}
 					</div>
-					{#if a.headline}<p class="alert-row-headline">{a.headline}</p>{/if}
-				</div>
-			{/each}
-			<button class="alert-panel-close" on:click|stopPropagation={closeAlerts} type="button">Close</button>
-		</div>
-	{/if}
+				{/each}
+				<button class="alert-panel-close" on:click|stopPropagation={closeAlerts} type="button">Close</button>
+			</div>
+		{/if}
+	</div>
 	<div class="widget-content" class:collapsed={widget.collapsed}>
 		<slot />
 	</div>
@@ -561,6 +564,12 @@
 	   from across the room and survives collapsing. */
 	.widget.has-alert {
 		border-color: var(--alert-color);
+	}
+
+	/* Lift the whole widget while its panel is open so the dropdown isn't
+	   painted under a neighbouring widget. */
+	.widget.alert-open {
+		z-index: 30;
 	}
 
 	.widget.has-alert .widget-header {
@@ -615,7 +624,9 @@
 		top: 100%;
 		left: 0;
 		right: 0;
-		margin-top: -3px;
+		/* top:100% lands on the header's padding box, i.e. above its 3px
+		   border-bottom — clear it so the panel sits under the rule, not on it. */
+		margin-top: 3px;
 		max-height: 60vh;
 		overflow-y: auto;
 		background: var(--surface);
@@ -750,6 +761,7 @@
 
 	.widget-header {
 		background: var(--surface);
+		position: relative; /* anchors the alert panel directly beneath the header */
 		padding: 1rem 1.25rem;
 		display: flex;
 		justify-content: space-between;
