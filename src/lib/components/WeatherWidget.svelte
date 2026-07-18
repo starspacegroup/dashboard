@@ -50,6 +50,14 @@
 		moonIllumination?: number;
 		timezone?: string;
 		timezoneOffset?: number;
+		alerts?: WeatherAlert[];
+	}
+
+	interface WeatherAlert {
+		event: string;
+		severity: string;
+		headline: string;
+		ends: number | null; // unix seconds
 	}
 
 	interface HourlyData {
@@ -89,7 +97,33 @@
 	let windDirection = 0; // degrees (0=N, 90=E, 180=S, 270=W)
 	let windGust = 0; // mph
 	let location = 'Lewiston, ME';
+	let alerts: WeatherAlert[] = [];
 	let condition = 'partly-cloudy';
+
+	// Active NWS alert banner: most severe first (server pre-sorts), colored by
+	// severity — same palette as the streamdeck alert tile.
+	$: topAlert = alerts[0] ?? null;
+	$: alertColor = !topAlert
+		? ''
+		: topAlert.severity === 'Extreme' || topAlert.severity === 'Severe'
+			? '#e43a3a'
+			: topAlert.severity === 'Moderate'
+				? '#eb8e28'
+				: '#dcc446';
+	$: alertEndsText = topAlert?.ends ? formatAlertEnds(topAlert.ends) : '';
+
+	// "til 9:00 PM" in the widget's own timezone (falls back to browser local).
+	function formatAlertEnds(ends: number): string {
+		try {
+			return new Date(ends * 1000).toLocaleTimeString('en-US', {
+				hour: 'numeric',
+				minute: '2-digit',
+				...(timezone ? { timeZone: timezone } : {})
+			});
+		} catch {
+			return '';
+		}
+	}
 	let weatherCondition = 'clear'; // Raw condition from API for animations: clear, clouds, fog, drizzle, rain, snow, thunderstorm
 	
 	// Calculate wind effect on animations
@@ -791,6 +825,7 @@
 		windDirection = data.windDirection || 0;
 		windGust = data.windGust || 0;
 		location = data.location;
+		alerts = data.alerts || [];
 		description = data.description || '';
 		hourlyData = data.hourly || [];
 		dailyForecast = (data as WeatherData & { dailyForecast?: DailyForecast[] }).dailyForecast || [];
@@ -1913,6 +1948,14 @@
 		<div class="location-section">
 			<div class="location">{location}</div>
 			<div class="condition-text">{description}</div>
+			{#if topAlert}
+				<div class="weather-alert" style="--alert-color: {alertColor}" title={topAlert.headline}>
+					<span class="alert-icon" aria-hidden="true">⚠</span>
+					<span class="alert-event">{topAlert.event}</span>
+					{#if alertEndsText}<span class="alert-ends">til {alertEndsText}</span>{/if}
+					{#if alerts.length > 1}<span class="alert-more">+{alerts.length - 1}</span>{/if}
+				</div>
+			{/if}
 		</div>
 
 		<!-- 24-Hour Temperature Graph (layered behind temperature) -->
@@ -2497,6 +2540,50 @@
 		text-shadow: 0 1px 3px var(--shadow);
 		font-weight: 400;
 		letter-spacing: 0.02em;
+	}
+
+	.weather-alert {
+		position: relative;
+		z-index: 3;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35em;
+		margin-top: 0.4rem;
+		padding: 0.15rem 0.65rem;
+		border-radius: 999px;
+		max-width: 100%;
+		box-sizing: border-box;
+		font-size: calc(var(--location-size, 1) * 0.72rem);
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		color: var(--alert-color);
+		background: color-mix(in srgb, var(--alert-color) 16%, transparent);
+		border: 1px solid color-mix(in srgb, var(--alert-color) 45%, transparent);
+		text-shadow: 0 1px 2px var(--shadow);
+		animation: alert-pulse 2.4s ease-in-out infinite;
+	}
+
+	.weather-alert .alert-event {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.weather-alert .alert-ends,
+	.weather-alert .alert-more {
+		opacity: 0.8;
+		font-weight: 400;
+		white-space: nowrap;
+	}
+
+	@keyframes alert-pulse {
+		0%,
+		100% {
+			box-shadow: 0 0 0 0 color-mix(in srgb, var(--alert-color) 35%, transparent);
+		}
+		50% {
+			box-shadow: 0 0 10px 2px color-mix(in srgb, var(--alert-color) 25%, transparent);
+		}
 	}
 
 	.time-date-section {

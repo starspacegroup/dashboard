@@ -58,6 +58,46 @@ function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ms = 500
   return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
+// Active NWS weather alerts for a point (free, no API key; US coverage only —
+// non-US points just return []). Sorted most-severe-first. Never throws, so an
+// alerts outage can't take down the weather response.
+const NWS_SEVERITY_RANK: Record<string, number> = { Extreme: 4, Severe: 3, Moderate: 2, Minor: 1 };
+
+interface WeatherAlert {
+  event: string;
+  severity: string;
+  headline: string;
+  ends: number | null; // unix seconds, from `ends` falling back to `expires`
+}
+
+async function fetchNwsAlerts(lat: string, lon: string): Promise<WeatherAlert[]> {
+  try {
+    const res = await fetchWithTimeout(`https://api.weather.gov/alerts/active?point=${lat},${lon}`, {
+      headers: {
+        'User-Agent': 'StarspaceDashboard/1.0',
+        'Accept': 'application/geo+json'
+      }
+    }, 5000);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const feats: { properties?: Record<string, string | null> }[] = data.features ?? [];
+    return feats
+      .map((f) => {
+        const p = f.properties || {};
+        const ends = p.ends || p.expires || null;
+        return {
+          event: p.event || 'Weather Alert',
+          severity: p.severity || 'Unknown',
+          headline: p.headline || '',
+          ends: ends ? Math.floor(new Date(ends).getTime() / 1000) : null
+        };
+      })
+      .sort((a, b) => (NWS_SEVERITY_RANK[b.severity] || 0) - (NWS_SEVERITY_RANK[a.severity] || 0));
+  } catch {
+    return [];
+  }
+}
+
 export const GET: RequestHandler = async ({ url, locals }) => {
   // Require authentication
   const session = await locals.auth();
@@ -95,6 +135,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
     const now = new Date();
     const forceRefresh = url.searchParams.get('refresh') === 'true';
+
+    // Active NWS alerts ride along with every response, cached or fresh — they
+    // change on their own schedule, so they're fetched live rather than from
+    // the 10-minute weather cache. Kicked off here to overlap the other fetches.
+    const alertsPromise = fetchNwsAlerts(latitude, longitude);
 
     // Check if we have cached weather data (unless force refresh)
     const cachedWeather = forceRefresh ? null : getWeatherFromCache(latitude, longitude);
@@ -159,6 +204,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
         moonset: astroData.moonset,
         moonPhase: astroData.moonPhase,
         moonIllumination: astroData.moonIllumination,
+        alerts: await alertsPromise,
         timestamp: Date.now(),
         cached: true,
         cacheAge: cacheInfo?.age || 0
@@ -375,6 +421,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       moonset: astroData.moonset,
       moonPhase: astroData.moonPhase,
       moonIllumination: astroData.moonIllumination,
+      alerts: await alertsPromise,
       timestamp: Date.now(),
       cached: false
     };
