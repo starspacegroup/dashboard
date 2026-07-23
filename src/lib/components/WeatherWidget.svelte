@@ -7,7 +7,7 @@
 	import { weatherSettings } from '$lib/stores/weatherSettings';
 	import { revealWidget } from '$lib/utils/revealWidget';
 	import { getSavedLocation, saveResolvedCoords, getPositionIfGranted } from '$lib/utils/geolocation';
-	import { setWidgetAlerts, clearWidgetAlert, alertColorFor } from '$lib/stores/widgetAlerts';
+	import { setWidgetAlerts, clearWidgetAlert } from '$lib/stores/widgetAlerts';
 	import { moonPhase as moonPhaseStore, computeMoonPhase } from '$lib/stores/moonPhase';
 
 	export let widget: Widget;
@@ -101,15 +101,8 @@
 	let alerts: WeatherAlert[] = [];
 	let condition = 'partly-cloudy';
 
-	// Active NWS alert banner: most severe first (server pre-sorts), colored by
-	// severity — same palette as the streamdeck alert tile.
-	$: topAlert = alerts[0] ?? null;
-	$: alertColor = topAlert ? alertColorFor(topAlert.severity) : '';
-	$: alertEndsText = topAlert?.ends ? formatAlertEnds(topAlert.ends) : '';
-
-	// Publish the top alert so the widget frame can tint its border + header.
-	// That's the only thing still visible when the widget is collapsed, which is
-	// exactly when the in-body banner below can't be seen.
+	// Publish alerts so the widget frame can tint its border + header and show
+	// the banner up top — the widget body itself stays clean.
 	$: if (browser) {
 		if (alerts.length) {
 			setWidgetAlerts(
@@ -1968,14 +1961,6 @@
 		<div class="location-section">
 			<div class="location">{location}</div>
 			<div class="condition-text">{description}</div>
-			{#if topAlert}
-				<div class="weather-alert" style="--alert-color: {alertColor}" title={topAlert.headline}>
-					<span class="alert-icon" aria-hidden="true">⚠</span>
-					<span class="alert-event">{topAlert.event}</span>
-					{#if alertEndsText}<span class="alert-ends">til {alertEndsText}</span>{/if}
-					{#if alerts.length > 1}<span class="alert-more">+{alerts.length - 1}</span>{/if}
-				</div>
-			{/if}
 		</div>
 
 		<!-- 24-Hour Temperature Graph (layered behind temperature) -->
@@ -2560,50 +2545,6 @@
 		text-shadow: 0 1px 3px var(--shadow);
 		font-weight: 400;
 		letter-spacing: 0.02em;
-	}
-
-	.weather-alert {
-		position: relative;
-		z-index: 3;
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35em;
-		margin-top: 0.4rem;
-		padding: 0.15rem 0.65rem;
-		border-radius: 999px;
-		max-width: 100%;
-		box-sizing: border-box;
-		font-size: calc(var(--location-size, 1) * 0.72rem);
-		font-weight: 600;
-		letter-spacing: 0.02em;
-		color: var(--alert-color);
-		background: color-mix(in srgb, var(--alert-color) 16%, transparent);
-		border: 1px solid color-mix(in srgb, var(--alert-color) 45%, transparent);
-		text-shadow: 0 1px 2px var(--shadow);
-		animation: alert-pulse 2.4s ease-in-out infinite;
-	}
-
-	.weather-alert .alert-event {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.weather-alert .alert-ends,
-	.weather-alert .alert-more {
-		opacity: 0.8;
-		font-weight: 400;
-		white-space: nowrap;
-	}
-
-	@keyframes alert-pulse {
-		0%,
-		100% {
-			box-shadow: 0 0 0 0 color-mix(in srgb, var(--alert-color) 35%, transparent);
-		}
-		50% {
-			box-shadow: 0 0 10px 2px color-mix(in srgb, var(--alert-color) 25%, transparent);
-		}
 	}
 
 	.time-date-section {
