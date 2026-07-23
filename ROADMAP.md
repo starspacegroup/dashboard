@@ -65,7 +65,8 @@ Cloudflare Workflows engine-teardown exceptions as errors, so a healthy
 `spacebot-ai-orchestrator` shows 27.1K ERR / 35%.
 Plan: **`../planning/cloudflare-widget-fixes.md`**.
 
-- [ ] Convert `cpuTimeP50/P99` µs → ms in the API handler (both
-      `handleWorkersAnalytics` and `handleWorkers`).
-- [ ] Label/mute the ERR badge for Workflows-hosting scripts (tooltip or
-      user-tagged muted style; don't fabricate a "corrected" count).
+- [x] Convert `cpuTimeP50/P99` µs → ms in the API handler (both
+      `fetchWorkersByDay` and `handleWorkers`) — 2026-07-23.
+- [x] Label the ERR badge caveat — per-badge tooltip + a footnote under the
+      Workers stats explaining the Workflows engine-teardown over-report; no
+      fabricated "corrected" count — 2026-07-23.

@@ -328,7 +328,9 @@ async function fetchWorkersByDay(
     const daily = [...byDay.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([date, v]) => ({ date, ...v }));
-    return { daily, cpuP50, cpuP99 };
+    // cpuTimeP50/P99 come back from GraphQL in microseconds; the client renders
+    // them as "…ms", so convert here (÷1000) to keep the widget in ms.
+    return { daily, cpuP50: cpuP50 / 1000, cpuP99: cpuP99 / 1000 };
   } catch (e) {
     console.warn('Workers by-day analytics unavailable:', e instanceof Error ? e.message : e);
     return null;
@@ -856,8 +858,9 @@ async function handleWorkers(token: string, url: URL, scope: string, skipCache: 
         requests: prev.requests + g.sum.requests,
         errors: prev.errors + g.sum.errors,
         subrequests: prev.subrequests + g.sum.subrequests,
-        cpuP50: g.quantiles?.cpuTimeP50 ?? prev.cpuP50,
-        cpuP99: g.quantiles?.cpuTimeP99 ?? prev.cpuP99
+        // cpuTimeP50/P99 arrive in microseconds; ÷1000 → ms to match the client render.
+        cpuP50: g.quantiles?.cpuTimeP50 != null ? g.quantiles.cpuTimeP50 / 1000 : prev.cpuP50,
+        cpuP99: g.quantiles?.cpuTimeP99 != null ? g.quantiles.cpuTimeP99 / 1000 : prev.cpuP99
       });
     }
   } catch (e) {

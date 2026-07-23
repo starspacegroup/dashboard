@@ -295,6 +295,9 @@
 	$: workersErrorRate = workers?.windowTotals && workers.windowTotals.requests > 0
 		? (workers.windowTotals.errors / workers.windowTotals.requests) * 100
 		: 0;
+	// Any per-script errors trigger a footnote about Cloudflare Workflows over-reporting
+	// exceptions (engine teardown counts as scriptThrewException) — see planning/cloudflare-widget-fixes.md.
+	$: anyWorkerErrors = workers?.scripts?.some((w) => w.errors !== null && w.errors > 0) ?? false;
 	$: zoneErrorRate = (() => {
 		const b = zoneAnalytics?.breakdown?.statusBuckets;
 		if (!b) return null;
@@ -865,7 +868,11 @@
 									<div class="li-title-row">
 										<span class="li-title">{w.name}</span>
 										{#if w.errors !== null && w.errors > 0}
-											<span class="badge" style="color: var(--error); border-color: var(--error);">{formatNumber(w.errors)} err</span>
+											<span
+													class="badge"
+													style="color: var(--error); border-color: var(--error);"
+													title="Raw exception count from Cloudflare. Workers that host Cloudflare Workflows over-report: the engine's per-run teardown is logged as an exception (with no error payload) even when every workflow completes. Check `wrangler workflows instances list` for real health."
+												>{formatNumber(w.errors)} err</span>
 										{/if}
 									</div>
 									<div class="li-meta">
@@ -880,6 +887,9 @@
 							</div>
 						{/each}
 					</div>
+					{#if anyWorkerErrors}
+						<p class="footnote">⚠ Workers hosting Cloudflare Workflows over-report errors — the engine's per-run teardown logs a payload-less exception even when every workflow completes. Verify with <code>wrangler workflows instances list</code>.</p>
+					{/if}
 				{/if}
 				{:else if view === 'storage'}
 					<!-- STORAGE -->
@@ -1434,6 +1444,17 @@
 		padding: 0.35rem 0.5rem;
 	}
 	.hint-line b { color: var(--text-primary); }
+	.footnote {
+		margin: 0.4rem 0 0;
+		font-size: 0.62rem;
+		line-height: 1.35;
+		color: var(--text-secondary);
+	}
+	.footnote code {
+		font-family: ui-monospace, monospace;
+		font-size: 0.92em;
+		color: var(--text-primary);
+	}
 	.hint-cta {
 		display: inline;
 		margin-left: 0.15rem;
