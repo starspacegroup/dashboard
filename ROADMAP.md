@@ -70,3 +70,49 @@ Plan: **`../planning/cloudflare-widget-fixes.md`**.
 - [x] Label the ERR badge caveat — per-badge tooltip + a footnote under the
       Workers stats explaining the Workflows engine-teardown over-report; no
       fabricated "corrected" count — 2026-07-23.
+
+## Priority: Medium
+
+### TODO: Internet Health widget (Cloudflare Radar) — 2026-07-29
+
+Add a new widget showing **realtime global internet health** from
+[Cloudflare Radar](https://radar.cloudflare.com/). Unlike the existing
+Cloudflare widget (which reports *David's own account*), this one reports the
+state of the internet at large — a genuinely different widget, not a tab on the
+existing one.
+
+**API.** Base `https://api.cloudflare.com/client/v4/radar/`, Bearer token.
+Requires an API token with **Account → Radar → Read** (that permission alone —
+it does not need any of the analytics/Workers scopes the current Cloudflare
+widget asks for). Free to use. Most endpoints take `dateRange` (`1d`, `7d`, …),
+optional `location=<ISO country>`/`asn=`, and `format=json`.
+
+Candidate panels (pick a few — the widget should read at a glance, not be a
+wall of numbers):
+- **Traffic trend** — `/http/timeseries` (or `/netflows/timeseries`) as a
+  sparkline: is global traffic normal vs. the prior period?
+- **Outages** — `/annotations/outages` — active/recent internet outages by
+  country/ASN. This is the headline "is the internet broken" signal.
+- **Attack activity** — `/attacks/layer3/timeseries` and
+  `/attacks/layer7/timeseries` for DDoS trend.
+- **Connection quality** — `/quality/speed/summary` (median down/up/latency),
+  optionally scoped to `location=US`.
+- **Protocol/adoption mix** — `/http/summary/http_protocol` (HTTP/3 share),
+  `/http/summary/ip_version` (IPv6 share), `/http/summary/device_type`.
+- Optional **local scope** — reuse the Weather widget's saved location to pass
+  `location=` so it shows *your* country alongside global.
+
+**Open decisions:**
+- **Whose token?** Radar data is public/global, so a single server-side token in
+  env (`CLOUDFLARE_RADAR_TOKEN`) is likely better than making every user create
+  one — it makes the widget zero-config with no connect screen. Alternative:
+  reuse `cloudflareCredentials` key pool, which means adding the Radar
+  permission-group key to the Create-Token deep link in
+  `CloudflareWidget.svelte` (verify the exact `permissionGroupKeys` value — the
+  existing list is in `CLAUDE.md` → API Routes).
+- **Refresh cadence:** Radar aggregates are not second-by-second; a 5–15 min
+  poll is plenty. Do **not** put live values in the widget title — that was the
+  KV write-amplification bug above (`liveTitles` store exists for exactly this).
+- **Caching:** proxy through a `/api/radar` route with the same in-memory 5-min
+  cache pattern as `/api/cloudflare/+server.ts`; keep each panel's fetch in an
+  isolated try/catch so one failing endpoint doesn't blank the widget.
