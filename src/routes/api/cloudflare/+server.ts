@@ -382,6 +382,16 @@ async function fetchKvOpsByDay(
   }
 }
 
+/**
+ * KV namespace IDs come back in two shapes: REST lists them as undashed hex
+ * (`4df1d0e976f5…`) while the GraphQL analytics dataset returns the dashed UUID
+ * (`4df1d0e9-76f5-…`). Match on a normalized form or every lookup misses and
+ * namespaces render with no key/byte counts.
+ */
+function normalizeId(id: string): string {
+  return id.replace(/-/g, '').toLowerCase();
+}
+
 /** KV storage snapshot (latest keyCount/byteCount per namespace) within window. */
 async function fetchKvStorage(
   token: string,
@@ -403,8 +413,9 @@ async function fetchKvStorage(
     );
     const byNs = new Map<string, { keys: number; bytes: number }>();
     for (const g of data.viewer.accounts[0]?.kvStorageAdaptiveGroups || []) {
-      if (!byNs.has(g.dimensions.namespaceId)) {
-        byNs.set(g.dimensions.namespaceId, { keys: g.max.keyCount, bytes: g.max.byteCount });
+      const id = normalizeId(g.dimensions.namespaceId);
+      if (!byNs.has(id)) {
+        byNs.set(id, { keys: g.max.keyCount, bytes: g.max.byteCount });
       }
     }
     return byNs;
@@ -980,7 +991,7 @@ async function handleKV(token: string, url: URL, scope: string, skipCache: boole
   const storage = { keys: 0, bytes: 0 };
   if (kvStorage) {
     for (const ns of namespaces) {
-      const s = kvStorage.get(ns.id);
+      const s = kvStorage.get(normalizeId(ns.id));
       if (s) {
         ns.keys = s.keys;
         ns.bytes = s.bytes;
