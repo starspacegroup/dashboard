@@ -293,7 +293,8 @@ async function handleZones(token: string, url: URL, scope: string, skipCache: bo
 async function fetchWorkersByDay(
   token: string,
   accountId: string,
-  days: number
+  days: number,
+  onError?: (msg: string) => void
 ): Promise<{ daily: { date: string; requests: number; errors: number; subrequests: number }[]; cpuP50: number; cpuP99: number } | null> {
   try {
     const query = `
@@ -332,7 +333,9 @@ async function fetchWorkersByDay(
     // them as "…ms", so convert here (÷1000) to keep the widget in ms.
     return { daily, cpuP50: cpuP50 / 1000, cpuP99: cpuP99 / 1000 };
   } catch (e) {
-    console.warn('Workers by-day analytics unavailable:', e instanceof Error ? e.message : e);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn('Workers by-day analytics unavailable:', msg);
+    onError?.(msg);
     return null;
   }
 }
@@ -741,10 +744,13 @@ async function handleOverview(token: string, url: URL, scope: string, skipCache:
   } catch { /* workers permission missing */ }
 
   // ─── Limits usage rollup (current window per product) ───
-  // All fetched concurrently; each is best-effort and independent.
+  // All fetched concurrently; each is best-effort and independent. Reasons are
+  // collected so an empty rollup can say why instead of assuming a token scope.
+  const reasons: string[] = [];
+  const note = (msg: string) => reasons.push(msg);
   const [workersByDay, kvByDay, kvStorage, d1ByDay, r2Ops, r2Storage, pagesBuilds] = await Promise.all([
-    fetchWorkersByDay(token, accountId, 1),
-    fetchKvOpsByDay(token, accountId, 1),
+    fetchWorkersByDay(token, accountId, 1, note),
+    fetchKvOpsByDay(token, accountId, 1, note),
     fetchKvStorage(token, accountId, 1),
     fetchD1ByDay(token, accountId, 1),
     fetchR2OpsMonth(token, accountId),
@@ -789,13 +795,16 @@ async function handleOverview(token: string, url: URL, scope: string, skipCache:
     pages: pagesBuilds !== null ? { builds: pagesBuilds } : null
   };
 
+  const analyticsError = reasons[0] ?? null;
   const result = {
     zonesCount: zones.length,
     pagesCount: pagesProjects.length,
     workersCount,
     totals,
     series,
-    usage
+    usage,
+    analyticsError,
+    analyticsErrorKind: analyticsError ? classifyAnalyticsError(analyticsError) : null
   };
   setCache(key, result);
   return json(result);
@@ -877,6 +886,7 @@ async function handleWorkers(token: string, url: URL, scope: string, skipCache: 
   const scripts = scriptsBody.result || [];
 
   // Per-worker invocation analytics (best-effort — needs Account Analytics read)
+  const workerReasons: string[] = [];
   const statsByName = new Map<string, { requests: number; errors: number; subrequests: number; cpuP50: number; cpuP99: number }>();
   try {
     const query = `
@@ -913,7 +923,9 @@ async function handleWorkers(token: string, url: URL, scope: string, skipCache: 
       });
     }
   } catch (e) {
-    console.warn('Worker analytics unavailable:', e instanceof Error ? e.message : e);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn('Worker analytics unavailable:', msg);
+    workerReasons.push(msg);
   }
 
   const merged = scripts.map((s) => {
@@ -937,16 +949,19 @@ async function handleWorkers(token: string, url: URL, scope: string, skipCache: 
   });
 
   // Account-wide daily series (for the chart + today's-usage meter + CPU ceiling)
-  const byDay = await fetchWorkersByDay(token, accountId, days);
+  const byDay = await fetchWorkersByDay(token, accountId, days, (msg) => workerReasons.push(msg));
   const today = pickToday(byDay?.daily ?? null);
   const windowTotals = (byDay?.daily ?? []).reduce(
     (acc, d) => ({ requests: acc.requests + d.requests, errors: acc.errors + d.errors, subrequests: acc.subrequests + d.subrequests }),
     { requests: 0, errors: 0, subrequests: 0 }
   );
 
+  const workersError = statsByName.size > 0 || byDay ? null : (workerReasons[0] ?? null);
   const result = {
     scripts: merged,
     analyticsAvailable: statsByName.size > 0 || !!byDay,
+    analyticsError: workersError,
+    analyticsErrorKind: workersError ? classifyAnalyticsError(workersError) : null,
     daily: byDay?.daily ?? [],
     today: today ? { requests: today.requests, errors: today.errors, subrequests: today.subrequests } : null,
     windowTotals,

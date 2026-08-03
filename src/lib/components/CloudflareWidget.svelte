@@ -64,6 +64,13 @@
 	let accounts: { id: string; name: string }[] = [];
 
 	// ─── Per-view data ──────────────────────────────────
+	// Why an analytics panel came back empty, straight from the API route (see
+	// classifyAnalyticsError there). Panels use this so a banner never tells the
+	// user to fix their token when the real cause was a query or plan limit.
+	type AnalyticsFailure = {
+		analyticsError?: string | null;
+		analyticsErrorKind?: 'permission' | 'plan' | 'query' | null;
+	};
 	interface OverviewUsage {
 		workers: { requests: number; errors: number } | null;
 		kv: { read: number | null; write: number | null; delete: number | null; list: number | null; storageBytes: number | null; keys: number | null } | null;
@@ -71,7 +78,7 @@
 		r2: { classA: number | null; classB: number | null; storageBytes: number | null } | null;
 		pages: { builds: number } | null;
 	}
-	let overview: { zonesCount: number; pagesCount: number; workersCount: number; totals: { requests: number; bytes: number; threats: number; cachedRequests: number }; series: { date: string; requests: number; bytes: number }[]; usage: OverviewUsage } | null = null;
+	let overview: { zonesCount: number; pagesCount: number; workersCount: number; totals: { requests: number; bytes: number; threats: number; cachedRequests: number }; series: { date: string; requests: number; bytes: number }[]; usage: OverviewUsage } & AnalyticsFailure | null = null;
 	let zones: { id: string; name: string; status: string; plan: string }[] = [];
 	let zoneAnalytics: {
 		series: { date: string; requests: number; bytes: number; cachedRequests: number; threats: number; pageViews: number; uniques: number }[];
@@ -81,12 +88,12 @@
 	let security: { total: number; byAction: { action: string; count: number }[]; topCountries: { country: string; count: number }[]; topRules: { source: string; ruleId: string; count: number }[] } | null = null;
 	let pages: { name: string; subdomain: string; domains: string[]; deployment: { environment: string; createdOn: string; url: string; status: string; stage: string; branch: string; message: string } | null }[] = [];
 	let pagesBuilds: number | null = null;
-	let workers: { scripts: { name: string; modifiedOn: string; createdOn: string; requests: number | null; errors: number | null; subrequests: number | null; cpuP50: number | null; cpuP99: number | null }[]; analyticsAvailable: boolean; daily: { date: string; requests: number; errors: number; subrequests: number }[]; today: { requests: number; errors: number; subrequests: number } | null; windowTotals: { requests: number; errors: number; subrequests: number }; cpuP50: number | null; cpuP99: number | null } | null = null;
+	let workers: { scripts: { name: string; modifiedOn: string; createdOn: string; requests: number | null; errors: number | null; subrequests: number | null; cpuP50: number | null; cpuP99: number | null }[]; analyticsAvailable: boolean; daily: { date: string; requests: number; errors: number; subrequests: number }[]; today: { requests: number; errors: number; subrequests: number } | null; windowTotals: { requests: number; errors: number; subrequests: number }; cpuP50: number | null; cpuP99: number | null } & AnalyticsFailure | null = null;
 	let vitals: { available: boolean; sites: { siteTag: string; host: string }[]; pageLoads: number; visits: number; vitals: { lcpP75: number | null; inpP75: number | null; clsP75: number | null } | null } | null = null;
 
 	// ─── Storage sub-views ──────────────────────────────
 	let storageKind: StorageKind = (widget.config?.cloudflare?.storageKind as StorageKind) ?? 'kv';
-	let kv: { namespaces: { id: string; title: string; keys: number | null; bytes: number | null }[]; today: { read: number; write: number; delete: number; list: number } | null; windowOps: { read: number; write: number; delete: number; list: number }; daily: { date: string; read: number; write: number; delete: number; list: number }[]; storage: { keys: number; bytes: number }; analyticsAvailable: boolean; analyticsError?: string | null; analyticsErrorKind?: 'permission' | 'plan' | 'query' | null } | null = null;
+	let kv: { namespaces: { id: string; title: string; keys: number | null; bytes: number | null }[]; today: { read: number; write: number; delete: number; list: number } | null; windowOps: { read: number; write: number; delete: number; list: number }; daily: { date: string; read: number; write: number; delete: number; list: number }[]; storage: { keys: number; bytes: number }; analyticsAvailable: boolean } & AnalyticsFailure | null = null;
 	let r2: { buckets: { name: string; createdOn: string; objects: number | null; bytes: number | null }[]; month: { classA: number; classB: number } | null; storage: { objects: number; bytes: number }; analyticsAvailable: boolean } | null = null;
 	let d1: { databases: { id: string; name: string; version: string; tables: number | null; bytes: number | null; readQueries: number | null; writeQueries: number | null; rowsRead: number | null; rowsWritten: number | null; rowsReadToday: number | null; rowsWrittenToday: number | null }[]; windowTotals: { readQueries: number; writeQueries: number; rowsRead: number; rowsWritten: number }; today: { rowsRead: number; rowsWritten: number }; analyticsAvailable: boolean } | null = null;
 	let queues: { queues: { id: string; name: string; createdOn: string; producers: number; consumers: number; backlogMessages: number | null; backlogBytes: number | null }[]; analyticsAvailable: boolean } | null = null;
@@ -716,6 +723,8 @@
 
 					{#if healthMeters.length > 0}
 						<CloudflareMeters meters={healthMeters} />
+					{:else if overview.analyticsErrorKind && overview.analyticsErrorKind !== 'permission'}
+						<p class="hint-line" title={overview.analyticsError ?? ''}>Limit meters unavailable — Cloudflare said: {overview.analyticsError}</p>
 					{:else}
 						<p class="hint-line">No usage analytics on this token yet. Add <b>Account Analytics: Read</b> to see limit meters. <button class="hint-cta" on:click={openSettings}>Update key</button></p>
 					{/if}
@@ -853,7 +862,11 @@
 					<div class="state-msg"><p>No Workers found.</p></div>
 				{:else}
 					{#if !workers.analyticsAvailable}
-						<p class="hint-line">Add <b>Account Analytics: Read</b> to your token to see invocation stats. <button class="hint-cta" on:click={openSettings}>Update key</button></p>
+						{#if workers.analyticsErrorKind && workers.analyticsErrorKind !== 'permission'}
+							<p class="hint-line" title={workers.analyticsError ?? ''}>Invocation stats unavailable — Cloudflare said: {workers.analyticsError}</p>
+						{:else}
+							<p class="hint-line">Add <b>Account Analytics: Read</b> to your token to see invocation stats. <button class="hint-cta" on:click={openSettings}>Update key</button></p>
+						{/if}
 					{/if}
 					{#if workers.today}<CloudflareMeters meters={workerMeters} />{/if}
 					<div class="wk-stats">
