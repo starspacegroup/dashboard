@@ -50,6 +50,15 @@ Full diagnosis and implementation plan: **`../planning/kv-write-amplification.md
       the diff guard + title fix already remove the churn.)*
 - [x] GitHub cache: gate `kv.put` behind an actual-change check so identical
       payloads don't rewrite. *(2026-07-11)*
+      *(2026-08-03: that check also froze `cached.timestamp`, so stable data
+      never counted as fresh and every load re-ran the GitHub fan-out. An
+      isolate-local `lastVerifiedAt` map now supplies the fresh window with no
+      KV write. The 5-min `invalidateAll` also stopped running in hidden tabs.)*
+- [x] Server-side guard on the same redundant write: `PUT /api/dashboard-state`
+      already reads the stored value for its conflict check, so it compares and
+      returns `{ ok: true, unchanged: true }` rather than rewriting identical
+      bytes. Catches what the per-tab client guard can't — two open tabs pushing
+      the same snapshot. *(2026-08-03)*
 - [ ] **Structural:** move mutable per-user dashboard state off KV entirely.
       Dashboard already binds a D1 `DB`; D1 (or a Durable Object) has far higher
       write limits and is the right home for frequently-mutated per-user state.
