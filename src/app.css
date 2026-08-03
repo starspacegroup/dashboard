@@ -40,6 +40,9 @@
 	--alert-severe: #e43a3a;
 	--alert-moderate: #eb8e28;
 	--alert-minor: #dcc446;
+	/* Hot end of the temperature ramp; the cold end is var(--text-primary), so
+	   the ramp reads white→red in dark mode and near-black→red in light. */
+	--temp-hot: #ef4444;
 	--purple: #a855f7;
 	--purple-bg: rgba(168, 85, 247, 0.2);
 	--gray: #9ca3af;
@@ -90,6 +93,9 @@
 	--alert-severe: #e43a3a;
 	--alert-moderate: #eb8e28;
 	--alert-minor: #dcc446;
+	/* Hot end of the temperature ramp; the cold end is var(--text-primary), so
+	   the ramp reads white→red in dark mode and near-black→red in light. */
+	--temp-hot: #ef4444;
 	--purple: #a855f7;
 	--purple-bg: rgba(168, 85, 247, 0.2);
 	--gray: #9ca3af;

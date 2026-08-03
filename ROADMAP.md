@@ -38,8 +38,12 @@ Full diagnosis and implementation plan: **`../planning/kv-write-amplification.md
 
 **Fixes (in order):**
 - [x] Make dynamic widget titles display-only (non-persisted `liveTitles` store);
-      `updateTitle` now only fires on deliberate renames (Weather location).
+      `updateTitle` now only fires on deliberate renames.
       This is the real fix — see the planning doc. *(2026-07-11)*
+      *(2026-07-30: the Weather widget's `<temp> - <city>` title was still on
+      `updateTitle` — it ticks with the weather data and the time-travel
+      scrubber — and now goes through `liveTitles` too. No caller of
+      `updateTitle` remains outside the store itself.)*
 - [x] Only push when the snapshot actually changed — `push()` skips the PUT when
       the serialized snapshot matches the last pushed/pulled state.
       *(Not done: the ≤1-write/30–60s cap and `beforeunload` flush — deferred;

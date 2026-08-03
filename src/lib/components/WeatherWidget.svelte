@@ -8,6 +8,7 @@
 	import { revealWidget } from '$lib/utils/revealWidget';
 	import { getSavedLocation, saveResolvedCoords, getPositionIfGranted } from '$lib/utils/geolocation';
 	import { setWidgetAlerts, clearWidgetAlert } from '$lib/stores/widgetAlerts';
+	import { setLiveTitle } from '$lib/stores/liveTitles';
 	import { moonPhase as moonPhaseStore, computeMoonPhase } from '$lib/stores/moonPhase';
 
 	export let widget: Widget;
@@ -509,14 +510,27 @@
 		? Math.round((timeOffsetData.temperature - 32) * 5 / 9)
 		: timeOffsetData.temperature;
 
-	// Keep widget title in sync with current temp and unit
-	$: {
-		const newTitle = (cityName && displayTemp !== undefined)
-			? `${displayTemp}°${isCelsius ? 'C' : 'F'} - ${cityName}`
-			: '';
-		if (newTitle && newTitle !== widget.title) {
-			widgets.updateTitle(widget.id, newTitle);
-		}
+	// Keep widget title in sync with current temp and unit, with the reading
+	// itself tinted by how hot it is (see titleTempColor).
+	//
+	// Goes through `liveTitles`, not `widgets.updateTitle`: this ticks with the
+	// weather data / time-travel scrubber, and updateTitle mutates persisted
+	// state — one debounced KV write per tick. See
+	// planning/kv-write-amplification.md.
+	$: if (cityName && displayTemp !== undefined) {
+		setLiveTitle(widget.id, [
+			{
+				text: `${displayTemp}°${isCelsius ? 'C' : 'F'}`,
+				// Colour off °F always, so the tint doesn't shift with the unit toggle
+				color: titleTempColor(timeOffsetData.temperature)
+			},
+			{ text: ` - ${cityName}` }
+		]);
+	} else {
+		// No reading yet (still loading, or the location was cleared). Show a
+		// neutral title rather than falling through to widget.title, which on
+		// dashboards saved by an older build is a frozen temperature.
+		setLiveTitle(widget.id, 'Weather');
 	}
 
 	// High/Low for next 24 hours
@@ -944,6 +958,22 @@
 		}
 		// 100°F+ = red
 		return '#ef4444';
+	}
+
+	// Header-title tint: plain theme text colour when it's cool, ramping to red as
+	// it gets hot (white → red in dark mode, since --text-primary is near-white).
+	// Kept deliberately separate from getTemperatureColor(), whose white→blue→
+	// orange→red scale is tuned for the graphs, not for legible small caps text.
+	const TITLE_TINT_START_F = 50; // below this, no tint at all
+	const TITLE_TINT_FULL_F = 105; // at/above this, full red
+	const TITLE_TINT_CURVE = 1.5; // >1 keeps mild temps close to plain text
+
+	function titleTempColor(tempF: number): string {
+		const span = TITLE_TINT_FULL_F - TITLE_TINT_START_F;
+		const linear = Math.min(1, Math.max(0, (tempF - TITLE_TINT_START_F) / span));
+		// Rounded to whole percent so the colour string is stable between ticks
+		const heat = Math.round(Math.pow(linear, TITLE_TINT_CURVE) * 100);
+		return `color-mix(in oklab, var(--text-primary) ${100 - heat}%, var(--temp-hot) ${heat}%)`;
 	}
 
 	function interpolateColor(color1: string, color2: string, ratio: number): string {

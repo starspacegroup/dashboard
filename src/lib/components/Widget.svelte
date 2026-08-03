@@ -2,6 +2,7 @@
 	import type { Widget } from '$lib/types/widget';
 	import { widgets, isDraggingAny } from '$lib/stores/widgets';
 	import { liveTitles } from '$lib/stores/liveTitles';
+	import type { LiveTitle } from '$lib/stores/liveTitles';
 	import { widgetAlerts, alertColorFor } from '$lib/stores/widgetAlerts';
 	import { createEventDispatcher, onDestroy } from 'svelte';
 
@@ -13,6 +14,14 @@
 	$: alerts = $widgetAlerts[widget.id] ?? [];
 	$: topAlert = alerts[0];
 	$: alertColor = topAlert ? alertColorFor(topAlert.severity) : '';
+
+	// A live title may be segmented so a widget can tint part of it (weather
+	// colours the temperature by how hot it is). Normalise to segments here so
+	// the template has one shape to render.
+	$: displayTitle = ($liveTitles[widget.id] ?? widget.title) as LiveTitle;
+	$: titleSegments = Array.isArray(displayTitle) ? displayTitle : [{ text: displayTitle }];
+	// An alert repaints the whole header title; its signal outranks the tint.
+	$: tintTitle = !topAlert;
 
 	// Tap-out detail panel. `title` tooltips don't exist on touch, and the
 	// header text truncates hard on a phone, so the full headline (and alerts
@@ -455,7 +464,8 @@
 >
 	<div class="widget-header">
 		<button class="drag-handle" on:mousedown={handleMouseDown} on:touchstart={handleTouchStart} aria-label="Drag widget" type="button">⋮⋮</button>
-		<h3>{$liveTitles[widget.id] ?? widget.title}</h3>
+		<h3>{#each titleSegments as seg}<span
+				style={tintTitle && seg.color ? `color: ${seg.color}` : ''}>{seg.text}</span>{/each}</h3>
 		{#if topAlert}
 			<button
 				class="header-alert"
