@@ -60,9 +60,12 @@
 		const userId = data.user?.login ?? data.user?.email ?? '';
 		stopSync = startSync(userId);
 
-		// Refresh GitHub data every 5 minutes so widgets stay current
+		// Refresh GitHub data every 5 minutes so widgets stay current. Only while
+		// the tab is actually visible — a backgrounded tab refetching forever
+		// spends GitHub rate limit on data nobody is looking at. (stores/sync.ts
+		// guards its pulls the same way.)
 		refreshInterval = setInterval(() => {
-			invalidateAll();
+			if (document.visibilityState === 'visible') invalidateAll();
 		}, 5 * 60 * 1000);
 
 		// Add command to open widget picker

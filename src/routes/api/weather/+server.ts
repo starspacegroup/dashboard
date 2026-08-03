@@ -98,6 +98,22 @@ async function fetchNwsAlerts(lat: string, lon: string): Promise<WeatherAlert[]>
   }
 }
 
+/**
+ * Parse a coordinate query param into a canonical numeric string.
+ *
+ * Coordinates are interpolated straight into upstream URLs (weather.gov,
+ * sunrise-sunset.org, nominatim), so an unparsed value like `1&foo=bar` would
+ * smuggle extra query params into those requests. Normalizing here means every
+ * downstream caller gets a plain number, whatever the caller sent.
+ * Returns null when the value is absent, non-numeric, or out of range.
+ */
+function parseCoord(raw: string | null, limit: number): string | null {
+  if (raw === null || raw.trim() === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || Math.abs(n) > limit) return null;
+  return String(n);
+}
+
 export const GET: RequestHandler = async ({ url, locals }) => {
   // Require authentication
   const session = await locals.auth();
@@ -105,9 +121,17 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     return json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  const lat = url.searchParams.get('lat');
-  const lon = url.searchParams.get('lon');
+  const rawLat = url.searchParams.get('lat');
+  const rawLon = url.searchParams.get('lon');
+  const lat = parseCoord(rawLat, 90);
+  const lon = parseCoord(rawLon, 180);
   const zip = url.searchParams.get('zip');
+
+  // Sent coordinates but they didn't parse? Say so rather than quietly
+  // reporting the weather for the default location.
+  if (!zip && ((rawLat !== null && lat === null) || (rawLon !== null && lon === null))) {
+    return json({ error: 'Invalid lat/lon' }, { status: 400 });
+  }
 
   try {
     let latitude: string;

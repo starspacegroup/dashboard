@@ -150,6 +150,29 @@ const GITHUB_CACHE_FRESH_MS = 3 * 60 * 1000;
 // Keep stale copies around as a fallback when GitHub rate-limits us
 const GITHUB_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
+/**
+ * When the payload hasn't changed we skip the KV write (writes are the scarce
+ * free-tier resource), which means `cached.timestamp` only advances when the
+ * data itself changes — so for a user whose GitHub data is stable, every single
+ * load fell outside the fresh window and re-ran the whole fan-out, defeating
+ * the cache exactly when it was cheapest to serve. Track "last verified" in the
+ * isolate instead: same effect as re-stamping, no KV write. Same trick the
+ * /api/cloudflare and /api/crypto proxies already use.
+ */
+const lastVerifiedAt = new Map<string, number>();
+const MAX_VERIFIED_ENTRIES = 500;
+
+function markVerified(cacheKey: string) {
+  if (lastVerifiedAt.size >= MAX_VERIFIED_ENTRIES) lastVerifiedAt.clear();
+  lastVerifiedAt.set(cacheKey, Date.now());
+}
+
+function isFresh(cacheKey: string, cached: CachedGithubData | null): boolean {
+  if (!cached) return false;
+  const freshestKnown = Math.max(cached.timestamp, lastVerifiedAt.get(cacheKey) ?? 0);
+  return Date.now() - freshestKnown < GITHUB_CACHE_FRESH_MS;
+}
+
 export const load: PageServerLoad = async ({ locals, fetch, platform }) => {
 	const session = await locals.auth() as ExtendedSession | null;
 
@@ -171,7 +194,7 @@ export const load: PageServerLoad = async ({ locals, fetch, platform }) => {
 	}
 
 	// Fresh enough? Skip the GitHub API entirely.
-	if (cached && Date.now() - cached.timestamp < GITHUB_CACHE_FRESH_MS) {
+	if (cached && isFresh(cacheKey, cached)) {
 		return { user: session.user, ...cached.data };
 	}
 
@@ -531,6 +554,10 @@ export const load: PageServerLoad = async ({ locals, fetch, platform }) => {
 			reviewRequestedPRs,
 			copilotMetrics
 		};
+
+		// We just talked to GitHub, so this payload is good for a fresh window
+		// whether or not it differs from what's in KV.
+		markVerified(cacheKey);
 
 		// Only write the cache when the payload actually changed. An open tab
 		// re-fetches GitHub on a cadence (invalidateAll every 5 min); if the data
