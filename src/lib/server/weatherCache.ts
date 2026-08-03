@@ -81,7 +81,7 @@ export function getCacheKey(lat: number | string, lon: number | string): string 
 /**
  * Generate a date-specific cache key for astronomical data
  */
-export function getAstroCacheKey(lat: number | string, lon: number | string, date: Date): string {
+function getAstroCacheKey(lat: number | string, lon: number | string, date: Date): string {
   const baseKey = getCacheKey(lat, lon);
   const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
   return `${baseKey}:${dateStr}`;
@@ -234,33 +234,5 @@ export function setLocationCache(lat: number | string, lon: number | string, loc
   });
 }
 
-// ========== Cache Statistics ==========
-
-export function getCacheStats(): {
-  weather: { size: number; ttl: string; };
-  astronomical: { size: number; ttl: string; };
-  location: { size: number; ttl: string; };
-} {
-  return {
-    weather: { size: weatherCache.size, ttl: '10 minutes' },
-    astronomical: { size: astronomicalCache.size, ttl: 'Until midnight' },
-    location: { size: locationCache.size, ttl: '24 hours' }
-  };
-}
-
-/**
- * Clear all caches (useful for testing or forced refresh)
- */
-export function clearAllCaches(): void {
-  weatherCache.clear();
-  astronomicalCache.clear();
-  locationCache.clear();
-}
-
-/**
- * Clear weather cache for a specific location (for forced refresh)
- */
-export function clearWeatherCache(lat: number | string, lon: number | string): void {
-  const key = getCacheKey(lat, lon);
-  weatherCache.delete(key);
-}
+// Note: forced refresh is handled by the route (`?refresh=true` bypasses the
+// cache read), so no cache-busting helpers are exported here.

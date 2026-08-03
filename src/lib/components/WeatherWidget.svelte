@@ -808,7 +808,7 @@
 					try {
 						const data: WeatherData = JSON.parse(staleCache);
 						applyWeatherData(data);
-						console.log('Using stale weather cache as fallback');
+						console.warn('Using stale weather cache as fallback');
 					} catch {
 						// Cache is corrupt, nothing we can do
 					}

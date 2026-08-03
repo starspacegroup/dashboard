@@ -21,6 +21,10 @@ Pages.
   traffic for your domains, deployment status for Pages projects, and
   invocation stats for Workers — with an Overview rollup and interactive
   charts. Tokens don't expire, so you stay connected across devices.
+- 📊 **Google Analytics Widget**: Connect a GA4 property for realtime and
+  historical traffic (needs `GA_OAUTH_CLIENT_ID`/`GA_OAUTH_CLIENT_SECRET`)
+- 🪙 **Crypto Widget**: Spot price and chart for any CoinGecko-listed coin
+- 🤖 **Copilot Usage**: Copilot engagement metrics for your organizations
 - ☁️ **Cross-Device Sync**: Widget layout, location, and connections sync
   across browsers/devices for the same logged-in user (Cloudflare KV)
 
@@ -65,10 +69,10 @@ cp .env.example .env
 4. (Optional) Configure GitHub OAuth:
    - Go to [GitHub Developer Settings](https://github.com/settings/developers)
    - Create a new OAuth App
-   - Set the callback URL to: `http://localhost:5173/auth/callback/github`
+   - Set the callback URL to: `http://localhost:4200/auth/callback/github`
    - Add your Client ID and Secret to the `.env` file
    - The app will request the following scopes: `read:user`, `user:email`,
-     `read:org`, `repo`
+     `read:org`, `repo`, `read:project`, `manage_billing:copilot`
 
 5. Start the development server:
 
@@ -76,7 +80,7 @@ cp .env.example .env
 npm run dev
 ```
 
-6. Open [http://localhost:5173](http://localhost:5173) in your browser
+6. Open [http://localhost:4200](http://localhost:4200) in your browser
 
 ### Build
 
