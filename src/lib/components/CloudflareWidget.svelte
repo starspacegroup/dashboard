@@ -86,7 +86,7 @@
 
 	// ─── Storage sub-views ──────────────────────────────
 	let storageKind: StorageKind = (widget.config?.cloudflare?.storageKind as StorageKind) ?? 'kv';
-	let kv: { namespaces: { id: string; title: string; keys: number | null; bytes: number | null }[]; today: { read: number; write: number; delete: number; list: number } | null; windowOps: { read: number; write: number; delete: number; list: number }; daily: { date: string; read: number; write: number; delete: number; list: number }[]; storage: { keys: number; bytes: number }; analyticsAvailable: boolean } | null = null;
+	let kv: { namespaces: { id: string; title: string; keys: number | null; bytes: number | null }[]; today: { read: number; write: number; delete: number; list: number } | null; windowOps: { read: number; write: number; delete: number; list: number }; daily: { date: string; read: number; write: number; delete: number; list: number }[]; storage: { keys: number; bytes: number }; analyticsAvailable: boolean; analyticsError?: string | null; analyticsErrorKind?: 'permission' | 'plan' | 'query' | null } | null = null;
 	let r2: { buckets: { name: string; createdOn: string; objects: number | null; bytes: number | null }[]; month: { classA: number; classB: number } | null; storage: { objects: number; bytes: number }; analyticsAvailable: boolean } | null = null;
 	let d1: { databases: { id: string; name: string; version: string; tables: number | null; bytes: number | null; readQueries: number | null; writeQueries: number | null; rowsRead: number | null; rowsWritten: number | null; rowsReadToday: number | null; rowsWrittenToday: number | null }[]; windowTotals: { readQueries: number; writeQueries: number; rowsRead: number; rowsWritten: number }; today: { rowsRead: number; rowsWritten: number }; analyticsAvailable: boolean } | null = null;
 	let queues: { queues: { id: string; name: string; createdOn: string; producers: number; consumers: number; backlogMessages: number | null; backlogBytes: number | null }[]; analyticsAvailable: boolean } | null = null;
@@ -898,7 +898,11 @@
 							<div class="state-msg small"><div class="spinner"></div></div>
 						{:else if kv}
 							{#if !kv.analyticsAvailable && kv.namespaces.length > 0}
-								<p class="hint-line">Reconnect with <b>Account Analytics: Read</b> to see KV usage. <button class="hint-cta" on:click={openSettings}>Update key</button></p>
+								{#if kv.analyticsErrorKind === 'permission'}
+									<p class="hint-line">Reconnect with <b>Account Analytics: Read</b> to see KV usage. <button class="hint-cta" on:click={openSettings}>Update key</button></p>
+								{:else}
+									<p class="hint-line" title={kv.analyticsError ?? ''}>KV usage unavailable — Cloudflare said: {kv.analyticsError ?? 'no analytics returned'}</p>
+								{/if}
 							{/if}
 							<CloudflareMeters meters={kvMeters} />
 							{#if kv.namespaces.length === 0}

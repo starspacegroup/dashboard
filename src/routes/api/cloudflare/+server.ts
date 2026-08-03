@@ -337,18 +337,31 @@ async function fetchWorkersByDay(
   }
 }
 
+/**
+ * Why an analytics call came back empty. The widget used to render every
+ * failure as "add Account Analytics: Read to your token", which sent users
+ * chasing token scopes for what were really malformed queries — so the reason
+ * travels to the client now.
+ */
+function classifyAnalyticsError(msg: string): 'permission' | 'plan' | 'query' {
+  if (/authentic|permission|forbidden|not authorized|does not have access/i.test(msg)) return 'permission';
+  if (/time range wider than|plan|upgrade/i.test(msg)) return 'plan';
+  return 'query';
+}
+
 /** KV operations grouped by UTC day and action type. */
 async function fetchKvOpsByDay(
   token: string,
   accountId: string,
-  days: number
+  days: number,
+  onError?: (msg: string) => void
 ): Promise<{ date: string; read: number; write: number; delete: number; list: number }[] | null> {
   try {
     const data = await cfGraphQL<{ viewer: { accounts: { kvOperationsAdaptiveGroups: { dimensions: { date: string; actionType: string }; sum: { requests: number } }[] }[] } }>(
       token,
       `query ($accountTag: String!, $since: Date!, $until: Date!) {
         viewer { accounts(filter: { accountTag: $accountTag }) {
-          kvOperationsAdaptiveGroups(limit: 10000, filter: { date_geq: $since, date_leq: $until }, dimensions: { date, actionType }) {
+          kvOperationsAdaptiveGroups(limit: 10000, filter: { date_geq: $since, date_leq: $until }) {
             dimensions { date actionType } sum { requests }
           } } } }`,
       { accountTag: accountId, since: isoDate(days - 1), until: isoDate(0) }
@@ -362,7 +375,9 @@ async function fetchKvOpsByDay(
     }
     return [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, v]) => ({ date, ...v }));
   } catch (e) {
-    console.warn('KV ops unavailable:', e instanceof Error ? e.message : e);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn('KV ops unavailable:', msg);
+    onError?.(msg);
     return null;
   }
 }
@@ -374,12 +389,15 @@ async function fetchKvStorage(
   days: number
 ): Promise<Map<string, { keys: number; bytes: number }> | null> {
   try {
-    const data = await cfGraphQL<{ viewer: { accounts: { kvStorageAdaptiveGroups: { dimensions: { namespaceId: string }; max: { keyCount: number; byteCount: number } }[] }[] } }>(
+    // `date` must be selected as a dimension for `orderBy: [date_DESC]` to mean
+    // anything — rows arrive newest-first, so the first row per namespace is the
+    // latest snapshot.
+    const data = await cfGraphQL<{ viewer: { accounts: { kvStorageAdaptiveGroups: { dimensions: { namespaceId: string; date: string }; max: { keyCount: number; byteCount: number } }[] }[] } }>(
       token,
       `query ($accountTag: String!, $since: Date!, $until: Date!) {
         viewer { accounts(filter: { accountTag: $accountTag }) {
-          kvStorageAdaptiveGroups(limit: 10000, filter: { date_geq: $since, date_leq: $until }, dimensions: { namespaceId }, orderBy: [date_DESC]) {
-            dimensions { namespaceId } max { keyCount byteCount }
+          kvStorageAdaptiveGroups(limit: 10000, filter: { date_geq: $since, date_leq: $until }, orderBy: [date_DESC]) {
+            dimensions { namespaceId date } max { keyCount byteCount }
           } } } }`,
       { accountTag: accountId, since: isoDate(days - 1), until: isoDate(0) }
     );
@@ -407,7 +425,7 @@ async function fetchD1ByDay(
       token,
       `query ($accountTag: String!, $since: Date!, $until: Date!) {
         viewer { accounts(filter: { accountTag: $accountTag }) {
-          d1AnalyticsAdaptiveGroups(limit: 10000, filter: { date_geq: $since, date_leq: $until }, dimensions: { date, databaseId }) {
+          d1AnalyticsAdaptiveGroups(limit: 10000, filter: { date_geq: $since, date_leq: $until }) {
             dimensions { date databaseId } sum { readQueries writeQueries rowsRead rowsWritten }
           } } } }`,
       { accountTag: accountId, since: isoDate(days - 1), until: isoDate(0) }
@@ -430,7 +448,7 @@ async function fetchR2OpsMonth(token: string, accountId: string): Promise<{ clas
       token,
       `query ($accountTag: String!, $since: Time!, $until: Time!) {
         viewer { accounts(filter: { accountTag: $accountTag }) {
-          r2OperationsAdaptiveGroups(limit: 10000, filter: { datetime_geq: $since, datetime_leq: $until }, dimensions: { actionType }) {
+          r2OperationsAdaptiveGroups(limit: 10000, filter: { datetime_geq: $since, datetime_leq: $until }) {
             dimensions { actionType } sum { requests }
           } } } }`,
       { accountTag: accountId, since: startOfUtcMonthIso(), until: isoDateTime(0) }
@@ -452,12 +470,14 @@ async function fetchR2OpsMonth(token: string, accountId: string): Promise<{ clas
 /** R2 storage snapshot (latest per bucket) from the last day. */
 async function fetchR2Storage(token: string, accountId: string): Promise<Map<string, { objects: number; bytes: number }> | null> {
   try {
-    const data = await cfGraphQL<{ viewer: { accounts: { r2StorageAdaptiveGroups: { dimensions: { bucketName: string }; max: { objectCount: number; payloadSize: number; metadataSize: number } }[] }[] } }>(
+    // `datetime` must be selected for `orderBy: [datetime_DESC]` to apply; the
+    // first row per bucket is then the most recent snapshot.
+    const data = await cfGraphQL<{ viewer: { accounts: { r2StorageAdaptiveGroups: { dimensions: { bucketName: string; datetime: string }; max: { objectCount: number; payloadSize: number; metadataSize: number } }[] }[] } }>(
       token,
       `query ($accountTag: String!, $since: Time!, $until: Time!) {
         viewer { accounts(filter: { accountTag: $accountTag }) {
-          r2StorageAdaptiveGroups(limit: 10000, filter: { datetime_geq: $since, datetime_leq: $until }, dimensions: { bucketName }, orderBy: [datetime_DESC]) {
-            dimensions { bucketName } max { objectCount payloadSize metadataSize }
+          r2StorageAdaptiveGroups(limit: 10000, filter: { datetime_geq: $since, datetime_leq: $until }, orderBy: [datetime_DESC]) {
+            dimensions { bucketName datetime } max { objectCount payloadSize metadataSize }
           } } } }`,
       { accountTag: accountId, since: isoDateTime(1), until: isoDateTime(0) }
     );
@@ -565,24 +585,40 @@ async function fetchZoneSeries(token: string, zoneId: string, days: number) {
 
 /** Status-code, country and cache-status breakdowns via httpRequestsAdaptiveGroups. */
 async function fetchZoneBreakdown(token: string, zoneId: string, days: number) {
-  try {
-    const query = `
+  const query = `
       query ($zoneTag: String!, $since: Time!, $until: Time!) {
         viewer { zones(filter: { zoneTag: $zoneTag }) {
-          byStatus: httpRequestsAdaptiveGroups(limit: 100, filter: { datetime_geq: $since, datetime_leq: $until }, dimensions: { edgeResponseStatus }, orderBy: [count_DESC]) {
+          byStatus: httpRequestsAdaptiveGroups(limit: 100, filter: { datetime_geq: $since, datetime_leq: $until }, orderBy: [count_DESC]) {
             count dimensions { edgeResponseStatus }
           }
-          byCountry: httpRequestsAdaptiveGroups(limit: 8, filter: { datetime_geq: $since, datetime_leq: $until }, dimensions: { clientCountryName }, orderBy: [count_DESC]) {
+          byCountry: httpRequestsAdaptiveGroups(limit: 8, filter: { datetime_geq: $since, datetime_leq: $until }, orderBy: [count_DESC]) {
             count dimensions { clientCountryName }
           }
-          byCache: httpRequestsAdaptiveGroups(limit: 20, filter: { datetime_geq: $since, datetime_leq: $until }, dimensions: { cacheStatus }, orderBy: [count_DESC]) {
+          byCache: httpRequestsAdaptiveGroups(limit: 20, filter: { datetime_geq: $since, datetime_leq: $until }, orderBy: [count_DESC]) {
             count dimensions { cacheStatus }
           }
         } }
       }`;
-    const data = await cfGraphQL<{
-      viewer: { zones: { byStatus: { count: number; dimensions: { edgeResponseStatus: number } }[]; byCountry: { count: number; dimensions: { clientCountryName: string } }[]; byCache: { count: number; dimensions: { cacheStatus: string } }[] }[] };
-    }>(token, query, { zoneTag: zoneId, since: isoDateTime(days), until: isoDateTime(0) });
+  type Breakdown = {
+    viewer: { zones: { byStatus: { count: number; dimensions: { edgeResponseStatus: number } }[]; byCountry: { count: number; dimensions: { clientCountryName: string } }[]; byCache: { count: number; dimensions: { cacheStatus: string } }[] }[] };
+  };
+  const run = (window: number) =>
+    cfGraphQL<Breakdown>(token, query, { zoneTag: zoneId, since: isoDateTime(window), until: isoDateTime(0) });
+
+  try {
+    let windowDays = days;
+    let data: Breakdown;
+    try {
+      data = await run(windowDays);
+    } catch (e) {
+      // Free zones cap httpRequestsAdaptiveGroups at a 1-day range ("cannot
+      // request a time range wider than 1d"); fall back to the last 24h rather
+      // than dropping the breakdown entirely.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (days <= 1 || !/time range wider than/i.test(msg)) throw e;
+      windowDays = 1;
+      data = await run(windowDays);
+    }
 
     const z = data.viewer.zones[0];
     if (!z) return null;
@@ -597,7 +633,9 @@ async function fetchZoneBreakdown(token: string, zoneId: string, days: number) {
     }
     const topCountries = (z.byCountry || []).map((g) => ({ country: g.dimensions.clientCountryName, requests: g.count }));
     const cacheStatus = (z.byCache || []).map((g) => ({ status: g.dimensions.cacheStatus, requests: g.count }));
-    return { statusBuckets, topCountries, cacheStatus };
+    // windowDays tells the client the breakdown may cover a shorter span than
+    // the selected range (free-plan 1d cap on the adaptive dataset).
+    return { statusBuckets, topCountries, cacheStatus, windowDays };
   } catch (e) {
     console.warn('Zone breakdown unavailable:', e instanceof Error ? e.message : e);
     return null;
@@ -929,7 +967,8 @@ async function handleKV(token: string, url: URL, scope: string, skipCache: boole
   }));
 
   // Operations by day + action type (best-effort)
-  const byDay = await fetchKvOpsByDay(token, accountId, days);
+  let analyticsError: string | null = null;
+  const byDay = await fetchKvOpsByDay(token, accountId, days, (msg) => (analyticsError = msg));
   const today = pickToday(byDay);
   const windowOps = (byDay ?? []).reduce(
     (acc, d) => ({ read: acc.read + d.read, write: acc.write + d.write, delete: acc.delete + d.delete, list: acc.list + d.list }),
@@ -957,7 +996,9 @@ async function handleKV(token: string, url: URL, scope: string, skipCache: boole
     windowOps,
     daily: byDay ?? [],
     storage,
-    analyticsAvailable: !!byDay
+    analyticsAvailable: !!byDay,
+    analyticsError,
+    analyticsErrorKind: analyticsError ? classifyAnalyticsError(analyticsError) : null
   };
   setCache(key, result);
   return json(result);
@@ -1120,18 +1161,22 @@ async function handleQueues(token: string, url: URL, scope: string, skipCache: b
   // Backlog (best-effort — queues with no recent activity return nothing)
   let analyticsAvailable = false;
   try {
-    const data = await cfGraphQL<{ viewer: { accounts: { queueBacklogAdaptiveGroups: { dimensions: { queueId: string }; max: { messages: number; bytes: number } }[] }[] } }>(
+    // queueBacklogAdaptiveGroups only exposes `avg` (no `max`), and `datetime`
+    // must be selected for the DESC ordering — first row per queue = latest.
+    const data = await cfGraphQL<{ viewer: { accounts: { queueBacklogAdaptiveGroups: { dimensions: { queueId: string; datetime: string }; avg: { messages: number; bytes: number } }[] }[] } }>(
       token,
       `query ($accountTag: String!, $since: Time!, $until: Time!) {
         viewer { accounts(filter: { accountTag: $accountTag }) {
-          queueBacklogAdaptiveGroups(limit: 1000, filter: { datetime_geq: $since, datetime_leq: $until }, dimensions: { queueId }, orderBy: [datetime_DESC]) {
-            dimensions { queueId } max { messages bytes }
+          queueBacklogAdaptiveGroups(limit: 1000, filter: { datetime_geq: $since, datetime_leq: $until }, orderBy: [datetime_DESC]) {
+            dimensions { queueId datetime } avg { messages bytes }
           } } } }`,
       { accountTag: accountId, since: isoDateTime(1), until: isoDateTime(0) }
     );
     const byQueue = new Map<string, { messages: number; bytes: number }>();
     for (const g of data.viewer.accounts[0]?.queueBacklogAdaptiveGroups || []) {
-      if (!byQueue.has(g.dimensions.queueId)) byQueue.set(g.dimensions.queueId, { messages: g.max.messages, bytes: g.max.bytes });
+      if (!byQueue.has(g.dimensions.queueId)) {
+        byQueue.set(g.dimensions.queueId, { messages: Math.round(g.avg.messages), bytes: Math.round(g.avg.bytes) });
+      }
     }
     for (const q of queues) {
       const b = byQueue.get(q.id);
@@ -1164,28 +1209,46 @@ async function handleSecurity(token: string, url: URL, scope: string, skipCache:
   const query = `
     query ($zoneTag: String!, $since: Time!, $until: Time!) {
       viewer { zones(filter: { zoneTag: $zoneTag }) {
-        byAction: firewallEventsAdaptiveGroups(limit: 20, filter: { datetime_geq: $since, datetime_leq: $until }, dimensions: { action }, orderBy: [count_DESC]) {
+        byAction: firewallEventsAdaptiveGroups(limit: 20, filter: { datetime_geq: $since, datetime_leq: $until }, orderBy: [count_DESC]) {
           count dimensions { action }
         }
-        byCountry: firewallEventsAdaptiveGroups(limit: 8, filter: { datetime_geq: $since, datetime_leq: $until }, dimensions: { clientCountryName }, orderBy: [count_DESC]) {
+        byCountry: firewallEventsAdaptiveGroups(limit: 8, filter: { datetime_geq: $since, datetime_leq: $until }, orderBy: [count_DESC]) {
           count dimensions { clientCountryName }
         }
-        byRule: firewallEventsAdaptiveGroups(limit: 8, filter: { datetime_geq: $since, datetime_leq: $until }, dimensions: { source, ruleId }, orderBy: [count_DESC]) {
+        byRule: firewallEventsAdaptiveGroups(limit: 8, filter: { datetime_geq: $since, datetime_leq: $until }, orderBy: [count_DESC]) {
           count dimensions { source ruleId }
         }
       } }
     }`;
-  const data = await cfGraphQL<{
-    viewer: { zones: { byAction: { count: number; dimensions: { action: string } }[]; byCountry: { count: number; dimensions: { clientCountryName: string } }[]; byRule: { count: number; dimensions: { source: string; ruleId: string } }[] }[] };
-  }>(token, query, { zoneTag: zoneId, since: isoDateTime(days), until: isoDateTime(0) });
 
-  const z = data.viewer.zones[0];
+  // firewallEventsAdaptiveGroups is gated by zone plan — free zones answer
+  // "does not have access to the path". Degrade to an empty state instead of
+  // failing the whole tab.
+  interface FirewallZone {
+    byAction: { count: number; dimensions: { action: string } }[];
+    byCountry: { count: number; dimensions: { clientCountryName: string } }[];
+    byRule: { count: number; dimensions: { source: string; ruleId: string } }[];
+  }
+  let z: FirewallZone | undefined;
+  let unavailable: string | null = null;
+  try {
+    const data = await cfGraphQL<{ viewer: { zones: FirewallZone[] } }>(token, query, {
+      zoneTag: zoneId,
+      since: isoDateTime(days),
+      until: isoDateTime(0)
+    });
+    z = data.viewer.zones[0];
+  } catch (e) {
+    unavailable = e instanceof Error ? e.message : String(e);
+    console.warn('Firewall events unavailable:', unavailable);
+  }
+
   const byAction = (z?.byAction || []).map((g) => ({ action: g.dimensions.action, count: g.count }));
   const topCountries = (z?.byCountry || []).map((g) => ({ country: g.dimensions.clientCountryName, count: g.count }));
   const topRules = (z?.byRule || []).map((g) => ({ source: g.dimensions.source, ruleId: g.dimensions.ruleId, count: g.count }));
   const total = byAction.reduce((a, g) => a + g.count, 0);
 
-  const result = { total, byAction, topCountries, topRules };
+  const result = { total, byAction, topCountries, topRules, unavailable };
   setCache(key, result);
   return json(result);
 }
