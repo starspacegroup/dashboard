@@ -209,6 +209,7 @@ function clearLocalState() {
 	widgets.load();
 	analyticsConnection.reload();
 	cloudflareConnection.reload();
+	cloudflareCredentials.reload();
 }
 
 /**

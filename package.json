@@ -9,7 +9,8 @@
     "preview": "vite preview --host 0.0.0.0 --port 4200",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@sveltejs/adapter-cloudflare": "^4.0.0",
@@ -25,7 +26,8 @@
     "tslib": "^2.6.0",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.0.0",
-    "vite": "^5.0.0"
+    "vite": "^5.0.0",
+    "vitest": "^2.1.9"
   },
   "type": "module",
   "dependencies": {

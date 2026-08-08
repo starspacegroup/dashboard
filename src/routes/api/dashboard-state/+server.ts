@@ -1,5 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { env } from '$env/dynamic/private';
+import { decryptState, encryptState } from '$lib/server/stateEncryption';
 
 /**
  * Server-side persistence for dashboard state (widgets, sections, layouts,
@@ -18,6 +20,10 @@ interface StoredState {
 // snapshots are a few KB; anything near this is a bug or an abusive client.
 const MAX_STATE_BYTES = 512 * 1024;
 
+function encryptionSecret(): string | null {
+	return env.AUTH_SECRET?.trim() || null;
+}
+
 function getKV(platform: Readonly<App.Platform> | undefined) {
 	return platform?.env?.DASHBOARD_KV ?? null;
 }
@@ -35,12 +41,14 @@ export const GET: RequestHandler = async ({ locals, platform }) => {
 
 	const kv = getKV(platform);
 	if (!kv) return json({ error: 'Sync not configured' }, { status: 501 });
+	const secret = encryptionSecret();
+	if (!secret) return json({ error: 'Sync encryption not configured' }, { status: 503 });
 
 	const raw = await kv.get(key);
 	if (!raw) return json({ state: null, updatedAt: 0 });
 
 	try {
-		const stored = JSON.parse(raw) as StoredState;
+		const stored = JSON.parse(await decryptState(raw, secret)) as StoredState;
 		return json(stored);
 	} catch {
 		return json({ state: null, updatedAt: 0 });
@@ -53,6 +61,8 @@ export const PUT: RequestHandler = async ({ locals, platform, request }) => {
 
 	const kv = getKV(platform);
 	if (!kv) return json({ error: 'Sync not configured' }, { status: 501 });
+	const secret = encryptionSecret();
+	if (!secret) return json({ error: 'Sync encryption not configured' }, { status: 503 });
 
 	let body: StoredState;
 	try {
@@ -74,7 +84,7 @@ export const PUT: RequestHandler = async ({ locals, platform, request }) => {
 	const existingRaw = await kv.get(key);
 	if (existingRaw) {
 		try {
-			const existing = JSON.parse(existingRaw) as StoredState;
+			const existing = JSON.parse(await decryptState(existingRaw, secret)) as StoredState;
 			if (existing.updatedAt > body.updatedAt) {
 				return json({ ok: false, conflict: true, updatedAt: existing.updatedAt });
 			}
@@ -91,6 +101,7 @@ export const PUT: RequestHandler = async ({ locals, platform, request }) => {
 		}
 	}
 
-	await kv.put(key, JSON.stringify({ state: body.state, updatedAt: body.updatedAt }));
+	const stored = JSON.stringify({ state: body.state, updatedAt: body.updatedAt });
+	await kv.put(key, await encryptState(stored, secret));
 	return json({ ok: true, updatedAt: body.updatedAt });
 };
