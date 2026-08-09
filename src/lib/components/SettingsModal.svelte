@@ -150,6 +150,13 @@
 		}
 	}
 
+	// The °F/°C control is a two-state switch, so a click anywhere on it means
+	// "give me the other option" — including a click on the half that is already
+	// active, which previously re-selected the current unit and did nothing.
+	function toggleTemperatureUnit() {
+		saveTemperatureUnit(globalTemperatureUnit === 'fahrenheit' ? 'celsius' : 'fahrenheit');
+	}
+
 	// Handle modal backdrop click
 	function handleBackdropClick(event: MouseEvent) {
 		if (event.target === event.currentTarget) {
@@ -345,17 +352,21 @@
 					</p>
 
 					<div class="temperature-unit-selector">
-						<button 
-							class="unit-button" 
+						<button
+							class="unit-button"
 							class:active={globalTemperatureUnit === 'fahrenheit'}
-							on:click={() => saveTemperatureUnit('fahrenheit')}
+							aria-pressed={globalTemperatureUnit === 'fahrenheit'}
+							title="Switch to {globalTemperatureUnit === 'fahrenheit' ? 'Celsius (°C)' : 'Fahrenheit (°F)'}"
+							on:click={toggleTemperatureUnit}
 						>
 							°F
 						</button>
-						<button 
-							class="unit-button" 
+						<button
+							class="unit-button"
 							class:active={globalTemperatureUnit === 'celsius'}
-							on:click={() => saveTemperatureUnit('celsius')}
+							aria-pressed={globalTemperatureUnit === 'celsius'}
+							title="Switch to {globalTemperatureUnit === 'fahrenheit' ? 'Celsius (°C)' : 'Fahrenheit (°F)'}"
+							on:click={toggleTemperatureUnit}
 						>
 							°C
 						</button>
