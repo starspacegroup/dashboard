@@ -411,6 +411,20 @@ export const load: PageServerLoad = async ({ locals, fetch, platform }) => {
 					}
 				}
 
+				// Each projectsV2 connection is ordered UPDATED_AT DESC on its own, but the
+				// personal list and every org list are concatenated above, so the merged
+				// array is grouped by owner rather than sorted. Re-sort the whole set so the
+				// widget shows the most recently updated project first, regardless of owner.
+				projects.sort((a, b) => {
+					const aTime = Date.parse(a.updatedAt);
+					const bTime = Date.parse(b.updatedAt);
+					// Missing/unparseable timestamps sort last instead of poisoning the order.
+					if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0;
+					if (Number.isNaN(aTime)) return 1;
+					if (Number.isNaN(bTime)) return -1;
+					return bTime - aTime;
+				});
+
 				return projects;
 			} catch (error) {
 				console.error('[ERROR] Failed to fetch GitHub Projects:', error);
