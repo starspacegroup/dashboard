@@ -1,5 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import { isDevPreview, DEV_SESSION } from '$lib/server/devPreview';
+import { devGithubPayload } from '$lib/server/devFixtures';
 
 interface GitHubOrganization {
 	login: string;
@@ -173,7 +175,13 @@ function isFresh(cacheKey: string, cached: CachedGithubData | null): boolean {
   return Date.now() - freshestKnown < GITHUB_CACHE_FRESH_MS;
 }
 
-export const load: PageServerLoad = async ({ locals, fetch, platform }) => {
+export const load: PageServerLoad = async ({ locals, fetch, platform, url }) => {
+	// Dev preview short-circuits the whole GitHub fan-out: there is no real
+	// access token behind the fake session, so every call would 401.
+	if (isDevPreview({ url })) {
+		return { user: DEV_SESSION.user, ...devGithubPayload() };
+	}
+
 	const session = await locals.auth() as ExtendedSession | null;
 
 	if (!session?.user) {

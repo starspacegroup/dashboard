@@ -82,6 +82,21 @@ npm run dev
 
 6. Open [http://localhost:4200](http://localhost:4200) in your browser
 
+### Local dev preview
+
+On localhost, `npm run dev` skips sign-in and opens on a dashboard with one
+widget of every type, so you can work on the UI without connecting a GitHub,
+Google Analytics or Cloudflare account. A `DEV PREVIEW · SAMPLE DATA` badge
+stays in the header while it is on.
+
+The GitHub, Analytics and Cloudflare numbers are generated; weather, geocoding
+and crypto are keyless APIs, so those widgets show live data. The Traffic widget
+still needs `GOOGLE_MAPS_API_KEY`.
+
+Set `DEV_AUTH_BYPASS=false` in `.env` to test the real sign-in flow locally. The
+preview is compiled out of every build and only ever answers loopback requests,
+so a LAN address or a dev tunnel always goes through real GitHub OAuth.
+
 ### Build
 
 To build for production:

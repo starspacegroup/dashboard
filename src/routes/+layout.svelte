@@ -71,6 +71,13 @@
 	{#if !isMinimalLayout}
 	<header>
 		<h1>Dashboard</h1>
+		{#if data.devPreview}
+			<!-- Every number below is sample data, and it would be very easy to
+			     forget that. Say so, permanently, in the chrome. -->
+			<span class="dev-preview-badge" title="Signed in is faked and the GitHub, Analytics and Cloudflare data is generated. Weather and crypto are live.">
+				DEV PREVIEW · SAMPLE DATA
+			</span>
+		{/if}
 		<nav>
 			<button class="command-palette-button" on:click={openCommandPalette} title="Command Palette (ESC)">
 				⌘
@@ -102,6 +109,20 @@
 </div>
 
 <style>
+	.dev-preview-badge {
+		align-self: center;
+		margin-left: 0.75rem;
+		padding: 0.2rem 0.5rem;
+		border: 1.5px solid var(--warning);
+		border-radius: 0.35rem;
+		color: var(--warning);
+		font-size: 0.62rem;
+		font-weight: 800;
+		letter-spacing: 0.06em;
+		white-space: nowrap;
+		cursor: help;
+	}
+
 	.app {
 		display: flex;
 		flex-direction: column;

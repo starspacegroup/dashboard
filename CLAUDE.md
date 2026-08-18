@@ -80,6 +80,28 @@ requires a dev OAuth app whose callback is
 ### Global Styles
 - `src/app.css` - Theme CSS custom properties, browser default overrides, form styling
 
+## Local dev preview
+
+`npm run dev` on **localhost** skips GitHub sign-in: `src/lib/server/devPreview.ts`
+hands out a fake session, `devHandle.ts` answers the credential-gated APIs from
+`devFixtures.ts`, and the dashboard opens on a seeded layout with one widget of
+every type. A `DEV PREVIEW · SAMPLE DATA` badge sits in the header the whole time.
+
+- **What is faked:** the session, the GitHub payload behind the page load,
+  Google Analytics, Cloudflare. **What is real:** weather, geocoding and crypto
+  are keyless, so those widgets show live data. Traffic needs
+  `GOOGLE_MAPS_API_KEY` and has no offline mode.
+- The Analytics and Cloudflare fixtures answer **only** for the placeholder
+  credentials the preview seeds. Paste a real token into a widget and the request
+  goes to the real provider, so the preview never hides your own data.
+- Three gates keep it out of production: `dev` from `$app/environment` (false in
+  any build, so the code is tree-shaken away), a loopback-only host check (a LAN
+  address or `npm run dev:tunnel` gets real auth), and `DEV_AUTH_BYPASS=false` to
+  turn it off on localhost. There is deliberately no way to enable it in a build.
+- The seed layout arrives through the normal sync path with a fixed old
+  `updatedAt`, so it lands once and your later edits win. Preview dashboard state
+  lives in the dev server's memory — a restart drops back to the seed.
+
 ## Theme System (CRITICAL)
 
 **All colors MUST use CSS custom properties. Never use hardcoded colors like `#fff`, `black`, `rgb()`, `hsl()`.**

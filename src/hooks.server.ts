@@ -1,6 +1,7 @@
 import { SvelteKitAuth } from '@auth/sveltekit';
 import GitHub from '@auth/sveltekit/providers/github';
 import { env } from '$env/dynamic/private';
+import { withDevPreview } from '$lib/server/devHandle';
 
 const { GITHUB_ID = '', GITHUB_SECRET = '', AUTH_SECRET = '' } = env;
 
@@ -84,7 +85,7 @@ async function refreshAccessToken(refreshToken: string): Promise<RefreshedTokens
 	}
 }
 
-export const { handle } = SvelteKitAuth({
+const { handle: authHandle } = SvelteKitAuth({
 	providers: [
 		GitHub({
 			clientId: githubId,
@@ -149,3 +150,10 @@ export const { handle } = SvelteKitAuth({
 		}
 	}
 });
+
+/**
+ * Local dev only: on a loopback request from `vite dev`, hand out a fake
+ * session and sample data instead of bouncing to GitHub sign-in. Statically a
+ * no-op in any build — see src/lib/server/devPreview.ts.
+ */
+export const handle = withDevPreview(authHandle);
