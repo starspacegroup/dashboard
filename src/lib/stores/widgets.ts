@@ -168,6 +168,7 @@ const defaultSections: Section[] = [
 ];
 
 
+
 const defaultWidgets: Widget[] = [
 	{
 		id: 'weather-1',
@@ -263,13 +264,17 @@ function loadSections(): Section[] {
 			const parsedSections = JSON.parse(stored);
 			if (Array.isArray(parsedSections)) {
 				// Normalize sections to ensure they have all required grid properties
-				return parsedSections.map(s => ({
+				const normalized = parsedSections.map(s => ({
 					id: s.id,
 					gridColumn: s.gridColumn ?? 1,
 					gridColumnSpan: s.gridColumnSpan ?? 1, // Default to 1 if undefined
 					gridRow: s.gridRow ?? 1,
 					title: s.title
 				}));
+				// Re-pack on the way in. Layouts saved by an earlier build have
+				// their last-column sections stranded on row 20, stacked in one
+				// cell; loading them as-is would keep rendering them overlapped.
+				return calculateSectionRows(normalized);
 			}
 		}
 	} catch (error) {
@@ -317,6 +322,28 @@ function saveSections(sections: Section[]) {
 }
 
 // Calculate grid rows for sections based on their positions
+/**
+ * How many columns the dashboard grid has. The layout has always rendered four
+ * (`ColumnLayout`: four drop zones, `repeat(4, …)`), but the packer below and
+ * the resize clamp both counted three, which quietly broke every section in the
+ * last column. One constant now, so they can't drift apart again.
+ */
+export const GRID_COLUMNS = 4;
+
+/** Rows to search before giving up — a section can't stack deeper than this. */
+const MAX_GRID_ROWS = 20;
+
+/**
+ * Assign each section the first row where its columns are free.
+ *
+ * This used to allocate a 3-wide occupancy grid and test `col < 3`, so a
+ * section in column 4 could never be placed: the search ran out of rows and
+ * returned row 20, and because it was never marked occupied, *every* column-4
+ * section landed on row 20 as well. Two sections in one grid cell render on top
+ * of each other — the dashboard appears to flicker between them as the animated
+ * widgets underneath force repaints. The shipped default layout had this from
+ * the start; its fourth section has always been at row 20.
+ */
 function calculateSectionRows(sections: Section[]): Section[] {
 	// Sort sections by column and existing row
 	const sorted = [...sections].sort((a, b) => {
@@ -325,24 +352,31 @@ function calculateSectionRows(sections: Section[]): Section[] {
 	});
 
 	// Track occupied cells in the grid
-	const grid: boolean[][] = Array(20).fill(null).map(() => Array(3).fill(false));
+	const grid: boolean[][] = Array(MAX_GRID_ROWS)
+		.fill(null)
+		.map(() => Array(GRID_COLUMNS).fill(false));
 
 	return sorted.map(section => {
+		// A section pointing outside the grid can never be placed; pull it back
+		// in rather than letting it fall through to the bottom of the board.
+		const startCol = Math.min(Math.max(1, section.gridColumn), GRID_COLUMNS);
+		const span = Math.min(Math.max(1, section.gridColumnSpan), GRID_COLUMNS - startCol + 1);
+
 		// Find the first available row for this section
 		let row = 1;
 		let found = false;
 
-		while (!found && row < 20) {
+		while (!found && row <= MAX_GRID_ROWS) {
 			// Check if all columns this section needs are available in this row
-			const canPlace = Array(section.gridColumnSpan).fill(0).every((_, i) => {
-				const col = section.gridColumn - 1 + i;
-				return col < 3 && !grid[row - 1][col];
+			const canPlace = Array(span).fill(0).every((_, i) => {
+				const col = startCol - 1 + i;
+				return col < GRID_COLUMNS && !grid[row - 1][col];
 			});
 
 			if (canPlace) {
 				// Mark cells as occupied
-				for (let i = 0; i < section.gridColumnSpan; i++) {
-					grid[row - 1][section.gridColumn - 1 + i] = true;
+				for (let i = 0; i < span; i++) {
+					grid[row - 1][startCol - 1 + i] = true;
 				}
 				found = true;
 			} else {
@@ -350,7 +384,7 @@ function calculateSectionRows(sections: Section[]): Section[] {
 			}
 		}
 
-		return { ...section, gridRow: row };
+		return { ...section, gridColumn: startCol, gridColumnSpan: span, gridRow: found ? row : MAX_GRID_ROWS };
 	});
 }
 
@@ -546,7 +580,7 @@ function createSectionStore() {
 				if (!section) return sections;
 
 				// Ensure span doesn't exceed grid bounds
-				const maxSpan = 3 - section.gridColumn + 1;
+				const maxSpan = GRID_COLUMNS - section.gridColumn + 1;
 				const clampedSpan = Math.max(1, Math.min(newSpan, maxSpan));
 
 				const updatedSections = sections.map(s =>
