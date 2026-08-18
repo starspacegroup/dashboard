@@ -4,7 +4,31 @@
 	import { page } from '$app/stores';
 	import { moonPhase as moonPhaseStore } from '$lib/stores/moonPhase';
 
-	const WEATHER_CACHE_KEY = 'dashboard-weather-data';
+	// Weather caches are per widget instance: `dashboard-weather-data-<id>`.
+	// This widget has no UI for choosing which weather widget it mirrors, so it
+	// reads whichever cache was written most recently. It used to read the bare
+	// `dashboard-weather-data` key, which nothing has written since the caches
+	// were split per widget — so every reading below fell back to its hardcoded
+	// default (72°F, 0 hourly points, an epoch timestamp).
+	const WEATHER_CACHE_PREFIX = 'dashboard-weather-data';
+
+	/** The freshest cached weather payload from any weather widget, if any. */
+	function readWeatherCache(): WeatherData | null {
+		if (!browser) return null;
+		let newest: WeatherData | null = null;
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i);
+			if (!key || !key.startsWith(WEATHER_CACHE_PREFIX)) continue;
+			try {
+				const parsed = JSON.parse(localStorage.getItem(key) ?? '') as WeatherData;
+				if (typeof parsed?.temperature !== 'number') continue;
+				if (!newest || (parsed.timestamp ?? 0) > (newest.timestamp ?? 0)) newest = parsed;
+			} catch {
+				// unparseable entry — skip it
+			}
+		}
+		return newest;
+	}
 
 	interface WeatherData {
 		temperature: number;
@@ -59,16 +83,9 @@
 	// Read coordinates from cached data
 	$: {
 		if (browser) {
-			const cachedData = localStorage.getItem(WEATHER_CACHE_KEY);
-			if (cachedData) {
-				try {
-					const data = JSON.parse(cachedData);
-					if (data.latitude !== undefined) latitude = data.latitude;
-					if (data.longitude !== undefined) longitude = data.longitude;
-				} catch (_e) {
-					// Ignore parse errors
-				}
-			}
+			const data = readWeatherCache() as (WeatherData & { latitude?: number; longitude?: number }) | null;
+			if (data?.latitude !== undefined) latitude = data.latitude;
+			if (data?.longitude !== undefined) longitude = data.longitude;
 		}
 	}
 	let savedZipCode = '';
@@ -78,27 +95,27 @@
 	// Update current time and date every second
 	onMount(() => {
 		if (browser) {
-			// Load cached weather data
-			const cachedData = localStorage.getItem(WEATHER_CACHE_KEY);
-			if (cachedData) {
-				try {
-					const data: WeatherData = JSON.parse(cachedData);
-					temperature = data.temperature;
-					humidity = data.humidity;
-					dewPoint = data.dewPoint;
-					location = data.location;
-					hourlyData = data.hourly || [];
-					lastUpdate = data.timestamp;
-					sunrise = data.sunrise || 0;
-					sunset = data.sunset || 0;
-					moonrise = data.moonrise || 0;
-					moonset = data.moonset || 0;
-					timezone = data.timezone || '';
-					timezoneOffset = data.timezoneOffset || 0;
-				} catch (error) {
-					console.error('Failed to parse cached weather data:', error);
-				}
+			// Load cached weather data, and pick it up again when a weather
+			// widget refreshes — otherwise the table shows whatever was cached
+			// at mount for as long as the tab stays open.
+			function loadWeather() {
+				const data = readWeatherCache();
+				if (!data) return;
+				temperature = data.temperature;
+				humidity = data.humidity;
+				dewPoint = data.dewPoint;
+				location = data.location;
+				hourlyData = data.hourly || [];
+				lastUpdate = data.timestamp;
+				sunrise = data.sunrise || 0;
+				sunset = data.sunset || 0;
+				moonrise = data.moonrise || 0;
+				moonset = data.moonset || 0;
+				timezone = data.timezone || '';
+				timezoneOffset = data.timezoneOffset || 0;
 			}
+			loadWeather();
+			const weatherPoll = setInterval(loadWeather, 30_000);
 
 			// Load saved ZIP code
 			savedZipCode = localStorage.getItem('dashboard-zip-code') || '';
@@ -112,6 +129,7 @@
 
 			return () => {
 				clearInterval(timeInterval);
+				clearInterval(weatherPoll);
 			};
 		}
 	});
