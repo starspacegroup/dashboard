@@ -90,6 +90,9 @@
 
 	let currentTime = '';
 	let currentDate = '';
+	// Compact clock for the widget header (no seconds, no leading zero) —
+	// same instant as `currentTime`, just formatted to sit in a title.
+	let headerTime = '';
 	let temperature = 72;
 	let humidity = 65;
 	let dewPoint = 50;
@@ -510,8 +513,12 @@
 		? Math.round((timeOffsetData.temperature - 32) * 5 / 9)
 		: timeOffsetData.temperature;
 
-	// Keep widget title in sync with current temp and unit, with the reading
-	// itself tinted by how hot it is (see titleTempColor).
+	// Keep widget title in sync with the location, its current temp/unit, and its
+	// own clock — "Lewiston, ME - 72°F · 3:45 PM". Location leads because that's
+	// what tells two weather widgets apart; the reading is tinted by how hot it
+	// is (see titleTempColor). The time is that location's local time (widgets in
+	// different timezones each show their own), so it stays useful when the
+	// widget is collapsed.
 	//
 	// Goes through `liveTitles`, not `widgets.updateTitle`: this ticks with the
 	// weather data / time-travel scrubber, and updateTitle mutates persisted
@@ -519,12 +526,16 @@
 	// planning/kv-write-amplification.md.
 	$: if (cityName && displayTemp !== undefined) {
 		setLiveTitle(widget.id, [
+			{ text: cityName },
 			{
-				text: `${displayTemp}°${isCelsius ? 'C' : 'F'}`,
+				text: ` - ${displayTemp}°${isCelsius ? 'C' : 'F'}`,
 				// Colour off °F always, so the tint doesn't shift with the unit toggle
 				color: titleTempColor(timeOffsetData.temperature)
 			},
-			{ text: ` - ${cityName}` }
+			// Muted so the temperature stays the thing the eye lands on
+			...(headerTime
+				? [{ text: ` · ${headerTime}`, color: 'var(--text-secondary)' }]
+				: [])
 		]);
 	} else {
 		// No reading yet (still loading, or the location was cleared). Show a
@@ -1176,6 +1187,12 @@
 					hour12: true,
 					timeZone: timezone
 				});
+				headerTime = adjustedTime.toLocaleTimeString('en-US', {
+					hour: 'numeric',
+					minute: '2-digit',
+					hour12: true,
+					timeZone: timezone
+				});
 				
 				// Format date with the location's timezone
 				const year = adjustedTime.toLocaleString('en-US', { year: 'numeric', timeZone: timezone });
@@ -1203,6 +1220,11 @@
 				...(hasLocationData ? {} : { second: '2-digit' }),
 				hour12: true 
 			});
+			headerTime = displayDate.toLocaleTimeString('en-US', {
+				hour: 'numeric',
+				minute: '2-digit',
+				hour12: true
+			});
 			
 			const year = displayDate.getFullYear();
 			const month = displayDate.toLocaleString('en-US', { month: 'long' });
@@ -1216,6 +1238,11 @@
 				minute: '2-digit', 
 				second: '2-digit',
 				hour12: true 
+			});
+			headerTime = adjustedTime.toLocaleTimeString('en-US', {
+				hour: 'numeric',
+				minute: '2-digit',
+				hour12: true
 			});
 			
 			const year = adjustedTime.getFullYear();
