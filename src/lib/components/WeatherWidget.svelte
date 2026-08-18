@@ -90,9 +90,6 @@
 
 	let currentTime = '';
 	let currentDate = '';
-	// Compact clock for the widget header (no seconds, no leading zero) —
-	// same instant as `currentTime`, just formatted to sit in a title.
-	let headerTime = '';
 	let temperature = 72;
 	let humidity = 65;
 	let dewPoint = 50;
@@ -1169,6 +1166,54 @@
 		return { x, y, scale };
 	}
 
+	/**
+	 * Compact clock for the widget header (no seconds, no leading zero), in the
+	 * widget's own timezone — same chain as the body clock: IANA zone, then a
+	 * raw offset, then browser local.
+	 *
+	 * Derived rather than assigned inside `computeCurrentTime` alongside
+	 * `currentTime`. That version was set on the first render and then never
+	 * again: Svelte decides which reactive blocks to re-run from the identifiers
+	 * a block mentions, and an assignment buried inside a called function isn't
+	 * one of them — so the title block never learned the clock had moved and the
+	 * header sat frozen at whatever minute the widget loaded on. Every input is
+	 * named in the reactive statement below, so it can't happen again.
+	 */
+	function formatHeaderTime(
+		nowMs: number,
+		offsetMinutes: number,
+		tz: string,
+		tzOffsetSeconds: number,
+		hasLocation: boolean
+	): string {
+		const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
+		const adjusted = new Date(nowMs + offsetMinutes * 60 * 1000);
+
+		if (tz) {
+			try {
+				return adjusted.toLocaleTimeString('en-US', { ...opts, timeZone: tz });
+			} catch {
+				// invalid timezone string — fall through to the offset path
+			}
+		}
+
+		if (tzOffsetSeconds !== 0 || hasLocation) {
+			const utc = nowMs + new Date(nowMs).getTimezoneOffset() * 60 * 1000;
+			return new Date(utc + tzOffsetSeconds * 1000 + offsetMinutes * 60 * 1000)
+				.toLocaleTimeString('en-US', opts);
+		}
+
+		return adjusted.toLocaleTimeString('en-US', opts);
+	}
+
+	$: headerTime = formatHeaderTime(
+		currentTimestamp,
+		testDateOffset,
+		timezone,
+		timezoneOffset,
+		hasLocationData
+	);
+
 	// Function to compute current time based on widget's timezone
 	function computeCurrentTime() {
 		const now = new Date();
@@ -1184,12 +1229,6 @@
 					hour: '2-digit', 
 					minute: '2-digit', 
 					...(hasLocationData ? {} : { second: '2-digit' }),
-					hour12: true,
-					timeZone: timezone
-				});
-				headerTime = adjustedTime.toLocaleTimeString('en-US', {
-					hour: 'numeric',
-					minute: '2-digit',
 					hour12: true,
 					timeZone: timezone
 				});
@@ -1220,11 +1259,6 @@
 				...(hasLocationData ? {} : { second: '2-digit' }),
 				hour12: true 
 			});
-			headerTime = displayDate.toLocaleTimeString('en-US', {
-				hour: 'numeric',
-				minute: '2-digit',
-				hour12: true
-			});
 			
 			const year = displayDate.getFullYear();
 			const month = displayDate.toLocaleString('en-US', { month: 'long' });
@@ -1238,11 +1272,6 @@
 				minute: '2-digit', 
 				second: '2-digit',
 				hour12: true 
-			});
-			headerTime = adjustedTime.toLocaleTimeString('en-US', {
-				hour: 'numeric',
-				minute: '2-digit',
-				hour12: true
 			});
 			
 			const year = adjustedTime.getFullYear();
