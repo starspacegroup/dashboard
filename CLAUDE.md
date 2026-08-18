@@ -88,8 +88,32 @@ Key variables defined in `src/app.css`:
 - `--primary-color`, `--background`, `--surface`, `--surface-variant`
 - `--text-primary`, `--text-secondary`, `--border`
 - Status: `--success`, `--error`, `--warning`, `--info`
+- Chart series: `--series-1` … `--series-8`
 
 Dark mode: Applied via `.dark` class on root element.
+
+### Chart colors (analytics widgets)
+
+**Never colour a chart series by its position in a list.** Series colour is keyed
+to the *data type*, via `src/lib/utils/metricColors.ts` — call
+`metricColor(metricId)` and it returns the right `var(--series-N)`. That is what
+keeps "Page Views" the same colour in the Analytics widget and the Cloudflare
+widget, and stops a metric changing colour when the user adds or removes another
+one. Adding a metric to a widget means adding it to `METRIC_DATA_TYPES` there;
+the id-hash fallback is a safety net, not the design.
+
+The eight `--series-*` steps are a validated categorical palette (fixed order,
+per-mode steps, checked for colourblind separation and contrast against this
+app's own surfaces). Don't add a ninth or nudge a step by eye — re-run the
+`dataviz` skill's `validate_palette.js` for **both** modes first. Three of the
+light-mode steps sit under 3:1, which is allowed only because every chart also
+carries a legend and labelled tooltip rows, so identity is never colour-alone;
+keep that relief in place.
+
+Status colours (`--success`/`--warning`/`--error`) are reserved for state — a
+meter running hot, an error rate — and are never used as a series colour. In SVG,
+set series colour through `style="stroke: …"` / `style="fill: …"` /
+`style="stop-color: …"`, not the bare presentation attribute.
 
 **Autofill handling is critical** - use `-webkit-box-shadow` inset trick to prevent white flash:
 ```css

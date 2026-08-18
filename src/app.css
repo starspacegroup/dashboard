@@ -47,7 +47,21 @@
 	--purple-bg: rgba(168, 85, 247, 0.2);
 	--gray: #9ca3af;
 	--gray-bg: rgba(156, 163, 175, 0.2);
-	
+
+	/* Categorical chart series — one slot per data type, shared by every
+	   analytics widget so "page views" is the same colour everywhere. Fixed
+	   order (the order is the colourblind-safety mechanism) and validated per
+	   mode against this surface. Never eyeball a change here; see
+	   src/lib/utils/metricColors.ts. */
+	--series-1: #2a78d6; /* blue    — visits / requests */
+	--series-2: #eb6834; /* orange  — weight: bytes, session length */
+	--series-3: #1baf7a; /* aqua    — conversions */
+	--series-4: #eda100; /* yellow  — new users */
+	--series-5: #e87ba4; /* magenta — page views */
+	--series-6: #008300; /* green   — users */
+	--series-7: #4a3aa7; /* violet  — engagement */
+	--series-8: #e34948; /* red     — problems: bounce, threats */
+
 	/* Modal overlay */
 	--overlay: rgba(0, 0, 0, 0.5);
 	--modal-shadow: rgba(0, 0, 0, 0.3);
@@ -100,7 +114,18 @@
 	--purple-bg: rgba(168, 85, 247, 0.2);
 	--gray: #9ca3af;
 	--gray-bg: rgba(156, 163, 175, 0.2);
-	
+
+	/* Chart series — same hues, steps chosen for the dark surface (not an
+	   automatic flip) and validated against it. */
+	--series-1: #3987e5;
+	--series-2: #d95926;
+	--series-3: #199e70;
+	--series-4: #c98500;
+	--series-5: #d55181;
+	--series-6: #008300;
+	--series-7: #9085e9;
+	--series-8: #e66767;
+
 	/* Modal overlay */
 	--overlay: rgba(0, 0, 0, 0.7);
 	--modal-shadow: rgba(0, 0, 0, 0.5);

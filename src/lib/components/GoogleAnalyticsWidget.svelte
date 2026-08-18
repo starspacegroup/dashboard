@@ -7,6 +7,7 @@
 	import { setLiveTitle } from '$lib/stores/liveTitles';
 	import { analyticsConnection } from '$lib/stores/analyticsConnection';
 	import { revealWidget } from '$lib/utils/revealWidget';
+	import { metricColor } from '$lib/utils/metricColors';
 
 	export let widget: Widget;
 
@@ -44,14 +45,6 @@
 		{ days: 14, label: '14D' },
 		{ days: 30, label: '30D' },
 		{ days: 90, label: '90D' }
-	];
-
-	const CHART_COLORS = [
-		'#7c3aed',
-		'#22c55e',
-		'#f97316',
-		'#3b82f6',
-		'#ef4444'
 	];
 
 	// ─── State ───────────────────────────────────────────
@@ -732,10 +725,10 @@
 		{#if viewMode === 'history'}
 			<!-- Metric cards -->
 			<div class="metric-cards">
-				{#each selectedMetrics as metricId, idx}
+				{#each selectedMetrics as metricId}
 					{@const info = getMetricInfo(metricId)}
 					{@const value = totals[metricId] ?? 0}
-					{@const color = CHART_COLORS[idx % CHART_COLORS.length]}
+					{@const color = metricColor(metricId)}
 					<div
 						class="metric-card"
 						style="--card-color: {color};"
@@ -768,12 +761,12 @@
 						>
 					<svg width="100%" height="100%" class="chart-svg">
 						<!-- Gradient defs -->
-						{#each selectedMetrics as metricId, idx}
-							{@const color = CHART_COLORS[idx % CHART_COLORS.length]}
+						{#each selectedMetrics as metricId}
+							{@const color = metricColor(metricId)}
 							<defs>
 								<linearGradient id="grad-{metricId}" x1="0" y1="0" x2="0" y2="1">
-									<stop offset="0%" stop-color={color} stop-opacity="0.2" />
-									<stop offset="100%" stop-color={color} stop-opacity="0" />
+									<stop offset="0%" style="stop-color: {color}" stop-opacity="0.2" />
+									<stop offset="100%" style="stop-color: {color}" stop-opacity="0" />
 								</linearGradient>
 							</defs>
 						{/each}
@@ -788,13 +781,13 @@
 						{/each}
 
 						<!-- All metric areas and lines (rendered equally) -->
-						{#each selectedMetrics as metricId, idx}
+						{#each selectedMetrics as metricId}
 							{@const paths = metricId === activeChartMetric ? { line: chartLinePath, area: chartAreaPath } : getSecondaryPaths(metricId)}
 							<path d={paths.area} fill="url(#grad-{metricId})" />
 							<path
 								d={paths.line}
 								fill="none"
-								stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+								style="stroke: {metricColor(metricId)}"
 								stroke-width="2"
 								stroke-linecap="round"
 								stroke-linejoin="round"
@@ -805,11 +798,11 @@
 						{#if isHovering && hoverIndex >= 0}
 							{@const xPos = rows.length > 1 ? (hoverIndex / (rows.length - 1)) * chartWidth : 0}
 							<line x1={xPos} y1="0" x2={xPos} y2={chartHeight} class="crosshair" />
-							{#each selectedMetrics as metricId, idx}
+							{#each selectedMetrics as metricId}
 								{@const yPos = getHoverY(metricId, hoverIndex)}
 								<circle
 									cx={xPos} cy={yPos} r="4.5"
-									fill={CHART_COLORS[idx % CHART_COLORS.length]}
+									style="fill: {metricColor(metricId)}"
 									stroke="var(--surface)"
 									stroke-width="2"
 								/>
@@ -826,10 +819,10 @@
 							style="left: {pct}%; transform: translateX({pct > 75 ? '-90%' : pct < 25 ? '-10%' : '-50%'});"
 						>
 							<div class="tooltip-date">{formatChartDate(String(hoverRow.date))}</div>
-							{#each selectedMetrics as metricId, idx}
+							{#each selectedMetrics as metricId}
 								{@const metricVal = Number(hoverRow[metricId] || 0)}
 								<div class="tooltip-row">
-									<span class="tooltip-dot" style="background: {CHART_COLORS[idx % CHART_COLORS.length]};"></span>
+									<span class="tooltip-dot" style="background: {metricColor(metricId)};"></span>
 									<span class="tooltip-metric-label">{getMetricInfo(metricId)?.shortLabel}</span>
 									<span class="tooltip-metric-value">{formatValue(metricId, metricVal)}</span>
 								</div>
@@ -858,9 +851,9 @@
 			<!-- Legend -->
 			{#if selectedMetrics.length > 1}
 				<div class="legend">
-					{#each selectedMetrics as metricId, idx}
+					{#each selectedMetrics as metricId}
 						<span class="legend-item">
-							<span class="legend-dot" style="background: {CHART_COLORS[idx % CHART_COLORS.length]};"></span>
+							<span class="legend-dot" style="background: {metricColor(metricId)};"></span>
 							{getMetricInfo(metricId)?.shortLabel}
 						</span>
 					{/each}

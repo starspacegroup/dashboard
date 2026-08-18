@@ -8,6 +8,7 @@
 	import { cloudflareCredentials, resolveToken } from '$lib/stores/cloudflareCredentials';
 	import { cloudflareSettings } from '$lib/stores/cloudflareSettings';
 	import { revealWidget } from '$lib/utils/revealWidget';
+	import { metricColor } from '$lib/utils/metricColors';
 	import { computeMeter, limitsFor, WORKERS_CPU_MS_FREE, WORKERS_CPU_MS_PAID, type Meter, type PlanTier } from '$lib/cloudflare/limits';
 	import CloudflareMeters from './CloudflareMeters.svelte';
 
@@ -114,6 +115,10 @@
 	let zoneMetric: 'requests' | 'bytes' | 'threats' | 'pageViews' = 'requests';
 
 	// ─── Chart data (single visible chart, tab-driven) ──
+	// The line takes the colour of the data type it is showing, not Cloudflare
+	// orange, so "Page Views" here matches "Page Views" in the Analytics widget.
+	// Brand orange stays on the widget's chrome (tabs, pills, buttons).
+	$: chartColor = metricColor(view === 'domains' ? zoneMetric : 'requests');
 	$: chartFormat = view === 'domains' && zoneMetric === 'bytes' ? 'bytes' : 'number';
 	$: chartData = (() => {
 		if (view === 'overview' && overview) {
@@ -759,7 +764,12 @@
 					{#if zoneAnalytics}
 						<div class="metric-chips">
 							{#each ZONE_METRICS as m}
-								<button class="metric-chip" class:active={zoneMetric === m.id} on:click={() => (zoneMetric = m.id)}>
+								<button
+									class="metric-chip"
+									class:active={zoneMetric === m.id}
+									style="--chip-color: {metricColor(m.id)}"
+									on:click={() => (zoneMetric = m.id)}
+								>
 									<span class="chip-val">{formatValue(zoneAnalytics.totals[m.id], m.format)}</span>
 									<span class="chip-lbl">{m.label}</span>
 								</button>
@@ -1068,19 +1078,19 @@
 							<svg width="100%" height="100%" class="chart-svg">
 								<defs>
 									<linearGradient id="cf-grad-{widget.id}" x1="0" y1="0" x2="0" y2="1">
-										<stop offset="0%" stop-color="#f6821f" stop-opacity="0.28" />
-										<stop offset="100%" stop-color="#f6821f" stop-opacity="0" />
+										<stop offset="0%" style="stop-color: {chartColor}" stop-opacity="0.28" />
+										<stop offset="100%" style="stop-color: {chartColor}" stop-opacity="0" />
 									</linearGradient>
 								</defs>
 								{#each [0.25, 0.5, 0.75] as frac}
 									<line x1="0" y1={chartHeight * frac} x2={chartWidth} y2={chartHeight * frac} class="grid-line" />
 								{/each}
 								<path d={chartArea} fill="url(#cf-grad-{widget.id})" />
-								<path d={chartLine} fill="none" stroke="#f6821f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+								<path d={chartLine} fill="none" style="stroke: {chartColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
 								{#if isHovering && hoverIndex >= 0 && chartPoints[hoverIndex]}
 									{@const pt = chartPoints[hoverIndex]}
 									<line x1={pt.x} y1="0" x2={pt.x} y2={chartHeight} class="crosshair" />
-									<circle cx={pt.x} cy={pt.y} r="4.5" fill="#f6821f" stroke="var(--surface)" stroke-width="2" />
+									<circle cx={pt.x} cy={pt.y} r="4.5" style="fill: {chartColor}" stroke="var(--surface)" stroke-width="2" />
 								{/if}
 							</svg>
 							{#if isHovering && hoverIndex >= 0 && chartData[hoverIndex]}
@@ -1375,7 +1385,7 @@
 		min-width: 0;
 	}
 	.metric-chip:hover { background: var(--surface); }
-	.metric-chip.active { border-color: #f6821f; }
+	.metric-chip.active { border-color: var(--chip-color); }
 	.chip-val {
 		font-size: 0.82rem;
 		font-weight: 700;
@@ -1527,7 +1537,7 @@
 		z-index: 10;
 	}
 	.tt-date { font-weight: 700; color: var(--text-primary); font-size: 0.6rem; margin-bottom: 0.1rem; }
-	.tt-val { color: #f6821f; font-weight: 700; font-variant-numeric: tabular-nums; }
+	.tt-val { color: var(--text-primary); font-weight: 700; font-variant-numeric: tabular-nums; }
 	.chart-xaxis {
 		position: relative;
 		height: 1.1rem;

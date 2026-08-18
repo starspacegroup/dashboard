@@ -674,20 +674,23 @@
 		transition: height 0.3s ease;
 	}
 
+	/* Series colours come from the shared data-type palette, so "users" here is
+	   the same colour as "users" in the Analytics widget. See
+	   src/lib/utils/metricColors.ts. */
 	.bar.active {
-		background: var(--primary-color);
+		background: var(--series-6); /* users */
 	}
 
 	.bar.engaged {
-		background: var(--info);
+		background: var(--series-7); /* engagement */
 	}
 
 	.bar.suggestions {
-		background: var(--warning);
+		background: var(--series-1); /* visits / hits */
 	}
 
 	.bar.acceptances {
-		background: var(--success);
+		background: var(--series-3); /* conversions */
 	}
 
 	.chart-label {
@@ -722,19 +725,19 @@
 	}
 
 	.legend-color.active {
-		background: var(--primary-color);
+		background: var(--series-6);
 	}
 
 	.legend-color.engaged {
-		background: var(--info);
+		background: var(--series-7);
 	}
 
 	.legend-color.suggestions {
-		background: var(--warning);
+		background: var(--series-1);
 	}
 
 	.legend-color.acceptances {
-		background: var(--success);
+		background: var(--series-3);
 	}
 
 	.languages-section,
