@@ -739,20 +739,17 @@
 		white-space: nowrap;
 	}
 
-	@media (prefers-reduced-motion: no-preference) {
-		.widget.has-alert {
-			animation: widget-alert-pulse 2.4s ease-in-out infinite;
-		}
-	}
+	/* An alerting widget used to pulse its glow on a 2.4s loop, forever. Weather
+	   alerts are not momentary — an Extreme Heat Warning stands for days — so on
+	   a dashboard that stays open the pulse never stops, and a collapsed alert
+	   widget becomes a full-width bar strobing red in the corner of your eye all
+	   day. Motion is for something that just changed; this hasn't.
 
-	@keyframes widget-alert-pulse {
-		0%,
-		100% {
-			box-shadow: 0 0 0 0 color-mix(in srgb, var(--alert-color) 30%, transparent);
-		}
-		50% {
-			box-shadow: 0 0 12px 2px color-mix(in srgb, var(--alert-color) 22%, transparent);
-		}
+	   The steady signals do the job on their own and survive collapsing, which
+	   was the point: the severity-coloured border and title, the tinted header,
+	   and the ⚠ badge. A static glow gives it depth without moving. */
+	.widget.has-alert {
+		box-shadow: 0 0 10px 1px color-mix(in srgb, var(--alert-color) 20%, transparent);
 	}
 
 	.widget.dragging {
