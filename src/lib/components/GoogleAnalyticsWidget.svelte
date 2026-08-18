@@ -129,14 +129,54 @@
 		activeChartMetric = selectedMetrics[0];
 	}
 
-	// ─── Y-axis data for active metric ────
-	$: activeMetricValues = rows.map(r => Number(r[activeChartMetric] || 0));
-	$: yMin = activeMetricValues.length > 0 ? Math.min(...activeMetricValues) : 0;
-	$: yMax = activeMetricValues.length > 0 ? Math.max(...activeMetricValues) : 0;
+	// ─── Chart scale ──────────────────────────────────────
+	//
+	// Every selected metric is drawn on ONE set of axes, so they have to share
+	// one scale. They used to be min-max normalised per metric — each line
+	// stretched to fill the full height on its own invisible scale, with the
+	// y-axis labelled for `activeChartMetric` alone. Two consequences, both
+	// bad: a metric that barely moved looked as dramatic as one that doubled,
+	// and only one line in the chart could be read off the axis at all. Add
+	// that the metrics don't even share a unit — 51k sessions, a 0.42 bounce
+	// rate and a 168-second average session — and a crossing point meant
+	// nothing.
+	//
+	// So: one metric charts on its own absolute scale, in its own units. Two or
+	// more index each series to its own period average and share a single
+	// percentage axis, which is a real scale — relative movement is comparable
+	// across metrics whatever their unit, and a line above 100% genuinely is
+	// above its own average. Absolute numbers stay one hover away in the
+	// tooltip, and in the metric cards above the chart.
+	$: indexed = selectedMetrics.length > 1;
+
+	/** What a metric contributes to the shared scale: raw alone, indexed when overlaid. */
+	function chartValues(
+		metricId: string,
+		data: Record<string, string | number>[],
+		asIndex: boolean
+	): number[] {
+		const vals = data.map((r) => Number(r[metricId] || 0));
+		if (!asIndex) return vals;
+		const mean = vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
+		// A metric that is flat zero has no meaningful index; park it on 100%
+		// rather than dividing by zero and blowing up the domain.
+		return mean ? vals.map((v) => (v / mean) * 100) : vals.map(() => 100);
+	}
+
+	/** The one domain every line is drawn against. */
+	$: chartDomain = (() => {
+		const all = selectedMetrics.flatMap((m) => chartValues(m, rows, indexed));
+		if (all.length === 0) return { min: 0, max: 1 };
+		const min = Math.min(...all);
+		const max = Math.max(...all);
+		return { min, max: max === min ? min + 1 : max };
+	})();
+	$: yMax = chartDomain.max;
+	$: yMin = chartDomain.min;
 	$: yMid = (yMin + yMax) / 2;
 
 	// ─── Chart SVG computation (reactive, pixel-based like CryptoWidget) ────
-	$: chartPoints = computeChartPoints(activeChartMetric, rows, chartWidth, chartHeight);
+	$: chartPoints = computeChartPoints(activeChartMetric, rows, indexed, chartDomain, chartWidth, chartHeight);
 	$: chartLinePath = chartPoints.length > 0
 		? 'M' + chartPoints.map(p => `${p.x},${p.y}`).join(' L')
 		: '';
@@ -146,32 +186,56 @@
 
 	// Compute secondary metric paths
 	function getSecondaryPaths(metricId: string): { line: string; area: string } {
-		const pts = computeChartPoints(metricId, rows, chartWidth, chartHeight);
+		const pts = computeChartPoints(metricId, rows, indexed, chartDomain, chartWidth, chartHeight);
 		if (pts.length === 0) return { line: '', area: '' };
 		const line = 'M' + pts.map(p => `${p.x},${p.y}`).join(' L');
 		const area = `${line} L${pts[pts.length - 1].x},${chartHeight} L${pts[0].x},${chartHeight} Z`;
 		return { line, area };
 	}
 
-	function computeChartPoints(metricId: string, data: Record<string, string | number>[], w: number, h: number) {
+	function computeChartPoints(
+		metricId: string,
+		data: Record<string, string | number>[],
+		asIndex: boolean,
+		domain: { min: number; max: number },
+		w: number,
+		h: number
+	) {
 		if (!data.length || w <= 0 || h <= 0) return [];
-		const vals = data.map(r => (r[metricId] as number) || 0);
-		const min = Math.min(...vals);
-		const max = Math.max(...vals);
-		const range = max - min || 1;
+		const vals = chartValues(metricId, data, asIndex);
+		const range = domain.max - domain.min || 1;
 		const padding = 6;
 		const usableH = h - padding * 2;
 		return vals.map((v, i) => ({
 			x: (i / (vals.length - 1)) * w,
-			y: padding + usableH - ((v - min) / range) * usableH,
+			y: padding + usableH - ((v - domain.min) / range) * usableH,
 			value: v,
 			date: String(data[i].date)
 		}));
 	}
 
 	function getHoverY(metricId: string, idx: number): number {
-		const pts = computeChartPoints(metricId, rows, chartWidth, chartHeight);
+		const pts = computeChartPoints(metricId, rows, indexed, chartDomain, chartWidth, chartHeight);
 		return pts[idx]?.y ?? 0;
+	}
+
+	/**
+	 * Where 100% sits, in pixels — the line every indexed series is measured
+	 * against, so it earns a rule of its own. Null when not indexed, or when the
+	 * domain doesn't span it.
+	 */
+	$: baselineY = (() => {
+		if (!indexed || chartHeight <= 0) return null;
+		if (chartDomain.min > 100 || chartDomain.max < 100) return null;
+		const padding = 6;
+		const usableH = chartHeight - padding * 2;
+		const range = chartDomain.max - chartDomain.min || 1;
+		return padding + usableH - ((100 - chartDomain.min) / range) * usableH;
+	})();
+
+	/** Axis tick: a percentage when indexed, the metric's own units when not. */
+	function formatAxisTick(value: number): string {
+		return indexed ? `${Math.round(value)}%` : formatYAxisValue(activeChartMetric, value);
 	}
 
 	// ─── Live chart SVG computation ─────────────────────
@@ -744,9 +808,9 @@
 			{#if rows.length > 1}
 				<div class="chart-area">
 					<div class="y-axis-labels">
-						<span>{formatYAxisValue(activeChartMetric, yMax)}</span>
-						<span>{formatYAxisValue(activeChartMetric, yMid)}</span>
-						<span>{formatYAxisValue(activeChartMetric, yMin)}</span>
+						<span>{formatAxisTick(yMax)}</span>
+						<span>{formatAxisTick(yMid)}</span>
+						<span>{formatAxisTick(yMin)}</span>
 					</div>
 					<div class="chart-inner">
 						<div
@@ -757,7 +821,11 @@
 							on:touchmove|preventDefault={handleChartTouchMove}
 							on:touchend={handleChartLeave}
 							role="img"
-							aria-label="Analytics chart for {getMetricInfo(activeChartMetric)?.label}"
+							aria-label={indexed
+								? `Analytics chart: ${selectedMetrics
+										.map((m) => getMetricInfo(m)?.label ?? m)
+										.join(', ')}, each indexed to its own ${days}-day average`
+								: `Analytics chart for ${getMetricInfo(activeChartMetric)?.label}`}
 						>
 					<svg width="100%" height="100%" class="chart-svg">
 						<!-- Gradient defs -->
@@ -780,10 +848,15 @@
 							/>
 						{/each}
 
+						<!-- The 100% line: what "indexed to its own average" means -->
+						{#if baselineY !== null}
+							<line x1="0" y1={baselineY} x2={chartWidth} y2={baselineY} class="baseline" />
+						{/if}
+
 						<!-- All metric areas and lines (rendered equally) -->
 						{#each selectedMetrics as metricId}
 							{@const paths = metricId === activeChartMetric ? { line: chartLinePath, area: chartAreaPath } : getSecondaryPaths(metricId)}
-							<path d={paths.area} fill="url(#grad-{metricId})" />
+							{#if !indexed}<path d={paths.area} fill="url(#grad-{metricId})" />{/if}
 							<path
 								d={paths.line}
 								fill="none"
@@ -850,6 +923,7 @@
 
 			<!-- Legend -->
 			{#if selectedMetrics.length > 1}
+				<div class="scale-note">each metric indexed to its own {days}-day average</div>
 				<div class="legend">
 					{#each selectedMetrics as metricId}
 						<span class="legend-item">
@@ -1327,6 +1401,21 @@
 		display: flex;
 		gap: 0.35rem;
 		flex-shrink: 0;
+	}
+
+	.baseline {
+		stroke: var(--text-secondary);
+		stroke-width: 1;
+		stroke-dasharray: 3 3;
+		opacity: 0.55;
+	}
+
+	.scale-note {
+		text-align: center;
+		font-size: 0.58rem;
+		color: var(--text-secondary);
+		opacity: 0.75;
+		margin-top: 0.35rem;
 	}
 
 	.y-axis-labels {

@@ -137,6 +137,13 @@ meter running hot, an error rate — and are never used as a series colour. In S
 set series colour through `style="stroke: …"` / `style="fill: …"` /
 `style="stop-color: …"`, not the bare presentation attribute.
 
+**One set of axes means one scale.** Never normalise each series to its own
+min/max and draw them together — the lines stop being comparable and only the
+one the axis is labelled for can be read at all. Series of different magnitude
+or unit go on a shared indexed axis (each series as a % of its own period
+average, with a 100% rule), and the absolute numbers live in the tooltip and the
+stat cards. The Analytics widget does this; it's the pattern to copy.
+
 **Autofill handling is critical** - use `-webkit-box-shadow` inset trick to prevent white flash:
 ```css
 input:-webkit-autofill {
