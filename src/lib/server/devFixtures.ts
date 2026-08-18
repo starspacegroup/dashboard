@@ -343,7 +343,10 @@ function gaMetricSeries(metric: string, days: number): number[] {
 		case 'conversions':
 			return series(seed, days, 48, 22);
 		case 'bounceRate':
-			return series(seed, days, 42, 9).map((v) => Math.min(95, v) / 100);
+			// Wider than the others on purpose: bounce rate is drawn on a quality
+			// ramp, so the preview should cross from healthy into bad and show
+			// the whole green-to-red range rather than one flat colour.
+			return series(seed, days, 52, 28).map((v) => Math.min(95, Math.max(12, v)) / 100);
 		case 'engagementRate':
 			return series(seed, days, 58, 9).map((v) => Math.min(95, v) / 100);
 		case 'averageSessionDuration':
@@ -771,7 +774,10 @@ const DEV_WIDGETS = [
 			analytics: {
 				propertyId: '000000001',
 				propertyName: 'Dev Preview — Marketing site',
-				metrics: ['sessions', 'totalUsers', 'screenPageViews', 'newUsers'],
+				// Three series, deliberately: the palette only guarantees four are
+				// mutually distinguishable, and bounce rate spends its colour on
+				// the quality ramp — so its companions avoid green and amber.
+				metrics: ['sessions', 'screenPageViews', 'bounceRate'],
 				days: 30
 			}
 		}

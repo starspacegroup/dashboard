@@ -137,6 +137,15 @@ meter running hot, an error rate — and are never used as a series colour. In S
 set series colour through `style="stroke: …"` / `style="fill: …"` /
 `style="stop-color: …"`, not the bare presentation attribute.
 
+**Colour by value only where the value has a direction.** Most metrics have no
+good or bad, and those keep their fixed data-type colour. A metric everyone
+already reads as better-or-worse — bounce rate — is drawn on a green-to-red ramp
+mixed from `--success`/`--warning`/`--error`, via a per-point SVG gradient along
+the line (`QUALITY_SCALES` in the Analytics widget). A line that spends its
+colour this way can no longer use colour to say *which* metric it is, so it is
+drawn heavier and its legend entry shows the ramp instead of a dot; the value is
+always in the tooltip, so the judgement is never colour-alone.
+
 **One set of axes means one scale.** Never normalise each series to its own
 min/max and draw them together — the lines stop being comparable and only the
 one the axis is labelled for can be read at all. Series of different magnitude

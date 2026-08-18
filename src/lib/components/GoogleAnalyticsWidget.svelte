@@ -40,6 +40,25 @@
 		{ id: 'conversions', label: 'Conversions', shortLabel: 'Conv', format: 'number' }
 	];
 
+	/**
+	 * Metrics that carry a quality judgement, so the line can say how the site
+	 * is doing and not just what it did.
+	 *
+	 * Most metrics have no good or bad — 1,800 sessions is neither — and those
+	 * keep their fixed data-type colour from `metricColors.ts`. Bounce rate is
+	 * different: every reader already knows low is good and high is bad, so
+	 * leaving that to be worked out from the axis wastes a channel the line is
+	 * not otherwise using.
+	 *
+	 * `good` and `bad` are the ends of the ramp in the metric's own units (a
+	 * fraction, for a percent metric). Everything between shades across them.
+	 * The thresholds are the usual GA4 rules of thumb: under 40% is healthy,
+	 * over 70% is a problem.
+	 */
+	const QUALITY_SCALES: Record<string, { good: number; bad: number }> = {
+		bounceRate: { good: 0.4, bad: 0.7 }
+	};
+
 	const TIMEFRAME_OPTIONS = [
 		{ days: 7, label: '7D' },
 		{ days: 14, label: '14D' },
@@ -232,6 +251,60 @@
 		const range = chartDomain.max - chartDomain.min || 1;
 		return padding + usableH - ((100 - chartDomain.min) / range) * usableH;
 	})();
+
+	/**
+	 * Where a value sits on its metric's quality ramp, 0 (good) to 1 (bad).
+	 * `null` for metrics that have no such judgement.
+	 */
+	function qualityPosition(metricId: string, value: number): number | null {
+		const scale = QUALITY_SCALES[metricId];
+		if (!scale) return null;
+		const span = scale.bad - scale.good;
+		if (span === 0) return 0;
+		return Math.min(1, Math.max(0, (value - scale.good) / span));
+	}
+
+	/**
+	 * The colour for one reading of a quality metric.
+	 *
+	 * Blended from the app's own status tokens with `color-mix` rather than
+	 * interpolated from literal hexes, so the ramp stays theme-aware and there
+	 * is still exactly one definition of what "good" and "bad" look like in
+	 * this dashboard. Rounded to whole percent so the string is stable between
+	 * renders and the gradient doesn't churn.
+	 *
+	 * Green through amber to red: the first half of the ramp mixes success into
+	 * warning, the second warning into error. Going straight from success to
+	 * error would pass through a muddy brown at exactly the midpoint, which is
+	 * the reading you most want to be legible.
+	 */
+	function qualityColor(metricId: string, value: number): string | null {
+		const t = qualityPosition(metricId, value);
+		if (t === null) return null;
+		if (t <= 0.5) {
+			const mix = Math.round(t * 2 * 100);
+			return `color-mix(in oklab, var(--success) ${100 - mix}%, var(--warning) ${mix}%)`;
+		}
+		const mix = Math.round((t - 0.5) * 2 * 100);
+		return `color-mix(in oklab, var(--warning) ${100 - mix}%, var(--error) ${mix}%)`;
+	}
+
+	/**
+	 * A quality metric's line is drawn heavier than the rest. Its colour is
+	 * spent on how good the reading is, so it can't also say which metric it
+	 * is — and a green stretch of bounce rate would otherwise be
+	 * indistinguishable from whichever series owns green. Weight carries the
+	 * identity instead, and the legend shows the ramp rather than a dot.
+	 */
+	/** A quality metric's line colour is a gradient; everything else is flat. */
+	function lineStroke(metricId: string): string {
+		return QUALITY_SCALES[metricId] ? `url(#quality-${widget.id}-${metricId})` : metricColor(metricId);
+	}
+
+	/** Colour standing in for the whole period — used on the card and the legend. */
+	function periodColor(metricId: string): string {
+		return qualityColor(metricId, Number(totals[metricId] ?? 0)) ?? metricColor(metricId);
+	}
 
 	/** Axis tick: a percentage when indexed, the metric's own units when not. */
 	function formatAxisTick(value: number): string {
@@ -792,7 +865,7 @@
 				{#each selectedMetrics as metricId}
 					{@const info = getMetricInfo(metricId)}
 					{@const value = totals[metricId] ?? 0}
-					{@const color = metricColor(metricId)}
+					{@const color = periodColor(metricId)}
 					<div
 						class="metric-card"
 						style="--card-color: {color};"
@@ -830,12 +903,30 @@
 					<svg width="100%" height="100%" class="chart-svg">
 						<!-- Gradient defs -->
 						{#each selectedMetrics as metricId}
-							{@const color = metricColor(metricId)}
+							{@const color = periodColor(metricId)}
 							<defs>
 								<linearGradient id="grad-{metricId}" x1="0" y1="0" x2="0" y2="1">
 									<stop offset="0%" style="stop-color: {color}" stop-opacity="0.2" />
 									<stop offset="100%" style="stop-color: {color}" stop-opacity="0" />
 								</linearGradient>
+								{#if QUALITY_SCALES[metricId]}
+									<!-- One stop per reading, so the line is green where the
+									     metric was healthy and red where it wasn't. Laid out
+									     in user space across the plot, so the stops line up
+									     with the points they describe. -->
+									<linearGradient
+										id="quality-{widget.id}-{metricId}"
+										gradientUnits="userSpaceOnUse"
+										x1="0" y1="0" x2={chartWidth} y2="0"
+									>
+										{#each rows as row, i}
+											<stop
+												offset="{rows.length > 1 ? (i / (rows.length - 1)) * 100 : 0}%"
+												style="stop-color: {qualityColor(metricId, Number(row[metricId] || 0))}"
+											/>
+										{/each}
+									</linearGradient>
+								{/if}
 							</defs>
 						{/each}
 
@@ -860,8 +951,8 @@
 							<path
 								d={paths.line}
 								fill="none"
-								style="stroke: {metricColor(metricId)}"
-								stroke-width="2"
+								style="stroke: {lineStroke(metricId)}"
+								stroke-width={QUALITY_SCALES[metricId] ? 3 : 2}
 								stroke-linecap="round"
 								stroke-linejoin="round"
 							/>
@@ -875,7 +966,8 @@
 								{@const yPos = getHoverY(metricId, hoverIndex)}
 								<circle
 									cx={xPos} cy={yPos} r="4.5"
-									style="fill: {metricColor(metricId)}"
+									style="fill: {qualityColor(metricId, Number(rows[hoverIndex]?.[metricId] || 0)) ??
+										metricColor(metricId)}"
 									stroke="var(--surface)"
 									stroke-width="2"
 								/>
@@ -895,7 +987,10 @@
 							{#each selectedMetrics as metricId}
 								{@const metricVal = Number(hoverRow[metricId] || 0)}
 								<div class="tooltip-row">
-									<span class="tooltip-dot" style="background: {metricColor(metricId)};"></span>
+									<span
+										class="tooltip-dot"
+										style="background: {qualityColor(metricId, metricVal) ?? metricColor(metricId)};"
+									></span>
 									<span class="tooltip-metric-label">{getMetricInfo(metricId)?.shortLabel}</span>
 									<span class="tooltip-metric-value">{formatValue(metricId, metricVal)}</span>
 								</div>
@@ -927,7 +1022,18 @@
 				<div class="legend">
 					{#each selectedMetrics as metricId}
 						<span class="legend-item">
-							<span class="legend-dot" style="background: {metricColor(metricId)};"></span>
+							{#if QUALITY_SCALES[metricId]}
+								<!-- This one isn't a single colour, so the key shouldn't
+								     pretend it is: show the ramp it's read against. -->
+								<span
+									class="legend-dot ramp"
+									title="{getMetricInfo(metricId)?.label}: green under {Math.round(
+										QUALITY_SCALES[metricId].good * 100
+									)}%, red over {Math.round(QUALITY_SCALES[metricId].bad * 100)}%"
+								></span>
+							{:else}
+								<span class="legend-dot" style="background: {metricColor(metricId)};"></span>
+							{/if}
 							{getMetricInfo(metricId)?.shortLabel}
 						</span>
 					{/each}
@@ -1557,6 +1663,14 @@
 		height: 7px;
 		border-radius: 50%;
 		flex-shrink: 0;
+	}
+
+	/* Key for a metric whose line is coloured by how good the reading is. */
+	.legend-dot.ramp {
+		width: 16px;
+		border-radius: 3px;
+		background: linear-gradient(to right, var(--success), var(--warning), var(--error));
+		cursor: help;
 	}
 
 	.empty-chart {
