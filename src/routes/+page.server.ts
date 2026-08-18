@@ -138,6 +138,10 @@ interface GithubData {
 	assignedPRs: GitHubPullRequest[];
 	createdPRs: GitHubPullRequest[];
 	reviewRequestedPRs: GitHubPullRequest[];
+	/** Open PRs across every org the user belongs to, whoever opened them. */
+	organizationPRs: GitHubPullRequest[];
+	/** The orgs themselves, so the PR widget can offer them as a filter. */
+	githubOrganizations: GitHubOrganization[];
 	copilotMetrics: OrganizationMetrics[];
 }
 
@@ -149,6 +153,8 @@ interface CachedGithubData {
 // Serve from cache within this window to avoid hammering the GitHub API
 // (especially the search API: 30 requests/min, 3 used per dashboard load)
 const GITHUB_CACHE_FRESH_MS = 3 * 60 * 1000;
+/** How many orgs fit in one PR search before the query string gets too long. */
+const MAX_ORGS_IN_PR_QUERY = 10;
 // Keep stale copies around as a fallback when GitHub rate-limits us
 const GITHUB_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
@@ -230,6 +236,8 @@ export const load: PageServerLoad = async ({ locals, fetch, platform, url }) => 
 				assignedPRs: [],
 				createdPRs: [],
 				reviewRequestedPRs: [],
+				organizationPRs: [],
+				githubOrganizations: [],
 				copilotMetrics: [],
 				tokenError: true
 			};
@@ -477,6 +485,8 @@ export const load: PageServerLoad = async ({ locals, fetch, platform, url }) => 
 				assignedPRs: [],
 				createdPRs: [],
 				reviewRequestedPRs: [],
+				organizationPRs: [],
+				githubOrganizations: [],
 				copilotMetrics: [],
 				tokenError: true
 			};
@@ -497,6 +507,7 @@ export const load: PageServerLoad = async ({ locals, fetch, platform, url }) => 
 			assignedPRs,
 			createdPRs,
 			reviewRequestedPRs,
+			organizationPRs,
 			copilotMetricsResults
 		] = await Promise.all([
 			// Org repos (parallel per org)
@@ -524,10 +535,25 @@ export const load: PageServerLoad = async ({ locals, fetch, platform, url }) => 
 			// GraphQL projects
 			fetchGraphQLProjects(),
 
-			// PR searches (all three in parallel)
+			// PR searches (all four in parallel)
 			fetchPRSearch('type:pr state:open assignee:@me'),
 			fetchPRSearch('type:pr state:open author:@me'),
 			fetchPRSearch('type:pr state:open review-requested:@me'),
+
+			// Every org's open PRs in ONE query: repeated `org:` qualifiers are
+			// OR'd by GitHub search. One request per load instead of one per
+			// org matters here — the search API allows 30/min and a dashboard
+			// load already spends several. The org list is capped because the
+			// query string has a length limit; orgs are ordered as GitHub
+			// returns them, so the cap is stable rather than arbitrary.
+			organizations.length
+				? fetchPRSearch(
+						`type:pr state:open ${organizations
+							.slice(0, MAX_ORGS_IN_PR_QUERY)
+							.map((o) => `org:${o.login}`)
+							.join(' ')}`
+					)
+				: Promise.resolve([] as GitHubPullRequest[]),
 
 			// Copilot metrics (parallel per org)
 			Promise.all(organizations.map(org => fetchCopilotMetricsForOrg(org.login)))
@@ -560,6 +586,8 @@ export const load: PageServerLoad = async ({ locals, fetch, platform, url }) => 
 			assignedPRs,
 			createdPRs,
 			reviewRequestedPRs,
+			organizationPRs,
+			githubOrganizations: organizations,
 			copilotMetrics
 		};
 
@@ -602,6 +630,8 @@ export const load: PageServerLoad = async ({ locals, fetch, platform, url }) => 
 		assignedPRs: [],
 		createdPRs: [],
 		reviewRequestedPRs: [],
+		organizationPRs: [],
+		githubOrganizations: [],
 		copilotMetrics: []
 	};
 };

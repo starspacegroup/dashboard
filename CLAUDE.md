@@ -36,6 +36,27 @@ requires a dev OAuth app whose callback is
 - Widgets have `type`, `section` (which column), `order` (position within section), and optional `config`
 - Sections define a flexible grid layout (1-4 columns, spanning supported)
 - Widget positions are stored per-layout fingerprint to remember arrangements
+- Grid width is `GRID_COLUMNS` in the widgets store — the packer, the resize
+  clamp and `ColumnLayout` all read it. Don't hardcode a column count; the two
+  places that did disagreed with the layout and stranded every column-4 section
+  in one cell.
+
+### GitHub pull requests
+`+page.server.ts` runs four PR searches per (cache-missing) load: assigned,
+authored, review-requested, and **one** query covering every org — repeated
+`org:` qualifiers are OR'd by GitHub search, so N orgs cost one request, not N.
+The search API allows 30/min and a dashboard load already spends several, so
+keep it that way; the org list is capped at `MAX_ORGS_IN_PR_QUERY` because the
+query string has a length limit.
+
+All filtering in `GithubPullRequestsWidget` is client-side over that preloaded
+set — scope, owner, repo, author, draft state, free text, sort, page size. That
+keeps filtering instant and free, at the cost of only seeing what was fetched.
+Filter choices live in `widget.config.pullRequests`, so they survive reload and
+sync across devices; the write is debounced because the search box fires on
+every keystroke. Dropdown options are derived from the PRs actually in scope,
+and a filter that no longer matches anything in a newly-chosen scope is cleared
+rather than silently emptying the list.
 
 ### Authentication
 - `src/hooks.server.ts` - SvelteKitAuth configuration with GitHub provider

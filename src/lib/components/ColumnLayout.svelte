@@ -144,7 +144,7 @@
 								{:else if widget.type === 'github-projects'}
 									<svelte:component this={widgetComponents.GithubProjectsWidget} projects={data.allGithubProjects || []} isLoggedIn={!!data.user} />
 								{:else if widget.type === 'github-pull-requests'}
-									<svelte:component this={widgetComponents.GithubPullRequestsWidget} assignedPRs={data.assignedPRs || []} createdPRs={data.createdPRs || []} reviewRequestedPRs={data.reviewRequestedPRs || []} isLoggedIn={!!data.user} />
+									<svelte:component this={widgetComponents.GithubPullRequestsWidget} {widget} assignedPRs={data.assignedPRs || []} createdPRs={data.createdPRs || []} reviewRequestedPRs={data.reviewRequestedPRs || []} organizationPRs={data.organizationPRs || []} githubOrganizations={data.githubOrganizations || []} isLoggedIn={!!data.user} />
 								{:else if widget.type === 'data-table'}
 									<svelte:component this={widgetComponents.DataTableWidget} />
 								{:else if widget.type === 'copilot-usage'}

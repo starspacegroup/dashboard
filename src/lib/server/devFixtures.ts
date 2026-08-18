@@ -132,12 +132,18 @@ const PR_TITLES = [
 	'Document the dev preview'
 ];
 
-function pullRequest(i: number, repoName: string, author: string, draft = false) {
+function pullRequest(
+	i: number,
+	repoName: string,
+	author: string,
+	draft = false,
+	owner = 'dev-preview'
+) {
 	return {
 		id: `PR_devpreview_${i}`,
 		number: 400 + i,
 		title: PR_TITLES[i % PR_TITLES.length],
-		url: `https://github.com/dev-preview/${repoName}/pull/${400 + i}`,
+		url: `https://github.com/${owner}/${repoName}/pull/${400 + i}`,
 		state: 'OPEN',
 		createdAt: daysAgo(i + 2),
 		updatedAt: daysAgo(i),
@@ -145,7 +151,7 @@ function pullRequest(i: number, repoName: string, author: string, draft = false)
 			login: author,
 			avatarUrl: `https://avatars.githubusercontent.com/u/0?v=4&dev=${author}`
 		},
-		repository: { name: repoName, owner: { login: 'dev-preview' } },
+		repository: { name: repoName, owner: { login: owner } },
 		isDraft: draft
 	};
 }
@@ -318,6 +324,29 @@ export function devGithubPayload() {
 			pullRequest(5, 'docs-site', 'dev-preview')
 		],
 		reviewRequestedPRs: [pullRequest(6, 'ingest-worker', 'octo-contributor')],
+		// Org-wide PRs: whoever opened them, across every org you belong to.
+		// Deliberately overlaps the lists above, so the "All" scope has
+		// duplicates to collapse and the filters have something to bite on.
+		organizationPRs: [
+			pullRequest(1, 'dashboard', 'dev-preview'),
+			pullRequest(7, 'edge-proxy', 'octo-contributor', false, 'dev-preview-org'),
+			pullRequest(8, 'design-tokens', 'octo-reviewer', true, 'dev-preview-org'),
+			pullRequest(9, 'ingest-worker', 'octo-maintainer', false, 'dev-preview-org'),
+			pullRequest(10, 'docs-site', 'octo-contributor', false, 'dev-preview-labs'),
+			pullRequest(11, 'dashboard', 'octo-reviewer', true, 'dev-preview-labs')
+		],
+		githubOrganizations: [
+			{
+				login: 'dev-preview-org',
+				avatar_url: 'https://avatars.githubusercontent.com/u/0?v=4&dev=org',
+				description: 'Sample organization for the local dev preview'
+			},
+			{
+				login: 'dev-preview-labs',
+				avatar_url: 'https://avatars.githubusercontent.com/u/0?v=4&dev=labs',
+				description: 'Second org, so the org switcher has something to switch'
+			}
+		],
 		copilotMetrics: [copilotMetrics('dev-preview-org', 101), copilotMetrics('dev-preview-labs', 202)]
 	};
 }

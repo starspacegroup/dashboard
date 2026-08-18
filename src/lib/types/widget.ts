@@ -36,6 +36,23 @@ export interface WidgetConfig {
 		days: number; // Date range in days (7, 14, 30, 90)
 		refreshToken?: string; // Google OAuth refresh token
 	};
+	pullRequests?: {
+		/** Which query the list draws from. */
+		scope?: 'assigned' | 'created' | 'review-requested' | 'organizations' | 'all';
+		/** Owner login to narrow to, or '' for every owner in scope. */
+		owner?: string;
+		/** "owner/name" to narrow to, or '' for every repo in scope. */
+		repo?: string;
+		/** Author login to narrow to, or '' for anyone. */
+		author?: string;
+		/** Draft state: everything, ready-for-review only, or drafts only. */
+		draft?: 'any' | 'ready' | 'draft';
+		/** Free-text match against title, repo and number. */
+		search?: string;
+		sort?: 'updated' | 'created' | 'oldest' | 'title';
+		/** Rows per page. */
+		pageSize?: number;
+	};
 	cloudflare?: {
 		credentialId?: string; // Which saved API key (cloudflareCredentials) this widget uses; unset → first/default key
 		accountId?: string; // Selected Cloudflare account tag
