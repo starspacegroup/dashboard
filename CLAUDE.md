@@ -36,15 +36,6 @@ requires a dev OAuth app whose callback is
 - Widgets have `type`, `section` (which column), `order` (position within section), and optional `config`
 - Sections define a flexible grid layout (1-4 columns, spanning supported)
 - Widget positions are stored per-layout fingerprint to remember arrangements
-- **A widget's responsive breakpoints are container queries, not media queries.**
-  `Widget.svelte` sets `container-type: inline-size; container-name: widget` on
-  `.widget`, and the header sizes off that. A widget's real width is its grid
-  column — at a 1280px viewport the 4-column layout gives each one ~200px — so
-  viewport media queries read "desktop, plenty of room" and produced four-line
-  titles with the buttons crammed beside them. Anything inside a widget that
-  needs to adapt to width must use `@container widget (…)`. Touch-target sizing
-  is the one exception: that keys off `@media (pointer: coarse)`, because it is
-  a property of the pointer, not of the window.
 - Grid width is `GRID_COLUMNS` in the widgets store — the packer, the resize
   clamp and `ColumnLayout` all read it. Don't hardcode a column count; the two
   places that did disagreed with the layout and stranded every column-4 section

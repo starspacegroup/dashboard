@@ -20,9 +20,6 @@
 	// the template has one shape to render.
 	$: displayTitle = ($liveTitles[widget.id] ?? widget.title) as LiveTitle;
 	$: titleSegments = Array.isArray(displayTitle) ? displayTitle : [{ text: displayTitle }];
-	// The header clamps to two lines, so the full headline needs somewhere to
-	// live on a pointer device. (Touch gets it from the widget body.)
-	$: plainTitle = titleSegments.map((seg) => seg.text).join('');
 	// An alert repaints the whole header title; its signal outranks the tint.
 	$: tintTitle = !topAlert;
 
@@ -465,61 +462,57 @@
 	class:alert-open={alertsOpen}
 	style={topAlert ? `--alert-color: ${alertColor}` : ''}
 >
-	<div class="widget-header" class:has-alert={!!topAlert}>
+	<div class="widget-header">
 		<button class="drag-handle" on:mousedown={handleMouseDown} on:touchstart={handleTouchStart} aria-label="Drag widget" type="button">⋮⋮</button>
-		<h3 title={plainTitle}>{#each titleSegments as seg}<span
+		<h3>{#each titleSegments as seg}<span
 				style={tintTitle && seg.color ? `color: ${seg.color}` : ''}>{seg.text}</span>{/each}</h3>
-		<!-- Alert chip and buttons travel together: below the stack breakpoint the
-		     whole cluster drops to its own row instead of starving the title. -->
-		<div class="header-actions">
-			{#if topAlert}
+		{#if topAlert}
+			<button
+				class="header-alert"
+				data-alert-scope={widget.id}
+				on:click|stopPropagation={toggleAlerts}
+				aria-expanded={alertsOpen}
+				aria-label="{alerts.length} active weather {alerts.length === 1
+					? 'alert'
+					: 'alerts'}: {topAlert.event}. Show details."
+				type="button"
+			>
+				<span aria-hidden="true">⚠</span>
+				<span class="header-alert-event">{topAlert.event}</span>
+				{#if alerts.length > 1}<span class="header-alert-more">+{alerts.length - 1}</span>{/if}
+				<!-- Narrow screens: the event name truncates to noise ("Air…"), so
+				     show a plain count instead and let the panel carry the detail. -->
+				{#if alerts.length > 1}<span class="header-alert-count">{alerts.length}</span>{/if}
+			</button>
+		{/if}
+		<div class="header-buttons">
+			{#if onSettingsClick}
 				<button
-					class="header-alert"
-					data-alert-scope={widget.id}
-					on:click|stopPropagation={toggleAlerts}
-					aria-expanded={alertsOpen}
-					aria-label="{alerts.length} active weather {alerts.length === 1
-						? 'alert'
-						: 'alerts'}: {topAlert.event}. Show details."
+					class="settings-button"
+					on:click={onSettingsClick}
+					aria-label="Widget settings"
 					type="button"
 				>
-					<span aria-hidden="true">⚠</span>
-					<span class="header-alert-event">{topAlert.event}</span>
-					{#if alerts.length > 1}<span class="header-alert-more">+{alerts.length - 1}</span>{/if}
-					<!-- Narrow widget: the event name is hidden in CSS and this count
-					     stands in for it; the panel carries the detail. -->
-					{#if alerts.length > 1}<span class="header-alert-count">{alerts.length}</span>{/if}
+					⚙
 				</button>
 			{/if}
-			<div class="header-buttons">
-				{#if onSettingsClick}
-					<button
-						class="settings-button"
-						on:click={onSettingsClick}
-						aria-label="Widget settings"
-						type="button"
-					>
-						⚙
-					</button>
-				{/if}
-				<button 
-					class="delete-button" 
-					on:click={deleteWidget}
-					aria-label="Delete widget"
-					type="button"
-				>
-					✕
-				</button>
-				<button 
-					class="collapse-button"
-					class:collapsed={widget.collapsed}
-					on:click={toggleCollapse}
-					aria-label={widget.collapsed ? 'Expand widget' : 'Collapse widget'}
-					type="button"
-				>
-					▼
-				</button>
-			</div>
+			<button 
+				class="delete-button" 
+				on:click={deleteWidget}
+				aria-label="Delete widget"
+				type="button"
+			>
+				✕
+			</button>
+			<button 
+				class="collapse-button"
+				class:collapsed={widget.collapsed}
+				on:click={toggleCollapse}
+				aria-label={widget.collapsed ? 'Expand widget' : 'Collapse widget'}
+				type="button"
+			>
+				▼
+			</button>
 		</div>
 		<!-- Anchored to the header, not the widget: `top: 100%` on the widget
 		     dropped the panel below the whole (tall) widget body. -->
@@ -545,13 +538,6 @@
 
 <style>
 	.widget {
-		/* A widget's real width is its grid column, not the viewport: at a
-		   1280px desktop the 4-column layout gives each one ~200px, and every
-		   viewport media query below said "desktop, plenty of room". Everything
-		   about the header sizes off this container instead, so a widget looks
-		   the same at 200px whether that's a phone or a narrow column. */
-		container-type: inline-size;
-		container-name: widget;
 		width: 100%;
 		max-width: 100%;
 		min-width: 0;
@@ -614,8 +600,6 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.3em;
-		/* Yields to the buttons beside it; its full text is one tap away. */
-		flex: 0 1 auto;
 		min-width: 0;
 		font-size: 0.75rem;
 		font-weight: 700;
@@ -735,29 +719,24 @@
 		font-weight: 700;
 	}
 
-	/* Narrow widget: the event name truncates to noise ("Air…") and eats the
-	   title with it, so show a bare count and let the panel carry the detail.
-	   This used to be a viewport query, which is why a 200px-wide widget on a
-	   1280px desktop still tried to print "Extreme Heat Warning" — and the
-	   title next to it collapsed to a single letter. */
-	.header-alert-event,
-	.header-alert-more {
-		display: none;
-	}
-
-	.header-alert-count {
-		display: inline;
-	}
-
-	@container widget (min-width: 360px) {
+	@media (max-width: 640px) {
 		.header-alert-event,
 		.header-alert-more {
-			display: inline;
+			display: none;
 		}
 
 		.header-alert-count {
-			display: none;
+			display: inline;
 		}
+	}
+
+	/* The title can shrink; the alert should be the last thing to give up room. */
+	.widget.has-alert .widget-header h3 {
+		flex: 0 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	/* An alerting widget used to pulse its glow on a 2.4s loop, forever. Weather
@@ -790,56 +769,29 @@
 	.widget-header {
 		background: var(--surface);
 		position: relative; /* anchors the alert panel directly beneath the header */
-		padding: 0.5rem 0.625rem;
+		padding: 1rem 1.25rem;
 		display: flex;
-		flex-wrap: wrap;
+		justify-content: space-between;
 		align-items: center;
 		user-select: none;
-		gap: 0.375rem 0.5rem;
+		gap: 0.75rem;
 		border-bottom: 3px solid var(--border);
 	}
 
 	.widget-header h3 {
-		font-size: 0.75rem;
+		font-size: 0.875rem;
 		font-weight: 700;
 		margin: 0;
-		/* A definite basis, not `auto`: with `flex-wrap: wrap` an item wraps on
-		   its *max-content* width, so a long live title threw itself onto its
-		   own line and pushed the buttons onto a third. 40% also reserves the
-		   title a floor, so an alert chip beside it has to ellipsise first. */
-		flex: 1 1 40%;
-		min-width: 0;
+		flex: 1;
 		letter-spacing: 0.025em;
 		color: var(--text-primary);
 		text-transform: uppercase;
-		/* Two lines, then ellipsis. Live titles carry real payload ("LEWISTON -
-		   16°C · 7:08 AM"), so one line loses too much — but unbounded wrapping
-		   is what turned these headers into four-line blocks. The full string is
-		   on the `title` attribute and in the widget body. */
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		overflow: hidden;
-		overflow-wrap: anywhere;
-	}
-
-	/* Below the stack breakpoint this is a full-width second row; above it, a
-	   right-aligned cluster on the title's row. */
-	.header-actions {
-		flex: 1 0 100%;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		min-width: 0;
 	}
 
 	.header-buttons {
 		display: flex;
 		align-items: center;
 		gap: 0.25rem;
-		flex: 0 0 auto;
-		margin-left: auto;
 	}
 
 	.settings-button {
@@ -948,77 +900,6 @@
 		cursor: grabbing;
 	}
 
-	/* ── Widget-width tiers ──────────────────────────────────────────────────
-	   280px: the action cluster fits beside the title, so pull it back up.
-	   360px: room for comfortable padding and the full alert chip.
-	   480px: the original desktop header. */
-	@container widget (min-width: 280px) {
-		.widget-header {
-			padding: 0.625rem 0.75rem;
-		}
-
-		.header-actions {
-			flex: 0 1 auto;
-			margin-left: auto;
-		}
-	}
-
-	/* An alert chip and a live title both want the same room, and at every width
-	   a widget actually gets, one of them loses. So an alerting widget always
-	   spends a second row on the cluster: title in full above, chip left and
-	   buttons right below. Deterministic beats a threshold that mostly wrapped
-	   anyway and left the chip stranded mid-row by its auto margin. */
-	.widget-header.has-alert .header-actions {
-		flex: 1 0 100%;
-		margin-left: 0;
-	}
-
-	@container widget (min-width: 360px) {
-		.widget-header {
-			padding: 0.75rem 1rem;
-			gap: 0.5rem 0.75rem;
-		}
-
-		.widget-header h3 {
-			font-size: 0.8125rem;
-		}
-	}
-
-	@container widget (min-width: 480px) {
-		.widget-header {
-			padding: 1rem 1.25rem;
-		}
-
-		.widget-header h3 {
-			font-size: 0.875rem;
-		}
-	}
-
-	/* Touch wants 44px targets — that is a property of the pointer, not of the
-	   window width, and four of them do not share a row with a title under
-	   ~420px. Give the cluster its own row instead of shrinking the title. */
-	@media (pointer: coarse) {
-		.settings-button,
-		.delete-button,
-		.collapse-button,
-		.drag-handle {
-			min-width: 44px;
-			min-height: 44px;
-			padding: 0.5rem;
-		}
-
-		.drag-handle {
-			font-size: 1.1rem;
-		}
-
-		@container widget (max-width: 420px) {
-			.header-actions {
-				flex: 1 0 100%;
-				margin-left: 0;
-			}
-		}
-	}
-
 	.widget-content {
 		padding: 1.25rem;
 		overflow-x: auto;
@@ -1036,12 +917,37 @@
 			margin-bottom: 0;
 		}
 
+		.widget-header {
+			padding: 0.625rem 0.875rem;
+		}
+
+		.widget-header h3 {
+			font-size: 0.8rem;
+		}
+
 		.widget-content {
 			padding: 0.875rem;
+		}
+
+		.settings-button,
+		.delete-button,
+		.collapse-button,
+		.drag-handle {
+			min-width: 44px;
+			min-height: 44px;
+			padding: 0.5rem;
+		}
+
+		.drag-handle {
+			font-size: 1.1rem;
 		}
 	}
 
 	@media (max-width: 480px) {
+		.widget-header {
+			padding: 0.5rem 0.625rem;
+		}
+
 		.widget-content {
 			padding: 0.625rem;
 		}
