@@ -43,7 +43,7 @@ function parseKeys(raw: string): Record<string, string> {
 		throw new Error('DASHBOARD_STATE_ENCRYPTION_KEYS must be a JSON object');
 	}
 
-	const keys: Record<string, string> = {};
+	const keys = Object.create(null) as Record<string, string>;
 	for (const [version, value] of Object.entries(parsed)) {
 		if (!VERSION_PATTERN.test(version) || typeof value !== 'string' || value.trim().length < 32) {
 			throw new Error('Dashboard encryption key versions and values are invalid');
@@ -51,6 +51,12 @@ function parseKeys(raw: string): Record<string, string> {
 		keys[version] = value.trim();
 	}
 	return keys;
+}
+
+function configuredKey(keys: Readonly<Record<string, string>>, version: string): string | undefined {
+	if (!Object.hasOwn(keys, version)) return undefined;
+	const value = keys[version];
+	return typeof value === 'string' ? value : undefined;
 }
 
 function parseLegacySecrets(raw: string | undefined): string[] {
@@ -71,7 +77,9 @@ export function parseStateEncryptionConfig(
 	if (!VERSION_PATTERN.test(activeVersion)) throw new Error('Invalid active encryption key version');
 
 	const keys = parseKeys(rawKeys);
-	if (!keys[activeVersion]) throw new Error('Active dashboard encryption key is not configured');
+	if (!configuredKey(keys, activeVersion)) {
+		throw new Error('Active dashboard encryption key is not configured');
+	}
 
 	const legacySecrets = parseLegacySecrets(environment.DASHBOARD_STATE_LEGACY_AUTH_SECRETS);
 	const currentAuthSecret = environment.AUTH_SECRET?.trim();
@@ -90,7 +98,7 @@ export async function encryptState(
 	ownerKey: string
 ): Promise<string> {
 	const version = config.activeVersion;
-	const secret = config.keys[version];
+	const secret = configuredKey(config.keys, version);
 	if (!secret) throw new Error(`Dashboard encryption key ${version} is not configured`);
 
 	const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -139,7 +147,7 @@ export async function decryptState(
 		throw new Error('Invalid encrypted dashboard state');
 	}
 	const [version, iv, ciphertext] = parts;
-	const secret = config.keys[version];
+	const secret = configuredKey(config.keys, version);
 	if (!secret) throw new Error(`Dashboard encryption key ${version} is not configured`);
 
 	const plaintext = await crypto.subtle.decrypt(

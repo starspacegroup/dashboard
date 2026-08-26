@@ -102,4 +102,19 @@ describe('dashboard state encryption', () => {
 		});
 		expect(parsed?.keys.v2).toBe('test-dashboard-encryption-secret-0001');
 	});
+
+	it('rejects an inherited property name when the active key is absent', () => {
+		expect(() => parseStateEncryptionConfig({
+			DASHBOARD_STATE_ENCRYPTION_KEY_VERSION: 'constructor',
+			DASHBOARD_STATE_ENCRYPTION_KEYS: JSON.stringify({
+				v2: 'test-dashboard-encryption-secret-0001'
+			})
+		})).toThrow('Active dashboard encryption key is not configured');
+	});
+
+	it('does not decrypt an inherited ciphertext key version', async () => {
+		await expect(
+			decryptState('enc:v2:constructor:AA==:AA==', config, ownerKey)
+		).rejects.toThrow('Dashboard encryption key constructor is not configured');
+	});
 });
