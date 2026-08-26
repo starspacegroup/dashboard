@@ -125,6 +125,17 @@ This app is configured to deploy to Cloudflare Pages:
    - `GITHUB_SECRET`
    - `AUTH_SECRET`
    - `AUTH_TRUST_HOST=true`
+   - `DASHBOARD_STATE_ENCRYPTION_KEY_VERSION` (for example, `v1`)
+   - `DASHBOARD_STATE_ENCRYPTION_KEYS` (a JSON keyring such as
+     `{"v1":"<independently generated secret>"}`)
+
+Dashboard snapshots use the active version in `DASHBOARD_STATE_ENCRYPTION_KEYS`,
+not `AUTH_SECRET`. To rotate encryption keys, add the new version without
+removing the old one, change `DASHBOARD_STATE_ENCRYPTION_KEY_VERSION`, deploy,
+and retain both versions while snapshots are re-encrypted on read. Existing
+unversioned `enc:v1` snapshots fall back to the current `AUTH_SECRET`. If that
+secret must rotate before migration finishes, temporarily set
+`DASHBOARD_STATE_LEGACY_AUTH_SECRETS` to a JSON array containing the old value.
 
 ## Tech Stack
 

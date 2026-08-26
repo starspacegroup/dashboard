@@ -1,7 +1,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { env } from '$env/dynamic/private';
-import { decryptState, encryptState } from '$lib/server/stateEncryption';
+import {
+	decryptState,
+	encryptState,
+	parseStateEncryptionConfig,
+	type StateEncryptionConfig
+} from '$lib/server/stateEncryption';
 
 /**
  * Server-side persistence for dashboard state (widgets, sections, layouts,
@@ -20,8 +25,12 @@ interface StoredState {
 // snapshots are a few KB; anything near this is a bug or an abusive client.
 const MAX_STATE_BYTES = 512 * 1024;
 
-function encryptionSecret(): string | null {
-	return env.AUTH_SECRET?.trim() || null;
+function encryptionConfig(): StateEncryptionConfig | null {
+	try {
+		return parseStateEncryptionConfig(env);
+	} catch {
+		return null;
+	}
 }
 
 function getKV(platform: Readonly<App.Platform> | undefined) {
@@ -35,23 +44,52 @@ async function getUserKey(locals: App.Locals): Promise<string | null> {
 	return id ? `dashboard-state:${id}` : null;
 }
 
+function parseStoredState(value: string): StoredState {
+	const stored = JSON.parse(value) as StoredState;
+	if (!stored || typeof stored.state !== 'object' || stored.state === null || typeof stored.updatedAt !== 'number') {
+		throw new Error('Invalid stored dashboard state');
+	}
+	return stored;
+}
+
+async function migrateStoredState(
+	kv: NonNullable<ReturnType<typeof getKV>>,
+	key: string,
+	original: string,
+	stored: StoredState,
+	config: StateEncryptionConfig
+): Promise<void> {
+	try {
+		// KV has no compare-and-set operation. Re-read immediately before the
+		// migration write so a snapshot changed by another request is not replaced
+		// by the older value this GET observed.
+		if (await kv.get(key) !== original) return;
+		await kv.put(key, await encryptState(JSON.stringify(stored), config, key));
+	} catch {
+		// A migration write must not make an otherwise valid snapshot unreadable.
+		// The next GET will retry while the legacy record remains in place.
+	}
+}
+
 export const GET: RequestHandler = async ({ locals, platform }) => {
 	const key = await getUserKey(locals);
 	if (!key) return json({ error: 'Authentication required' }, { status: 401 });
 
 	const kv = getKV(platform);
 	if (!kv) return json({ error: 'Sync not configured' }, { status: 501 });
-	const secret = encryptionSecret();
-	if (!secret) return json({ error: 'Sync encryption not configured' }, { status: 503 });
+	const config = encryptionConfig();
+	if (!config) return json({ error: 'Sync encryption not configured' }, { status: 503 });
 
 	const raw = await kv.get(key);
 	if (!raw) return json({ state: null, updatedAt: 0 });
 
 	try {
-		const stored = JSON.parse(await decryptState(raw, secret)) as StoredState;
+		const decrypted = await decryptState(raw, config, key);
+		const stored = parseStoredState(decrypted.plaintext);
+		if (decrypted.needsMigration) await migrateStoredState(kv, key, raw, stored, config);
 		return json(stored);
 	} catch {
-		return json({ state: null, updatedAt: 0 });
+		return json({ error: 'Synced state could not be decrypted' }, { status: 503 });
 	}
 };
 
@@ -61,8 +99,8 @@ export const PUT: RequestHandler = async ({ locals, platform, request }) => {
 
 	const kv = getKV(platform);
 	if (!kv) return json({ error: 'Sync not configured' }, { status: 501 });
-	const secret = encryptionSecret();
-	if (!secret) return json({ error: 'Sync encryption not configured' }, { status: 503 });
+	const config = encryptionConfig();
+	if (!config) return json({ error: 'Sync encryption not configured' }, { status: 503 });
 
 	let body: StoredState;
 	try {
@@ -84,7 +122,8 @@ export const PUT: RequestHandler = async ({ locals, platform, request }) => {
 	const existingRaw = await kv.get(key);
 	if (existingRaw) {
 		try {
-			const existing = JSON.parse(await decryptState(existingRaw, secret)) as StoredState;
+			const decrypted = await decryptState(existingRaw, config, key);
+			const existing = parseStoredState(decrypted.plaintext);
 			if (existing.updatedAt > body.updatedAt) {
 				return json({ ok: false, conflict: true, updatedAt: existing.updatedAt });
 			}
@@ -93,15 +132,18 @@ export const PUT: RequestHandler = async ({ locals, platform, request }) => {
 			// account-wide). The client guards this too, but each tab tracks its
 			// own last-pushed snapshot, so two open tabs still push the same
 			// bytes twice. See planning/kv-write-amplification.md.
-			if (JSON.stringify(existing.state) === serializedState) {
+			if (!decrypted.needsMigration && JSON.stringify(existing.state) === serializedState) {
 				return json({ ok: true, unchanged: true, updatedAt: existing.updatedAt });
 			}
 		} catch {
-			// corrupt existing state — overwrite it
+			return json(
+				{ error: 'Existing synced state could not be decrypted; refusing to overwrite it' },
+				{ status: 409 }
+			);
 		}
 	}
 
 	const stored = JSON.stringify({ state: body.state, updatedAt: body.updatedAt });
-	await kv.put(key, await encryptState(stored, secret));
+	await kv.put(key, await encryptState(stored, config, key));
 	return json({ ok: true, updatedAt: body.updatedAt });
 };
