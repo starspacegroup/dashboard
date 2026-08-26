@@ -32,6 +32,9 @@ function event(kv: ReturnType<typeof createKV>, login?: string, request?: Reques
 
 describe('/api/dashboard-state', () => {
 	beforeEach(() => vi.clearAllMocks());
+	const currentAlice = 'dashboard-state:v2:alice';
+	const migrationAlice = 'dashboard-state:migrated:alice';
+	const legacyAlice = 'dashboard-state:alice';
 
 	it('rejects unauthenticated reads and writes', async () => {
 		const kv = createKV();
@@ -57,53 +60,59 @@ describe('/api/dashboard-state', () => {
 		const otherUserResponse = await GET(event(kv, 'bob'));
 
 		expect(putResponse.status).toBe(200);
-		expect(kv.values.get('dashboard-state:alice')).not.toContain('cf-secret');
+		expect(kv.values.get(currentAlice)).toMatch(/^enc:v2:2026-08:/);
+		expect(kv.values.get(currentAlice)).not.toContain('cf-secret');
 		expect(await sameUserResponse.json()).toEqual({ state, updatedAt: 42 });
 		expect(await otherUserResponse.json()).toEqual({ state: null, updatedAt: 0 });
 	});
 
-	it('re-encrypts a valid plaintext legacy snapshot after a guarded re-read', async () => {
+	it('moves a valid plaintext legacy snapshot to a separate encrypted migration key', async () => {
 		const kv = createKV();
 		const legacy = JSON.stringify({ state: { legacy: 'credential' }, updatedAt: 7 });
-		kv.values.set('dashboard-state:alice', legacy);
+		kv.values.set(legacyAlice, legacy);
 
 		const response = await GET(event(kv, 'alice'));
 
 		expect(await response.json()).toEqual({ state: { legacy: 'credential' }, updatedAt: 7 });
-		expect(kv.get).toHaveBeenCalledTimes(2);
+		expect(kv.get).toHaveBeenCalledTimes(3);
 		expect(kv.put).toHaveBeenCalledTimes(1);
-		expect(kv.values.get('dashboard-state:alice')).toMatch(/^enc:v2:2026-08:/);
-		expect(kv.values.get('dashboard-state:alice')).not.toContain('credential');
+		expect(kv.values.has(legacyAlice)).toBe(false);
+		expect(kv.values.get(migrationAlice)).toMatch(/^enc:v2:2026-08:/);
+		expect(kv.values.get(migrationAlice)).not.toContain('credential');
 	});
 
-	it('does not replace a legacy snapshot that changes during migration', async () => {
+	it('cannot overwrite a concurrent PUT while migrating a legacy snapshot', async () => {
 		const kv = createKV();
 		const original = JSON.stringify({ state: { value: 'original' }, updatedAt: 1 });
-		const newer = JSON.stringify({ state: { value: 'newer' }, updatedAt: 2 });
-		kv.values.set('dashboard-state:alice', original);
-		kv.get.mockImplementationOnce(async () => original).mockImplementationOnce(async () => {
-			kv.values.set('dashboard-state:alice', newer);
-			return newer;
+		kv.values.set(legacyAlice, original);
+		kv.put.mockImplementationOnce(async (key: string, value: string) => {
+			const concurrent = await PUT(event(kv, 'alice', new Request('https://dashboard.test/api/dashboard-state', {
+				method: 'PUT', body: JSON.stringify({ state: { value: 'newer' }, updatedAt: 2 })
+			})));
+			expect(concurrent.status).toBe(200);
+			kv.values.set(key, value);
 		});
 
 		const response = await GET(event(kv, 'alice'));
+		const nextResponse = await GET(event(kv, 'alice'));
 
 		expect(await response.json()).toEqual({ state: { value: 'original' }, updatedAt: 1 });
-		expect(kv.put).not.toHaveBeenCalled();
-		expect(kv.values.get('dashboard-state:alice')).toBe(newer);
+		expect(await nextResponse.json()).toEqual({ state: { value: 'newer' }, updatedAt: 2 });
+		expect(kv.values.get(currentAlice)).toMatch(/^enc:v2:2026-08:/);
+		expect(kv.values.get(migrationAlice)).toMatch(/^enc:v2:2026-08:/);
 	});
 
 	it('still returns valid legacy state when its migration write fails', async () => {
 		const kv = createKV();
 		const legacy = JSON.stringify({ state: { value: 'available' }, updatedAt: 1 });
-		kv.values.set('dashboard-state:alice', legacy);
+		kv.values.set(legacyAlice, legacy);
 		kv.put.mockRejectedValueOnce(new Error('KV write failed'));
 
 		const response = await GET(event(kv, 'alice'));
 
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({ state: { value: 'available' }, updatedAt: 1 });
-		expect(kv.values.get('dashboard-state:alice')).toBe(legacy);
+		expect(kv.values.get(legacyAlice)).toBe(legacy);
 	});
 
 	it('rejects a ciphertext copied under another user key', async () => {
@@ -111,7 +120,7 @@ describe('/api/dashboard-state', () => {
 		await PUT(event(kv, 'alice', new Request('https://dashboard.test/api/dashboard-state', {
 			method: 'PUT', body: JSON.stringify({ state: { token: 'alice-secret' }, updatedAt: 1 })
 		})));
-		kv.values.set('dashboard-state:bob', kv.values.get('dashboard-state:alice')!);
+		kv.values.set('dashboard-state:v2:bob', kv.values.get(currentAlice)!);
 
 		const response = await GET(event(kv, 'bob'));
 
@@ -121,7 +130,7 @@ describe('/api/dashboard-state', () => {
 
 	it('refuses to overwrite an existing snapshot that cannot be decrypted', async () => {
 		const kv = createKV();
-		kv.values.set('dashboard-state:alice', 'enc:v2:missing-key:AA==:AA==');
+		kv.values.set(currentAlice, 'enc:v2:missing-key:AA==:AA==');
 
 		const response = await PUT(event(kv, 'alice', new Request('https://dashboard.test/api/dashboard-state', {
 			method: 'PUT', body: JSON.stringify({ state: { replacement: true }, updatedAt: 2 })
@@ -129,7 +138,7 @@ describe('/api/dashboard-state', () => {
 
 		expect(response.status).toBe(409);
 		expect(kv.put).not.toHaveBeenCalled();
-		expect(kv.values.get('dashboard-state:alice')).toBe('enc:v2:missing-key:AA==:AA==');
+		expect(kv.values.get(currentAlice)).toBe('enc:v2:missing-key:AA==:AA==');
 	});
 
 	it('does not overwrite newer state', async () => {

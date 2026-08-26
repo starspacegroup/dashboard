@@ -5,6 +5,7 @@ import {
 	decryptState,
 	encryptState,
 	parseStateEncryptionConfig,
+	type DecryptedState,
 	type StateEncryptionConfig
 } from '$lib/server/stateEncryption';
 
@@ -19,6 +20,18 @@ import {
 interface StoredState {
 	state: Record<string, string | null>;
 	updatedAt: number;
+}
+
+interface UserKeys {
+	current: string;
+	migration: string;
+	legacy: string;
+}
+
+interface StoredSource {
+	key: string;
+	stored: StoredState;
+	decrypted: DecryptedState;
 }
 
 // Sanity bound on a dashboard snapshot (KV's own value limit is 25 MB). Real
@@ -37,11 +50,16 @@ function getKV(platform: Readonly<App.Platform> | undefined) {
 	return platform?.env?.DASHBOARD_KV ?? null;
 }
 
-async function getUserKey(locals: App.Locals): Promise<string | null> {
+async function getUserKeys(locals: App.Locals): Promise<UserKeys | null> {
 	const session = await locals.auth();
 	if (!session?.user) return null;
 	const id = session.user.login || session.user.email;
-	return id ? `dashboard-state:${id}` : null;
+	if (!id) return null;
+	return {
+		current: `dashboard-state:v2:${id}`,
+		migration: `dashboard-state:migrated:${id}`,
+		legacy: `dashboard-state:${id}`
+	};
 }
 
 function parseStoredState(value: string): StoredState {
@@ -52,50 +70,75 @@ function parseStoredState(value: string): StoredState {
 	return stored;
 }
 
-async function migrateStoredState(
+async function readStoredState(
 	kv: NonNullable<ReturnType<typeof getKV>>,
-	key: string,
-	original: string,
+	keys: UserKeys,
+	config: StateEncryptionConfig
+): Promise<StoredSource | null> {
+	// Normal writes always use current. A separately keyed migration copy is
+	// authoritative only until the first normal write. The legacy key is last.
+	for (const key of [keys.current, keys.migration, keys.legacy]) {
+		const raw = await kv.get(key);
+		if (!raw) continue;
+		const decrypted = await decryptState(raw, config, key);
+		return { key, stored: parseStoredState(decrypted.plaintext), decrypted };
+	}
+	return null;
+}
+
+async function migrateLegacyState(
+	kv: NonNullable<ReturnType<typeof getKV>>,
+	keys: UserKeys,
 	stored: StoredState,
 	config: StateEncryptionConfig
 ): Promise<void> {
 	try {
-		// KV has no compare-and-set operation. Re-read immediately before the
-		// migration write so a snapshot changed by another request is not replaced
-		// by the older value this GET observed.
-		if (await kv.get(key) !== original) return;
-		await kv.put(key, await encryptState(JSON.stringify(stored), config, key));
+		// The migration has its own destination. A concurrent PUT writes current,
+		// which always wins on reads, so this GET can never overwrite newer state.
+		await kv.put(keys.migration, await encryptState(JSON.stringify(stored), config, keys.migration));
+		await kv.delete(keys.legacy);
 	} catch {
-		// A migration write must not make an otherwise valid snapshot unreadable.
-		// The next GET will retry while the legacy record remains in place.
+		// A failed migration leaves the readable legacy record in place for retry.
+	}
+}
+
+async function deleteIfPresent(
+	kv: NonNullable<ReturnType<typeof getKV>>,
+	key: string
+): Promise<void> {
+	try {
+		await kv.delete(key);
+	} catch {
+		// The canonical current key remains authoritative; cleanup can retry later.
 	}
 }
 
 export const GET: RequestHandler = async ({ locals, platform }) => {
-	const key = await getUserKey(locals);
-	if (!key) return json({ error: 'Authentication required' }, { status: 401 });
+	const keys = await getUserKeys(locals);
+	if (!keys) return json({ error: 'Authentication required' }, { status: 401 });
 
 	const kv = getKV(platform);
 	if (!kv) return json({ error: 'Sync not configured' }, { status: 501 });
 	const config = encryptionConfig();
 	if (!config) return json({ error: 'Sync encryption not configured' }, { status: 503 });
 
-	const raw = await kv.get(key);
-	if (!raw) return json({ state: null, updatedAt: 0 });
-
 	try {
-		const decrypted = await decryptState(raw, config, key);
-		const stored = parseStoredState(decrypted.plaintext);
-		if (decrypted.needsMigration) await migrateStoredState(kv, key, raw, stored, config);
-		return json(stored);
+		const source = await readStoredState(kv, keys, config);
+		if (!source) return json({ state: null, updatedAt: 0 });
+		if (source.key === keys.legacy) {
+			await migrateLegacyState(kv, keys, source.stored, config);
+		} else if (source.key === keys.migration) {
+			await deleteIfPresent(kv, keys.legacy);
+		}
+		return json(source.stored);
 	} catch {
 		return json({ error: 'Synced state could not be decrypted' }, { status: 503 });
 	}
 };
 
 export const PUT: RequestHandler = async ({ locals, platform, request }) => {
-	const key = await getUserKey(locals);
-	if (!key) return json({ error: 'Authentication required' }, { status: 401 });
+	const keys = await getUserKeys(locals);
+	if (!keys) return json({ error: 'Authentication required' }, { status: 401 });
 
 	const kv = getKV(platform);
 	if (!kv) return json({ error: 'Sync not configured' }, { status: 501 });
@@ -118,32 +161,34 @@ export const PUT: RequestHandler = async ({ locals, platform, request }) => {
 		return json({ error: 'State too large' }, { status: 413 });
 	}
 
-	// Don't clobber a newer remote state with an older local one
-	const existingRaw = await kv.get(key);
-	if (existingRaw) {
-		try {
-			const decrypted = await decryptState(existingRaw, config, key);
-			const existing = parseStoredState(decrypted.plaintext);
-			if (existing.updatedAt > body.updatedAt) {
-				return json({ ok: false, conflict: true, updatedAt: existing.updatedAt });
-			}
-			// Byte-identical to what's already stored? Writing it again buys
-			// nothing and KV writes are the scarce free-tier resource (1,000/day
-			// account-wide). The client guards this too, but each tab tracks its
-			// own last-pushed snapshot, so two open tabs still push the same
-			// bytes twice. See planning/kv-write-amplification.md.
-			if (!decrypted.needsMigration && JSON.stringify(existing.state) === serializedState) {
-				return json({ ok: true, unchanged: true, updatedAt: existing.updatedAt });
-			}
-		} catch {
-			return json(
-				{ error: 'Existing synced state could not be decrypted; refusing to overwrite it' },
-				{ status: 409 }
-			);
+	let existing: StoredSource | null;
+	try {
+		existing = await readStoredState(kv, keys, config);
+	} catch {
+		return json(
+			{ error: 'Existing synced state could not be decrypted; refusing to overwrite it' },
+			{ status: 409 }
+		);
+	}
+
+	if (existing) {
+		if (existing.stored.updatedAt > body.updatedAt) {
+			return json({ ok: false, conflict: true, updatedAt: existing.stored.updatedAt });
+		}
+		// Only a current record encrypted by the active key can skip the write.
+		// Legacy/migration records and old key versions are promoted on this PUT.
+		if (
+			existing.key === keys.current &&
+			!existing.decrypted.needsMigration &&
+			JSON.stringify(existing.stored.state) === serializedState
+		) {
+			return json({ ok: true, unchanged: true, updatedAt: existing.stored.updatedAt });
 		}
 	}
 
 	const stored = JSON.stringify({ state: body.state, updatedAt: body.updatedAt });
-	await kv.put(key, await encryptState(stored, config, key));
+	await kv.put(keys.current, await encryptState(stored, config, keys.current));
+	await deleteIfPresent(kv, keys.migration);
+	await deleteIfPresent(kv, keys.legacy);
 	return json({ ok: true, updatedAt: body.updatedAt });
 };

@@ -132,9 +132,12 @@ This app is configured to deploy to Cloudflare Pages:
 Dashboard snapshots use the active version in `DASHBOARD_STATE_ENCRYPTION_KEYS`,
 not `AUTH_SECRET`. To rotate encryption keys, add the new version without
 removing the old one, change `DASHBOARD_STATE_ENCRYPTION_KEY_VERSION`, deploy,
-and retain both versions while snapshots are re-encrypted on read. Existing
-unversioned `enc:v1` snapshots fall back to the current `AUTH_SECRET`. If that
-secret must rotate before migration finishes, temporarily set
+and retain both versions until old-version snapshots are next written or
+deliberately migrated. Legacy plaintext and unversioned `enc:v1` snapshots move
+to a separately keyed encrypted migration record on read, so that migration
+cannot overwrite a concurrent normal write. Existing `enc:v1` snapshots fall
+back to the current `AUTH_SECRET`. If that secret must rotate before migration
+finishes, temporarily set
 `DASHBOARD_STATE_LEGACY_AUTH_SECRETS` to a JSON array containing the old value.
 
 ## Tech Stack
