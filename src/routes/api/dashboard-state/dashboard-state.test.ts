@@ -17,7 +17,9 @@ function createKV() {
 	return {
 		values,
 		get: vi.fn(async (key: string) => values.get(key) ?? null),
-		put: vi.fn(async (key: string, value: string) => { values.set(key, value); }),
+		put: vi.fn(async (key: string, value: string, _options?: { expirationTtl?: number }) => {
+			values.set(key, value);
+		}),
 		delete: vi.fn(async (key: string) => { values.delete(key); })
 	};
 }
@@ -75,10 +77,11 @@ describe('/api/dashboard-state', () => {
 
 		expect(await response.json()).toEqual({ state: { legacy: 'credential' }, updatedAt: 7 });
 		expect(kv.get).toHaveBeenCalledTimes(3);
-		expect(kv.put).toHaveBeenCalledTimes(1);
-		expect(kv.values.has(legacyAlice)).toBe(false);
+		expect(kv.put).toHaveBeenCalledTimes(2);
+		expect(kv.values.get(legacyAlice)).toBe(legacy);
 		expect(kv.values.get(migrationAlice)).toMatch(/^enc:v2:2026-08:/);
 		expect(kv.values.get(migrationAlice)).not.toContain('credential');
+		expect(kv.put).toHaveBeenLastCalledWith(legacyAlice, legacy, { expirationTtl: 600 });
 	});
 
 	it('cannot overwrite a concurrent PUT while migrating a legacy snapshot', async () => {
@@ -100,6 +103,7 @@ describe('/api/dashboard-state', () => {
 		expect(await nextResponse.json()).toEqual({ state: { value: 'newer' }, updatedAt: 2 });
 		expect(kv.values.get(currentAlice)).toMatch(/^enc:v2:2026-08:/);
 		expect(kv.values.get(migrationAlice)).toMatch(/^enc:v2:2026-08:/);
+		expect(kv.values.get(legacyAlice)).toBe(original);
 	});
 
 	it('still returns valid legacy state when its migration write fails', async () => {

@@ -30,6 +30,7 @@ interface UserKeys {
 
 interface StoredSource {
 	key: string;
+	raw: string;
 	stored: StoredState;
 	decrypted: DecryptedState;
 }
@@ -37,6 +38,9 @@ interface StoredSource {
 // Sanity bound on a dashboard snapshot (KV's own value limit is 25 MB). Real
 // snapshots are a few KB; anything near this is a bug or an abusive client.
 const MAX_STATE_BYTES = 512 * 1024;
+// Workers KV changes to different keys are not observed atomically. Retain the
+// previous value long enough for the replacement key to propagate globally.
+const FALLBACK_PROPAGATION_TTL_SECONDS = 10 * 60;
 
 function encryptionConfig(): StateEncryptionConfig | null {
 	try {
@@ -81,7 +85,7 @@ async function readStoredState(
 		const raw = await kv.get(key);
 		if (!raw) continue;
 		const decrypted = await decryptState(raw, config, key);
-		return { key, stored: parseStoredState(decrypted.plaintext), decrypted };
+		return { key, raw, stored: parseStoredState(decrypted.plaintext), decrypted };
 	}
 	return null;
 }
@@ -89,6 +93,7 @@ async function readStoredState(
 async function migrateLegacyState(
 	kv: NonNullable<ReturnType<typeof getKV>>,
 	keys: UserKeys,
+	original: string,
 	stored: StoredState,
 	config: StateEncryptionConfig
 ): Promise<void> {
@@ -96,21 +101,18 @@ async function migrateLegacyState(
 		// The migration has its own destination. A concurrent PUT writes current,
 		// which always wins on reads, so this GET can never overwrite newer state.
 		await kv.put(keys.migration, await encryptState(JSON.stringify(stored), config, keys.migration));
-		await kv.delete(keys.legacy);
+		await kv.put(keys.legacy, original, { expirationTtl: FALLBACK_PROPAGATION_TTL_SECONDS });
 	} catch {
 		// A failed migration leaves the readable legacy record in place for retry.
 	}
 }
 
-async function deleteIfPresent(
+async function retainForPropagation(
 	kv: NonNullable<ReturnType<typeof getKV>>,
 	key: string
 ): Promise<void> {
-	try {
-		await kv.delete(key);
-	} catch {
-		// The canonical current key remains authoritative; cleanup can retry later.
-	}
+	const value = await kv.get(key);
+	if (value) await kv.put(key, value, { expirationTtl: FALLBACK_PROPAGATION_TTL_SECONDS });
 }
 
 export const GET: RequestHandler = async ({ locals, platform }) => {
@@ -126,9 +128,7 @@ export const GET: RequestHandler = async ({ locals, platform }) => {
 		const source = await readStoredState(kv, keys, config);
 		if (!source) return json({ state: null, updatedAt: 0 });
 		if (source.key === keys.legacy) {
-			await migrateLegacyState(kv, keys, source.stored, config);
-		} else if (source.key === keys.migration) {
-			await deleteIfPresent(kv, keys.legacy);
+			await migrateLegacyState(kv, keys, source.raw, source.stored, config);
 		}
 		return json(source.stored);
 	} catch {
@@ -188,7 +188,7 @@ export const PUT: RequestHandler = async ({ locals, platform, request }) => {
 
 	const stored = JSON.stringify({ state: body.state, updatedAt: body.updatedAt });
 	await kv.put(keys.current, await encryptState(stored, config, keys.current));
-	await deleteIfPresent(kv, keys.migration);
-	await deleteIfPresent(kv, keys.legacy);
+	await retainForPropagation(kv, keys.migration);
+	await retainForPropagation(kv, keys.legacy);
 	return json({ ok: true, updatedAt: body.updatedAt });
 };

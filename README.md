@@ -135,9 +135,11 @@ removing the old one, change `DASHBOARD_STATE_ENCRYPTION_KEY_VERSION`, deploy,
 and retain both versions until old-version snapshots are next written or
 deliberately migrated. Legacy plaintext and unversioned `enc:v1` snapshots move
 to a separately keyed encrypted migration record on read, so that migration
-cannot overwrite a concurrent normal write. Existing `enc:v1` snapshots fall
-back to the current `AUTH_SECRET`. If that secret must rotate before migration
-finishes, temporarily set
+cannot overwrite a concurrent normal write. Replacement and fallback values
+coexist for a bounded propagation window because Workers KV does not make
+cross-key writes and deletes visible atomically; the legacy value then expires.
+Existing `enc:v1` snapshots fall back to the current `AUTH_SECRET`. If that
+secret must rotate before migration finishes, temporarily set
 `DASHBOARD_STATE_LEGACY_AUTH_SECRETS` to a JSON array containing the old value.
 
 ## Tech Stack
