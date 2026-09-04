@@ -35,6 +35,27 @@
 	let trafficLayer: google.maps.TrafficLayer | null = null;
 	let googleMapsApiKey = '';
 	let apiKeyError = false;
+	/** Dev preview, no Google key: render the drawn stand-in below. */
+	let devPreviewMap = false;
+
+	// A sample board, not a map. Fixed values so it is stable across SSR,
+	// hydration and reloads — a preview that reshuffles on every render is
+	// worse than no preview for spotting a real layout change.
+	const SAMPLE_ROADS = [
+		{ d: 'M 0 26 H 200', level: 'clear' },
+		{ d: 'M 0 62 H 200', level: 'heavy' },
+		{ d: 'M 0 104 H 200', level: 'slow' },
+		{ d: 'M 34 0 V 130', level: 'slow' },
+		{ d: 'M 96 0 V 130', level: 'stopped' },
+		{ d: 'M 158 0 V 130', level: 'clear' },
+		{ d: 'M 0 130 L 200 0', level: 'heavy' }
+	] as const;
+
+	const SAMPLE_ROUTES = [
+		{ name: 'Downtown', minutes: 12, delta: 0, level: 'clear' },
+		{ name: 'Airport', minutes: 27, delta: 9, level: 'heavy' },
+		{ name: 'Riverside', minutes: 18, delta: 3, level: 'slow' }
+	] as const;
 	let currentTheme: 'light' | 'dark' = 'dark';
 	
 	// Dark mode map styles (night mode)
@@ -141,12 +162,20 @@
 			const response = await fetch('/api/maps-config');
 			const data = await response.json();
 			
+			// Dev preview with no Google key: draw the sample board instead of the
+			// not-configured message, so the widget is not the one empty tile on
+			// an otherwise populated preview dashboard.
+			if (data.devPreview) {
+				devPreviewMap = true;
+				return false;
+			}
+
 			if (data.error) {
 				console.error('Google Maps API key error:', data.error);
 				apiKeyError = true;
 				return false;
 			}
-			
+
 			googleMapsApiKey = data.apiKey;
 			return true;
 		} catch (error) {
@@ -417,6 +446,27 @@
 			<div class="placeholder-text">Google Maps API key not configured</div>
 			<div class="placeholder-hint">Add GOOGLE_MAPS_API_KEY to your .env file</div>
 		</div>
+	{:else if devPreviewMap}
+		<div class="sample-map">
+			<svg class="sample-board" viewBox="0 0 200 130" preserveAspectRatio="none" aria-hidden="true">
+				{#each SAMPLE_ROADS as road}
+					<path class="sample-road" data-level={road.level} d={road.d} />
+				{/each}
+			</svg>
+			<ul class="sample-routes">
+				{#each SAMPLE_ROUTES as route}
+					<li class="sample-route">
+						<span class="sample-dot" data-level={route.level}></span>
+						<span class="sample-name">{route.name}</span>
+						<span class="sample-time">{route.minutes} min</span>
+						<span class="sample-delta" data-level={route.level}>
+							{route.delta ? `+${route.delta}` : 'on time'}
+						</span>
+					</li>
+				{/each}
+			</ul>
+			<p class="sample-caption">Sample traffic — set GOOGLE_MAPS_API_KEY for the live map</p>
+		</div>
 	{:else if hasLocation}
 		<div class="map-container" bind:this={mapContainer}></div>
 	{:else}
@@ -446,6 +496,117 @@
 		border-radius: 0.5rem;
 		overflow: hidden;
 		background-color: var(--surface-overlay-medium);
+	}
+
+	/* ─── Dev-preview stand-in for the map ───
+	   Congestion is the one thing on this dashboard where colour genuinely
+	   means good-or-bad, so the status colours are the right vocabulary here. */
+	.sample-map {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		width: 100%;
+		height: 100%;
+		min-height: 300px;
+	}
+
+	.sample-board {
+		width: 100%;
+		flex: 1 1 auto;
+		min-height: 120px;
+		border-radius: 0.5rem;
+		background-color: var(--surface-overlay-medium);
+	}
+
+	.sample-road {
+		fill: none;
+		stroke-width: 5;
+		stroke-linecap: round;
+		vector-effect: non-scaling-stroke;
+		opacity: 0.85;
+	}
+
+	.sample-road[data-level='clear'] {
+		stroke: var(--success);
+	}
+	.sample-road[data-level='slow'] {
+		stroke: var(--warning);
+	}
+	.sample-road[data-level='heavy'],
+	.sample-road[data-level='stopped'] {
+		stroke: var(--error);
+	}
+	.sample-road[data-level='stopped'] {
+		stroke-dasharray: 6 5;
+	}
+
+	.sample-routes {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.sample-route {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.8rem;
+		color: var(--text-primary);
+	}
+
+	.sample-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.sample-dot[data-level='clear'] {
+		background-color: var(--success);
+	}
+	.sample-dot[data-level='slow'] {
+		background-color: var(--warning);
+	}
+	.sample-dot[data-level='heavy'] {
+		background-color: var(--error);
+	}
+
+	.sample-name {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.sample-time {
+		font-variant-numeric: tabular-nums;
+		font-weight: 600;
+	}
+
+	.sample-delta {
+		font-size: 0.7rem;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-secondary);
+		min-width: 3.5rem;
+		text-align: right;
+	}
+
+	.sample-delta[data-level='heavy'] {
+		color: var(--error);
+	}
+	.sample-delta[data-level='slow'] {
+		color: var(--warning);
+	}
+
+	.sample-caption {
+		margin: 0;
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+		opacity: 0.8;
 	}
 
 	.placeholder {

@@ -181,10 +181,10 @@ function isFresh(cacheKey: string, cached: CachedGithubData | null): boolean {
   return Date.now() - freshestKnown < GITHUB_CACHE_FRESH_MS;
 }
 
-export const load: PageServerLoad = async ({ locals, fetch, platform, url }) => {
+export const load: PageServerLoad = async ({ locals, fetch, platform, url, cookies }) => {
 	// Dev preview short-circuits the whole GitHub fan-out: there is no real
 	// access token behind the fake session, so every call would 401.
-	if (isDevPreview({ url })) {
+	if (isDevPreview({ url, cookies })) {
 		return { user: DEV_SESSION.user, ...devGithubPayload() };
 	}
 

@@ -1,10 +1,10 @@
 import type { LayoutServerLoad } from './$types';
 import { isDevPreview, DEV_SESSION } from '$lib/server/devPreview';
 
-export const load: LayoutServerLoad = async ({ locals, url }) => {
+export const load: LayoutServerLoad = async ({ locals, url, cookies }) => {
 	// Local dev only: a fake session so the dashboard renders without signing in.
 	// Statically dropped from any build — see $lib/server/devPreview.
-	if (isDevPreview({ url })) {
+	if (isDevPreview({ url, cookies })) {
 		return { user: DEV_SESSION.user, devPreview: true };
 	}
 

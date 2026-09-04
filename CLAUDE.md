@@ -103,22 +103,39 @@ rather than silently emptying the list.
 
 ## Local dev preview
 
-`npm run dev` on **localhost** skips GitHub sign-in: `src/lib/server/devPreview.ts`
-hands out a fake session, `devHandle.ts` answers the credential-gated APIs from
+`npm run dev` skips GitHub sign-in: `src/lib/server/devPreview.ts` hands out a
+fake session, `devHandle.ts` answers the credential-gated APIs from
 `devFixtures.ts`, and the dashboard opens on a seeded layout with one widget of
-every type. A `DEV PREVIEW · SAMPLE DATA` badge sits in the header the whole time.
+every type — **all thirteen carrying sample data**. A `DEV PREVIEW · SAMPLE DATA`
+badge sits in the header the whole time.
 
+- **Getting in:** on a loopback host the preview is just on, no click. Anywhere
+  else the dev server is reachable (a LAN address, or the `npm run dev:tunnel`
+  hostname) the sign-in page offers **Continue as Dev Preview** beside the GitHub
+  button; it posts to `/dev-login`, which sets the `dev-preview` cookie that
+  carries the fake session. Signing out sets that cookie to `off` — which beats
+  the loopback default, so the real GitHub flow is one sign-out away on any host.
+- ⚠️ **The host is not a gate any more.** It used to be (loopback only), so the
+  tunnel always exercised real OAuth. That was traded away deliberately (David,
+  2026-09-04) so the dashboard can be opened from a phone without registering a
+  tunnel OAuth callback. While `dev:tunnel` is up, anyone with the URL can click
+  into the sample dashboard — take the tunnel down when you're done.
 - **What is faked:** the session, the GitHub payload behind the page load,
-  Google Analytics, Cloudflare. **What is real:** weather, geocoding and crypto
-  are keyless, so those widgets show live data. Traffic needs
-  `GOOGLE_MAPS_API_KEY` and has no offline mode.
+  Google Analytics, Cloudflare, and the Traffic map (a drawn stand-in, since a
+  real map needs a billable Google key — a configured `GOOGLE_MAPS_API_KEY` still
+  wins and you get the real map). **What is real:** weather, geocoding and crypto
+  are keyless, so those widgets show live data.
 - The Analytics and Cloudflare fixtures answer **only** for the placeholder
   credentials the preview seeds. Paste a real token into a widget and the request
   goes to the real provider, so the preview never hides your own data.
-- Three gates keep it out of production: `dev` from `$app/environment` (false in
-  any build, so the code is tree-shaken away), a loopback-only host check (a LAN
-  address or `npm run dev:tunnel` gets real auth), and `DEV_AUTH_BYPASS=false` to
-  turn it off on localhost. There is deliberately no way to enable it in a build.
+- Two gates keep it out of production: `dev` from `$app/environment` (false in
+  any build, so the code is tree-shaken away and `/dev-login` answers 404) and
+  `DEV_AUTH_BYPASS=false` to turn it off entirely. There is deliberately no way
+  to enable it in a build.
+- Sign-out is intercepted in `withDevPreview`, which builds its own `Response` —
+  so it must write the `set-cookie` header itself via `cookies.serialize()`.
+  `cookies.set()` only reaches a response that came back from `resolve()`; using
+  it there makes sign-out silently do nothing.
 - The seed layout arrives through the normal sync path with a fixed old
   `updatedAt`, so it lands once and your later edits win. Preview dashboard state
   lives in the dev server's memory — a restart drops back to the seed.

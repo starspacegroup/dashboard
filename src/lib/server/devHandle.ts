@@ -10,7 +10,14 @@
  */
 
 import { json, type Handle, type RequestEvent } from '@sveltejs/kit';
-import { DEV_SESSION, DEV_CF_API_TOKEN, DEV_GA_REFRESH_TOKEN, isDevPreview } from './devPreview';
+import {
+	DEV_SESSION,
+	DEV_CF_API_TOKEN,
+	DEV_GA_REFRESH_TOKEN,
+	DEV_PREVIEW_COOKIE,
+	isDevPreview
+} from './devPreview';
+import { env } from '$env/dynamic/private';
 import {
 	DEV_SEED_UPDATED_AT,
 	devAnalyticsResponse,
@@ -67,6 +74,17 @@ async function fixtureResponse(event: RequestEvent): Promise<Response | null> {
 		}
 	}
 
+	// A real map needs a billable Google key. Without one the Traffic widget was
+	// the single tile on the preview dashboard with nothing in it, so tell the
+	// widget to draw its sample instead of its not-configured message. A key
+	// that *is* configured wins — then you get the real map.
+	if (path === '/api/maps-config' && event.request.method === 'GET') {
+		if (!String(env.GOOGLE_MAPS_API_KEY ?? '').trim()) {
+			return json({ devPreview: true });
+		}
+		return null;
+	}
+
 	// Below here: only answer for the preview's own placeholder credentials. A
 	// real token you paste into a widget still reaches the real provider, so the
 	// preview adds a sample dashboard without hiding your own data.
@@ -100,6 +118,29 @@ async function fixtureResponse(event: RequestEvent): Promise<Response | null> {
 export function withDevPreview(authHandle: Handle): Handle {
 	return async (input) => {
 		const { event, resolve } = input;
+
+		// Sign out of the preview. Auth.js owns `/auth/signout`, but it only
+		// knows about cookies it set — the preview's session is this cookie, so
+		// clearing it is the only thing that ends the preview. Setting `off`
+		// rather than deleting matters on loopback, where "no cookie" means
+		// "preview on" and a delete would sign you straight back in.
+		if (isDevPreview(event) && event.url.pathname === '/auth/signout') {
+			// `cookies.set()` only reaches a response that came back from
+			// `resolve()`; this handler builds its own, so the header has to be
+			// written onto it by hand or the sign-out silently does nothing.
+			const cookie = event.cookies.serialize(DEV_PREVIEW_COOKIE, 'off', {
+				path: '/',
+				httpOnly: true,
+				sameSite: 'lax',
+				secure: false,
+				maxAge: 60 * 60 * 24 * 30
+			});
+			return new Response(null, {
+				status: 303,
+				headers: { location: '/signin', 'set-cookie': cookie }
+			});
+		}
+
 		if (!isDevPreview(event) || event.url.pathname.startsWith('/auth/')) {
 			return authHandle(input);
 		}

@@ -1,4 +1,8 @@
 <script lang="ts">
+	import type { PageData } from './$types';
+
+	export let data: PageData;
+
 	// Deterministic star scatter (stable between SSR and hydration)
 	const PAGE_STARS = Array.from({ length: 70 }, (_, i) => ({
 		x: (i * 61.803) % 100,
@@ -62,6 +66,19 @@
 				<span>Sign in with GitHub</span>
 			</button>
 		</form>
+
+		{#if data.devLogin}
+			<!-- Dev server only. `data.devLogin` comes from DEV_PREVIEW_ENABLED,
+			     which Vite compiles to `false` in any build, so this cannot reach
+			     the deployed site. -->
+			<form method="POST" action="/dev-login" class="signin-form dev-form">
+				<button type="submit" class="dev-signin-button">
+					<span aria-hidden="true">🛠</span>
+					<span>Continue as Dev Preview</span>
+				</button>
+				<p class="dev-note">Fake session, sample data. No GitHub account touched.</p>
+			</form>
+		{/if}
 
 		<p class="signin-note">
 			GitHub is used to sign you in and to show your repositories, pull requests, and projects.
@@ -307,6 +324,48 @@
 
 	.github-icon {
 		flex-shrink: 0;
+	}
+
+	/* Deliberately quieter than the GitHub button — it is a dev affordance, not
+	   the way in. */
+	.dev-form {
+		margin-top: -0.5rem;
+	}
+
+	.dev-signin-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
+		width: 100%;
+		padding: 0.7rem 1.5rem;
+		background-color: transparent;
+		color: var(--text-secondary);
+		border: 1px dashed var(--border);
+		border-radius: 12px;
+		font-size: 0.9rem;
+		font-weight: 600;
+		font-family: inherit;
+		cursor: pointer;
+		transition: color 0.15s ease, border-color 0.15s ease;
+	}
+
+	.dev-signin-button:hover {
+		color: var(--primary-color);
+		border-color: var(--primary-color);
+	}
+
+	.dev-signin-button:focus-visible {
+		outline: 2px solid var(--primary-color);
+		outline-offset: 3px;
+	}
+
+	.dev-note {
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+		opacity: 0.75;
+		margin: 0.5rem 0 0;
+		text-align: center;
 	}
 
 	.signin-note {
