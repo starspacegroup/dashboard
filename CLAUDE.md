@@ -65,11 +65,19 @@ rather than silently emptying the list.
 - ⚠️ **The provider's `issuer` is load-bearing — don't drop it.** GitHub returns
   an `iss` parameter on the callback (RFC 9207). Auth.js checks it against the
   provider's issuer, which for a plain OAuth provider defaults to the
-  placeholder `https://authjs.dev`, so without `issuer: 'https://github.com/login/'`
-  *every* sign-in dies at `unexpected "iss" (issuer) response parameter value`
-  before the token exchange. This broke production on 2026-09-04 with no deploy
-  on our side — GitHub simply started sending the parameter. Upgrading
-  `@auth/sveltekit` does not fix it (checked through 1.11.3 / core 0.41.3).
+  placeholder `https://authjs.dev`, so without
+  `issuer: 'https://github.com/login/oauth'` *every* sign-in dies at
+  `unexpected "iss" (issuer) response parameter value` before the token
+  exchange. This broke production on 2026-09-04 with no deploy on our side —
+  GitHub simply started sending the parameter. Upgrading `@auth/sveltekit` does
+  not fix it (checked through 1.11.3 / core 0.41.3).
+  - The value must be **exact** — `oauth4webapi` does a plain `iss !== as.issuer`
+    string compare — and it is `.../login/oauth`, *no* trailing slash. The thrown
+    error prints only `expected`, never the value received, so read the real one
+    off the `iss` query parameter of the callback URL. Beware truncating that URL
+    when grepping logs: cutting it at 120 chars turns the issuer into
+    `https://github.com/login/` and produces a wrong fix that then "passes" any
+    probe sent with the same truncated value.
 - Failed sign-ins go to `/signin?error=…`, not Auth.js's built-in error page:
   Auth.js labels *every* non-client-safe error `Configuration` and renders
   "problem with the server configuration", which turns an ordinary expired link

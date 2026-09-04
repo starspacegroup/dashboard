@@ -104,9 +104,12 @@ const { handle: authHandle } = SvelteKitAuth({
 			// not trigger OIDC discovery: Auth.js only discovers when the provider
 			// has no real token/userinfo URLs, and GitHub's are explicit.
 			//
-			// If GitHub ever changes the value, the callback fails the same way and
-			// the server log names both the expected and received issuer.
-			issuer: 'https://github.com/login/',
+			// The value must match GitHub's issuer exactly — oauth4webapi does a
+			// plain `iss !== as.issuer` string compare. It is `.../login/oauth`,
+			// with no trailing slash. Note the thrown error prints only `expected`,
+			// never the received value, so confirming a change here means reading
+			// the `iss` query parameter off the callback URL itself.
+			issuer: 'https://github.com/login/oauth',
 			authorization: {
 				params: {
 					scope: 'read:user user:email read:org repo read:project manage_billing:copilot'
