@@ -766,15 +766,21 @@
 		border-color: var(--primary-color);
 	}
 
+	/* A column can be as narrow as ~230px, and the drag handle plus up to three
+	   icon buttons already claim half of that — so the header keeps its chrome
+	   tight and is allowed to wrap. When the title's longest word no longer fits
+	   beside the controls, the button cluster drops to a second row instead of
+	   being pushed out of the card. Widgets with room stay on one row. */
 	.widget-header {
 		background: var(--surface);
 		position: relative; /* anchors the alert panel directly beneath the header */
-		padding: 1rem 1.25rem;
+		padding: 1rem 0.75rem;
 		display: flex;
+		flex-wrap: wrap;
 		justify-content: space-between;
 		align-items: center;
 		user-select: none;
-		gap: 0.75rem;
+		gap: 0.5rem;
 		border-bottom: 3px solid var(--border);
 	}
 
@@ -782,7 +788,20 @@
 		font-size: 0.875rem;
 		font-weight: 700;
 		margin: 0;
-		flex: 1;
+		/* Three declarations, each load-bearing:
+		   - `flex-basis: min-content` makes the widest word the wrap threshold,
+		     so the buttons move to their own row exactly when keeping them on
+		     this one would break the title mid-word.
+		   - `min-width: 0` removes the `auto` minimum that let the title's
+		     longest word shove the button cluster past the widget border — and
+		     the widget paints its overflow, so the collapse arrow hung outside
+		     the frame.
+		   - `overflow-wrap: break-word` is then the backstop for a word too long
+		     even for a full row. Not `anywhere`: that would also shrink the
+		     min-content contribution and defeat the flex-basis above. */
+		flex: 1 1 min-content;
+		min-width: 0;
+		overflow-wrap: break-word;
 		letter-spacing: 0.025em;
 		color: var(--text-primary);
 		text-transform: uppercase;
@@ -791,7 +810,9 @@
 	.header-buttons {
 		display: flex;
 		align-items: center;
-		gap: 0.25rem;
+		gap: 0.125rem;
+		flex: 0 0 auto;
+		margin-left: auto; /* stays right-aligned on its own wrapped row */
 	}
 
 	.settings-button {
@@ -807,8 +828,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-width: 28px;
-		min-height: 28px;
+		min-width: 24px;
+		min-height: 24px;
 	}
 
 	.settings-button:hover {
@@ -830,8 +851,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-width: 28px;
-		min-height: 28px;
+		min-width: 24px;
+		min-height: 24px;
 	}
 
 	.delete-button:hover {
@@ -854,8 +875,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-width: 28px;
-		min-height: 28px;
+		min-width: 24px;
+		min-height: 24px;
 	}
 
 	.collapse-button.collapsed {
@@ -877,6 +898,7 @@
 		border: 2px solid transparent;
 		color: var(--text-secondary);
 		cursor: grab;
+		flex: 0 0 auto;
 		font-size: 1.25rem;
 		padding: 0.25rem;
 		line-height: 1;
@@ -885,8 +907,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-width: 28px;
-		min-height: 28px;
+		min-width: 24px;
+		min-height: 24px;
 		user-select: none;
 	}
 
