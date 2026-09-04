@@ -99,6 +99,18 @@ const { handle: authHandle } = SvelteKitAuth({
 	],
 	secret: authSecret,
 	trustHost: true,
+	// Send failed sign-ins back to our own page instead of Auth.js's built-in
+	// error page. That page renders "Server error — there is a problem with the
+	// server configuration" for *any* error it doesn't consider client-safe,
+	// which includes the most common one by far: an authorization code that was
+	// replayed (a refresh on the callback URL) or a PKCE cookie that outlived
+	// its 15-minute Max-Age. Nothing is misconfigured in that case, and telling
+	// the user it is sends them hunting a production outage that isn't there.
+	// The real cause is still logged server-side by Auth.js.
+	pages: {
+		signIn: '/signin',
+		error: '/signin'
+	},
 	callbacks: {
 		async session({ session, token }) {
 			if (session.user && token) {

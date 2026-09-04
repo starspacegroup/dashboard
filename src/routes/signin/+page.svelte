@@ -58,6 +58,10 @@
 			Weather, calendar, projects, and traffic — your whole day on one screen.
 		</p>
 
+		{#if data.authError}
+			<p class="auth-error" role="alert">{data.authError}</p>
+		{/if}
+
 		<form method="POST" action="/auth/signin/github" class="signin-form">
 			<button type="submit" class="github-signin-button">
 				<svg class="github-icon" viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-hidden="true">
@@ -282,6 +286,22 @@
 		line-height: 1.6;
 		margin: 0 0 2.25rem;
 		max-width: 22rem;
+	}
+
+	/* A retry prompt, not a crash report — it sits above the button that fixes
+	   it, and uses the warning colour rather than the error one. */
+	.auth-error {
+		width: 100%;
+		max-width: 21rem;
+		margin: 0 0 1rem;
+		padding: 0.7rem 0.9rem;
+		border: 1px solid var(--warning);
+		border-radius: 10px;
+		background: color-mix(in srgb, var(--warning) 12%, transparent);
+		color: var(--text-primary);
+		font-size: 0.82rem;
+		line-height: 1.45;
+		text-align: left;
 	}
 
 	.signin-form {
