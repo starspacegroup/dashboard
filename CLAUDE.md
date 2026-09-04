@@ -62,6 +62,24 @@ rather than silently emptying the list.
 - `src/hooks.server.ts` - SvelteKitAuth configuration with GitHub provider
 - Session includes `accessToken` and GitHub `login` username
 - Scopes: `read:user user:email read:org repo read:project manage_billing:copilot`
+- ⚠️ **The provider's `issuer` is load-bearing — don't drop it.** GitHub returns
+  an `iss` parameter on the callback (RFC 9207). Auth.js checks it against the
+  provider's issuer, which for a plain OAuth provider defaults to the
+  placeholder `https://authjs.dev`, so without `issuer: 'https://github.com/login/'`
+  *every* sign-in dies at `unexpected "iss" (issuer) response parameter value`
+  before the token exchange. This broke production on 2026-09-04 with no deploy
+  on our side — GitHub simply started sending the parameter. Upgrading
+  `@auth/sveltekit` does not fix it (checked through 1.11.3 / core 0.41.3).
+- Failed sign-ins go to `/signin?error=…`, not Auth.js's built-in error page:
+  Auth.js labels *every* non-client-safe error `Configuration` and renders
+  "problem with the server configuration", which turns an ordinary expired link
+  — and the `iss` bug above — into what looks like an outage. `pages.error` in
+  `hooks.server.ts` redirects to our own page; the real cause stays in the logs.
+- To read those logs:
+  `npx wrangler pages deployment tail <deployment-id> --project-name dashboard --format json`
+  (get the id from `wrangler pages deployment list`). Auth.js prints the
+  provider's verbatim response under `[auth][details]`, which is the only way to
+  tell these failure modes apart from the outside — they all render identically.
 
 ### API Routes
 - `/api/weather` - Weather data from Open-Meteo with server-side caching (`src/lib/server/weatherCache.ts`)

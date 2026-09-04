@@ -90,6 +90,23 @@ const { handle: authHandle } = SvelteKitAuth({
 		GitHub({
 			clientId: githubId,
 			clientSecret: githubSecret,
+			// GitHub now returns an `iss` parameter on the callback (RFC 9207,
+			// authorization-server issuer identification). Auth.js validates it
+			// against the provider's issuer, and for a plain OAuth provider that
+			// defaults to the placeholder `https://authjs.dev` — so every callback
+			// failed with `unexpected "iss" (issuer) response parameter value`
+			// before the token exchange was even attempted. Nothing on our side
+			// changed; GitHub started sending the parameter.
+			//
+			// Setting the real issuer makes the check pass *and* keeps it doing its
+			// job (RFC 9207 exists to stop authorization-server mix-up), which is
+			// why this is set rather than stripping `iss` off the request. It does
+			// not trigger OIDC discovery: Auth.js only discovers when the provider
+			// has no real token/userinfo URLs, and GitHub's are explicit.
+			//
+			// If GitHub ever changes the value, the callback fails the same way and
+			// the server log names both the expected and received issuer.
+			issuer: 'https://github.com/login/',
 			authorization: {
 				params: {
 					scope: 'read:user user:email read:org repo read:project manage_billing:copilot'
