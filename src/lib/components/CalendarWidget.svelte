@@ -4,15 +4,19 @@
 
 	type ViewMode = 'days' | 'months' | 'years' | 'decades';
 
-	const today = new Date();
-	const currentYear = today.getFullYear();
-	const currentMonth = today.getMonth();
-	const currentDay = today.getDate();
+	// "Today" is state, not a constant: it rolls over at local midnight
+	// (and after sleep/background, when timers may not have fired).
+	let today = new Date();
+	$: currentYear = today.getFullYear();
+	$: currentMonth = today.getMonth();
+	$: currentDay = today.getDate();
 
 	let viewMode: ViewMode = 'days';
-	let selectedYear = currentYear;
-	let selectedMonth = currentMonth;
-	let selectedDecade = Math.floor(currentYear / 10) * 10;
+	// Reactive declarations are not set yet during init, so read from `today` directly
+	let selectedYear = today.getFullYear();
+	let selectedMonth = today.getMonth();
+	let selectedDecade = Math.floor(selectedYear / 10) * 10;
+	let mounted = false;
 
 	const monthNames = [
 		'January', 'February', 'March', 'April', 'May', 'June',
@@ -33,11 +37,53 @@
 	}
 
 	// Format today's date as "Today: 2025 October 23rd"
-	const todayFormatted = `(Today: ${currentYear} ${monthNames[currentMonth]} ${currentDay}${getOrdinalSuffix(currentDay)})`;
+	$: todayFormatted = `(Today: ${currentYear} ${monthNames[currentMonth]} ${currentDay}${getOrdinalSuffix(currentDay)})`;
 
-	// Update the calendar widget title on mount (display-only, not persisted)
+	// Update the calendar widget title, client-side only (display-only, not persisted)
+	$: if (mounted) setLiveTitle('calendar-1', `Calendar ${todayFormatted}`);
+
+	function isSameDay(a: Date, b: Date): boolean {
+		return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+	}
+
+	function refreshToday() {
+		const now = new Date();
+		if (isSameDay(now, today)) return;
+		// If the user was looking at the old current month, follow today into the new one
+		if (viewMode === 'days' && selectedYear === currentYear && selectedMonth === currentMonth) {
+			selectedYear = now.getFullYear();
+			selectedMonth = now.getMonth();
+			selectedDecade = Math.floor(selectedYear / 10) * 10;
+		}
+		today = now;
+	}
+
 	onMount(() => {
-		setLiveTitle('calendar-1', `Calendar ${todayFormatted}`);
+		mounted = true;
+		let timer: ReturnType<typeof setTimeout>;
+		const scheduleMidnight = () => {
+			clearTimeout(timer);
+			const now = new Date();
+			const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+			// Small buffer so we land just after the rollover, not just before it
+			timer = setTimeout(() => {
+				refreshToday();
+				scheduleMidnight();
+			}, nextMidnight.getTime() - now.getTime() + 1000);
+		};
+		// Timers stall in background tabs and during sleep; re-check when the page comes back
+		const onWake = () => {
+			refreshToday();
+			scheduleMidnight();
+		};
+		scheduleMidnight();
+		document.addEventListener('visibilitychange', onWake);
+		window.addEventListener('focus', onWake);
+		return () => {
+			clearTimeout(timer);
+			document.removeEventListener('visibilitychange', onWake);
+			window.removeEventListener('focus', onWake);
+		};
 	});
 
 	function getDaysInMonth(year: number, month: number): number {
@@ -48,7 +94,7 @@
 		return new Date(year, month, 1).getDay();
 	}
 
-	function generateCalendarDays(year: number, month: number): Array<{ day: number | null; isCurrentMonth: boolean; isToday: boolean }> {
+	function generateCalendarDays(year: number, month: number, today: Date): Array<{ day: number | null; isCurrentMonth: boolean; isToday: boolean }> {
 		const daysInMonth = getDaysInMonth(year, month);
 		const firstDay = getFirstDayOfMonth(year, month);
 		const daysInPrevMonth = month === 0 
@@ -68,10 +114,10 @@
 
 		// Current month's days
 		for (let day = 1; day <= daysInMonth; day++) {
-			const isToday = 
-				year === currentYear &&
-				month === currentMonth &&
-				day === currentDay;
+			const isToday =
+				year === today.getFullYear() &&
+				month === today.getMonth() &&
+				day === today.getDate();
 			
 			days.push({
 				day,
@@ -164,8 +210,8 @@
 		else viewMode = 'days';
 	}
 
-	// Reactive statements - explicitly depend on selectedYear and selectedMonth
-	$: calendarDays = generateCalendarDays(selectedYear, selectedMonth);
+	// Reactive statements - explicitly depend on selectedYear, selectedMonth and today
+	$: calendarDays = generateCalendarDays(selectedYear, selectedMonth, today);
 	$: yearRange = Array.from({ length: 10 }, (_, i) => selectedDecade + i);
 	$: decadeRanges = Array.from({ length: 10 }, (_, i) => {
 		const start = selectedDecade + (i * 10);
