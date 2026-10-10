@@ -253,12 +253,12 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
     let response: Response;
     try {
-      response = await fetch(forecastUrl.toString(), {
+      response = await fetchWithTimeout(forecastUrl.toString(), {
         headers: {
           'Accept': 'application/json',
           'User-Agent': 'StarspaceDashboard/1.0'
         }
-      });
+      }, 8000);
     } catch (fetchError) {
       console.error('Open-Meteo fetch error:', fetchError);
       return json(
@@ -839,7 +839,7 @@ async function getCoordinatesFromZip(zip: string): Promise<{ lat: string; lon: s
     const searchQuery = `${zip} USA`;
     const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchQuery)}&count=1&language=en&format=json`;
 
-    const response = await fetch(geoUrl);
+    const response = await fetchWithTimeout(geoUrl);
 
     if (response.ok) {
       const data = await response.json();
@@ -853,7 +853,7 @@ async function getCoordinatesFromZip(zip: string): Promise<{ lat: string; lon: s
 
     // Fallback: try searching just the zip code
     const fallbackUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(zip)}&count=1&language=en&format=json`;
-    const fallbackResponse = await fetch(fallbackUrl);
+    const fallbackResponse = await fetchWithTimeout(fallbackUrl);
 
     if (fallbackResponse.ok) {
       const fallbackData = await fallbackResponse.json();

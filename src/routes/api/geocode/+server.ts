@@ -32,7 +32,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   try {
     // Open-Meteo geocoding API - free, no API key required
     const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`;
-    const response = await fetch(geoUrl);
+    const response = await fetch(geoUrl, { signal: AbortSignal.timeout(5000) });
 
     if (!response.ok) {
       const errorText = await response.text();

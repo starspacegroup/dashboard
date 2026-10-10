@@ -54,8 +54,11 @@ function refreshAccessTokenDeduped(refreshToken: string): Promise<RefreshedToken
 
 async function refreshAccessToken(refreshToken: string): Promise<RefreshedTokens | null> {
 	try {
+		// Bounded: this runs inside locals.auth() on every authenticated request,
+		// so a hung GitHub call would otherwise hang the whole request.
 		const response = await fetch('https://github.com/login/oauth/access_token', {
 			method: 'POST',
+			signal: AbortSignal.timeout(8000),
 			headers: {
 				'Content-Type': 'application/json',
 				'Accept': 'application/json'
