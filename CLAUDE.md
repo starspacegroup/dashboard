@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A SvelteKit 2 dashboard application with draggable widgets (weather, traffic, calendar, GitHub repos/PRs, GA4 analytics, Cloudflare). Deployed to Cloudflare Pages using `@sveltejs/adapter-cloudflare`. Authentication via Auth.js with GitHub OAuth.
+A SvelteKit 2 dashboard application with draggable widgets (weather, traffic, calendar, GitHub repos/PRs, GA4 analytics, Cloudflare, NebulaKit sites). Deployed to Cloudflare Pages using `@sveltejs/adapter-cloudflare`. Authentication via Auth.js with GitHub OAuth.
 
 ## Commands
 
@@ -95,6 +95,7 @@ rather than silently emptying the list.
 - `/api/maps-config` - Google Maps configuration
 - `/api/dashboard-state` - GET/PUT per-user dashboard state (Cloudflare KV, `DASHBOARD_KV` binding). PUT rejects snapshots over 512 KB (413), returns `{ ok: false, conflict: true }` when the stored state is newer, and `{ ok: true, unchanged: true }` without writing when the incoming state is byte-identical — the conflict check already reads the existing value, so the comparison is free and it catches the redundant pushes a per-tab client guard can't
 - `/api/analytics` - GA4 reports proxy; returns `{ code: 'reconnect_required' }` with 401 when the Google refresh token is dead (widget shows a Reconnect button)
+- `/api/nebulakit` - Proxy for a NebulaKit site's stats API (`?action=verify|summary&days=1|7|30|90`). POST body `{ url, token }`: the site origin and the **stats token** its owner issued under "Dashboard access" on the site's `/admin/analytics` (NebulaKit `docs/ADMIN_STATS.md`, "Reading the numbers from outside"). Forwards it as a Bearer credential to `GET <origin>/api/stats/summary?window=N` and returns the summary untouched — the site sends no CORS headers, so the browser can't call it directly. 12s fetch timeout; in-memory 5-min cache scoped by origin + token suffix; `{ code: 'reconnect_required' }` with 401 when the site answers 401/403 (token rotated or revoked), 502 with a plain-English reason otherwise (unreachable, not a NebulaKit site, a NebulaKit too old to have the endpoint). The widget needs nothing server-side; everything a site shows is whatever its own `/admin` shows.
 - `/api/cloudflare` - Cloudflare API proxy (`?action=verify|accounts|overview|zones|zone-analytics|pages|workers|kv|r2|d1|queues|security|web-analytics|durable-objects`). Auth is a user-supplied, read-only Cloudflare **API token** (no server-side OAuth app / no env var needed) passed in the POST body and forwarded as a Bearer credential; tokens don't expire, so the connection persists until revoked. The widget's connect screen deep-links to Cloudflare's Create-Token page with `permissionGroupKeys` pre-filled (`account_analytics`, `analytics`, `zone`, `page` [Pages], `workers_scripts`, `workers_kv_storage`, `workers_r2`, `d1`, `queues`, `waf` [firewall/WAF events], `rum` [Web Analytics]) + `accountId=*&zoneId=all` — one click, no manual scope picking. REST for accounts/zones/pages/workers-scripts/KV-namespaces/R2-buckets/D1-databases/queues/RUM-sites; the GraphQL Analytics API for stats (`httpRequests1dGroups` + `httpRequestsAdaptiveGroups` [status codes/countries/cache], `workersInvocationsAdaptive`, `kvOperationsAdaptiveGroups`, `kvStorageAdaptiveGroups`, `r2OperationsAdaptiveGroups`, `r2StorageAdaptiveGroups`, `d1AnalyticsAdaptiveGroups`, `firewallEventsAdaptiveGroups`, `queueBacklogAdaptiveGroups`, `rumPageloadEventsAdaptiveGroups`/`rumPerformanceEventsAdaptiveGroups`, `durableObjects*AdaptiveGroups`). **Usage endpoints return raw "current window" numbers** (today for daily limits, month-to-date for monthly, snapshot for storage); the client turns these into limit meters via `src/lib/cloudflare/limits.ts` (`FREE_LIMITS`/`PAID_LIMITS` + `computeMeter` run-rate projection), so the Free/Paid toggle is client-side with no server round-trip. In-memory 5-min response cache scoped by token suffix. Returns `{ code: 'reconnect_required' }` with 401 on 401/403 or auth error codes (1000/9109/10000), which flips the widget to its Connect screen. Every analytics/list call is best-effort (isolated try/catch), so an under-scoped token still shows what it can — including graceful empty states for Durable Objects (Workers-Paid only), Web Analytics (no RUM sites) and WAF events (`firewallEventsAdaptiveGroups` is zone-plan gated: free zones answer "does not have access to the path").
   - ⚠️ **GraphQL gotchas that silently look like missing token scopes** (see `planning/cloudflare-graphql-dimensions-bug.md`):
     1. `dimensions` is a **selection field, not an argument**. `foo(filter: {...}, dimensions: { date, actionType })` is a *syntax error* — group by selecting `dimensions { date actionType }` in the body. Cloudflare's GraphQL schema is also permission-scoped, so a genuinely under-scoped token fails the same way (unknown field), which is why failures must never be reported to the user as "add Account Analytics: Read" without checking the message — `classifyAnalyticsError()` splits `permission` / `plan` / `query` and the KV banner renders the real reason.
@@ -105,8 +106,9 @@ rather than silently emptying the list.
 
 ### Cross-Instance Sync
 - `src/lib/stores/sync.ts` - Snapshots a fixed set of localStorage keys (widgets, sections, layouts, location, analytics connection, Cloudflare connection) and persists them to KV via `/api/dashboard-state`, keyed by the logged-in user
-- Connection secrets (GA refresh token in `dashboard-analytics-connection`, Cloudflare API tokens in `dashboard-cloudflare-credentials`) live client-side and ride the same sync channel, so a connection made on one device follows the user everywhere. New connection stores must be added to `SYNCED_KEYS` and reloaded in both `applySnapshot` and `clearLocalState`.
+- Connection secrets (GA refresh token in `dashboard-analytics-connection`, Cloudflare API tokens in `dashboard-cloudflare-credentials`, NebulaKit stats tokens in `dashboard-nebulakit-sites`) live client-side and ride the same sync channel, so a connection made on one device follows the user everywhere. New connection stores must be added to `SYNCED_KEYS` and reloaded in both `applySnapshot` and `clearLocalState`.
 - **Cloudflare uses a named key pool, not a single token.** `src/lib/stores/cloudflareCredentials.ts` holds `{ id, label, token }[]` (persisted to `dashboard-cloudflare-credentials`); each Cloudflare widget's `config.cloudflare.credentialId` selects which key it uses (unset → first/"Default" key for back-compat), and its `accountId` picks the account — so multiple widgets can share a key or each use a different one. Key + account are managed in `CloudflareWidgetSettings.svelte` (a standard widget-frame gear panel driven by the `cloudflareSettings` store + a global instance in `+layout.svelte`, mirroring the Weather widget), NOT an in-widget modal. The legacy single-token store `dashboard-cloudflare-connection` (`cloudflareConnection`) is kept only for one-time migration into the pool.
+- **NebulaKit mirrors the Cloudflare key pool.** `src/lib/stores/nebulakitSites.ts` holds `{ id, label, url, token }[]` (persisted to `dashboard-nebulakit-sites`); each NebulaKit widget's `config.nebulakit.siteId` selects a site (unset → first site, `''` → explicitly none). Sites are managed in `NebulaKitWidgetSettings.svelte` (gear panel driven by the `nebulakitSettings` store, global instance in `+layout.svelte`), which verifies a token through `/api/nebulakit?action=verify` before saving it and offers a per-site "replace token" for when the owner rotates it.
 - Pulls on load / tab focus / 60s interval; pushes debounced (2s) after changes; last-write-wins by timestamp. Both the sync pull and the page's 5-min `invalidateAll` only run while the tab is visible — a backgrounded tab must not spend GitHub rate limit or KV writes on data nobody is looking at
 - Stores dispatch a `dashboard-state-changed` window event after writing synced localStorage keys — anything that writes those keys must dispatch it
 - KV binding is defined in `wrangler.toml`; `platformProxy` in `svelte.config.js` emulates it during `npm run dev` (data persisted under `.wrangler/`)
@@ -132,7 +134,7 @@ rather than silently emptying the list.
 `npm run dev` skips GitHub sign-in: `src/lib/server/devPreview.ts` hands out a
 fake session, `devHandle.ts` answers the credential-gated APIs from
 `devFixtures.ts`, and the dashboard opens on a seeded layout with one widget of
-every type — **all thirteen carrying sample data**. A `DEV PREVIEW · SAMPLE DATA`
+every type — **all fourteen carrying sample data**. A `DEV PREVIEW · SAMPLE DATA`
 badge sits in the header the whole time.
 
 - **Getting in:** on a loopback host the preview is just on, no click. Anywhere
@@ -147,12 +149,12 @@ badge sits in the header the whole time.
   tunnel OAuth callback. While `dev:tunnel` is up, anyone with the URL can click
   into the sample dashboard — take the tunnel down when you're done.
 - **What is faked:** the session, the GitHub payload behind the page load,
-  Google Analytics, Cloudflare, and the Traffic map (a drawn stand-in, since a
+  Google Analytics, Cloudflare, NebulaKit, and the Traffic map (a drawn stand-in, since a
   real map needs a billable Google key — a configured `GOOGLE_MAPS_API_KEY` still
   wins and you get the real map). **What is real:** weather, geocoding and crypto
   are keyless, so those widgets show live data.
-- The Analytics and Cloudflare fixtures answer **only** for the placeholder
-  credentials the preview seeds. Paste a real token into a widget and the request
+- The Analytics, Cloudflare and NebulaKit fixtures answer **only** for the
+  placeholder credentials the preview seeds. Paste a real token into a widget and the request
   goes to the real provider, so the preview never hides your own data.
 - Two gates keep it out of production: `dev` from `$app/environment` (false in
   any build, so the code is tree-shaken away and `/dev-login` answers 404) and

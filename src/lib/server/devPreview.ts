@@ -70,6 +70,7 @@ import type { RequestEvent } from '@sveltejs/kit';
  */
 export const DEV_GA_REFRESH_TOKEN = 'dev-preview-ga-refresh-token';
 export const DEV_CF_API_TOKEN = 'dev-preview-cloudflare-token';
+export const DEV_NK_STATS_TOKEN = 'nks_devpreview000000000000000000000000000000000000';
 
 /** Both gates. Statically false in any build, so this whole module drops out. */
 export const DEV_PREVIEW_ENABLED = dev && env.DEV_AUTH_BYPASS !== 'false';

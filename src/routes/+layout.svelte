@@ -5,6 +5,7 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import WeatherWidgetSettings from '$lib/components/WeatherWidgetSettings.svelte';
 	import CloudflareWidgetSettings from '$lib/components/CloudflareWidgetSettings.svelte';
+	import NebulaKitWidgetSettings from '$lib/components/NebulaKitWidgetSettings.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import UserDropdown from '$lib/components/UserDropdown.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
@@ -66,6 +67,7 @@
 />
 
 <CloudflareWidgetSettings />
+<NebulaKitWidgetSettings />
 
 <div class="app">
 	{#if !isMinimalLayout}
@@ -74,7 +76,7 @@
 		{#if data.devPreview}
 			<!-- Every number below is sample data, and it would be very easy to
 			     forget that. Say so, permanently, in the chrome. -->
-			<span class="dev-preview-badge" title="Signed in is faked and the GitHub, Analytics and Cloudflare data is generated. Weather and crypto are live.">
+			<span class="dev-preview-badge" title="Signed in is faked and the GitHub, Analytics, Cloudflare and NebulaKit data is generated. Weather and crypto are live.">
 				DEV PREVIEW · SAMPLE DATA
 			</span>
 		{/if}

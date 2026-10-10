@@ -1,6 +1,6 @@
 export interface Widget {
 	id: string;
-	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table' | 'copilot-usage' | 'crypto' | 'google-analytics' | 'cloudflare';
+	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table' | 'copilot-usage' | 'crypto' | 'google-analytics' | 'cloudflare' | 'nebulakit';
 	title: string;
 	section: number; // Which section this widget belongs to
 	order: number; // Order within the section
@@ -62,6 +62,11 @@ export interface WidgetConfig {
 		zoneId?: string; // Last-viewed zone in the Domains tab
 		days?: number; // Analytics window in days (1, 7, 14, 30)
 		plan?: 'free' | 'paid'; // Which limit tier drives the usage meters
+	};
+	nebulakit?: {
+		siteId?: string; // Which saved NebulaKit site (nebulakitSites) this widget shows; '' = explicitly none
+		view?: 'overview' | 'traffic' | 'audience' | 'usage'; // Active tab
+		days?: number; // Traffic window in days (1, 7, 30, 90 — what the site's own /admin offers)
 	};
 }
 

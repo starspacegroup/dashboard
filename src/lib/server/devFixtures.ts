@@ -754,6 +754,146 @@ export function devCloudflareResponse(action: string | null, url: URL): unknown 
  * with no dashboard yet, and every later edit wins — you can rearrange the
  * preview and it stays rearranged.
  */
+// ─────────────────────────────────────────────────────────────────────────────
+// NebulaKit — what /api/stats/summary on a NebulaKit site returns
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DEV_NK_SITE = { name: 'Dev Preview Site', url: 'https://preview.example.com' };
+
+function nkWindow(url: URL): number {
+	const n = parseInt(url.searchParams.get('days') || '7', 10);
+	return [1, 7, 30, 90].includes(n) ? n : 30;
+}
+
+/** `YYYY-MM` keys for the last `n` months, oldest first, ending this month. */
+function monthRange(n: number): string[] {
+	const out: string[] = [];
+	const now = new Date();
+	for (let i = n - 1; i >= 0; i--) {
+		const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+		out.push(d.toISOString().slice(0, 7));
+	}
+	return out;
+}
+
+function monthly(seed: number, n: number, base: number, spread: number) {
+	const rand = rng(seed);
+	let cumulative = 0;
+	return monthRange(n).map((ym) => {
+		const count = Math.max(0, Math.round(base + (rand() - 0.5) * spread));
+		cumulative += count;
+		return { ym, label: ym, count, cumulative };
+	});
+}
+
+/** Answer a NebulaKit proxy call from fixtures. `null` means "not a fixture action". */
+export function devNebulaKitResponse(action: string | null, url: URL): unknown | null {
+	if (action === 'verify') {
+		return { valid: true, site: DEV_NK_SITE };
+	}
+	if (action !== 'summary') return null;
+
+	const days = nkWindow(url);
+	const dates = dateRange(days);
+	const views = series(31, days, 820, 260);
+	const signedIn = views.map((v, i) => Math.round(v * (0.12 + 0.04 * rng(40 + i)())));
+	const now = new Date();
+	const hourKey = (d: Date) => d.toISOString().slice(0, 13);
+	const hourly = Array.from({ length: 24 }, (_, i) => {
+		const d = new Date(now.getTime() - (23 - i) * 3_600_000);
+		const r = rng(50 + i)();
+		const v = Math.round(18 + r * 40 + (d.getUTCHours() > 13 && d.getUTCHours() < 22 ? 25 : 0));
+		return { hourKey: hourKey(d), views: v, signedIn: Math.round(v * 0.14) };
+	});
+	const scale = days / 7;
+	const paths = [
+		['/', 2140],
+		['/blog/[slug]', 1320],
+		['/documentation', 760],
+		['/pricing', 410],
+		['/about', 290],
+		['/contact', 160]
+	].map(([pathKey, v]) => ({
+		pathKey,
+		views: Math.round(Number(v) * scale),
+		signedIn: Math.round(Number(v) * scale * 0.1)
+	}));
+	const referrers = [
+		['(direct)', 2810],
+		['github.com', 940],
+		['news.ycombinator.com', 620],
+		['t.co', 330],
+		['reddit.com', 210]
+	].map(([referrerHost, v]) => ({ referrerHost, views: Math.round(Number(v) * scale) }));
+	const countries = [
+		['US', 2460],
+		['GB', 710],
+		['DE', 520],
+		['CA', 430],
+		['IN', 380],
+		['(unknown)', 120]
+	].map(([country, v]) => ({ country, views: Math.round(Number(v) * scale) }));
+	const dim = (rows: [string, number][]) =>
+		rows.map(([value, v]) => ({ value, views: Math.round(v * scale) }));
+	const usageDays = series(33, 30, 61_000, 14_000);
+	const today = windowUsage(68_000, 'day');
+	const month = usageDays.slice(-now.getUTCDate()).reduce((a, b) => a + b, 0);
+
+	return {
+		site: DEV_NK_SITE,
+		generatedAt: now.toISOString(),
+		trafficWindow: days,
+		trafficNowHour: hourKey(now),
+		stats: {
+			totalUsers: 1_284,
+			totalAdmins: 3,
+			totalContent: 46,
+			totalContactSubmissions: 212,
+			totalChatMessages: 5_930,
+			contentByStatus: { draft: 7, published: 36, archived: 3 },
+			usersByMonth: monthly(34, 12, 96, 70),
+			contentByMonth: monthly(35, 12, 4, 5)
+		},
+		traffic: {
+			daily: dates.map((day, i) => ({ day, views: views[i], signedIn: signedIn[i] })),
+			hourly: days === 1 ? hourly : [],
+			byPath: paths,
+			topContent: [
+				{ contentId: 'c1', views: Math.round(640 * scale), title: 'Shipping on Cloudflare in a weekend', path: '/blog/shipping-on-cloudflare' },
+				{ contentId: 'c2', views: Math.round(410 * scale), title: 'Why we went cookie-free', path: '/blog/cookie-free' },
+				{ contentId: 'c3', views: Math.round(270 * scale), title: 'Release notes — October', path: '/blog/release-notes-october' }
+			],
+			referrers,
+			countries,
+			audience: {
+				os: dim([['Windows', 1980], ['macOS', 1420], ['iOS', 960], ['Android', 710], ['Linux', 380]]),
+				browsers: dim([['Chrome', 2860], ['Safari', 1540], ['Firefox', 620], ['Edge', 410]]),
+				devices: dim([['desktop', 3620], ['mobile', 1680], ['tablet', 150]]),
+				languages: dim([['en', 4210], ['de', 470], ['fr', 290], ['es', 240], ['ja', 110]]),
+				viewports: dim([['1536-plus', 1810], ['1024-1535', 1640], ['under-640', 1520], ['640-1023', 480]])
+			}
+		},
+		usage: {
+			today,
+			todayBot: Math.round(today * 0.22),
+			todayNotFound: Math.round(today * 0.03),
+			monthToDate: month,
+			peakDay: Math.max(...usageDays),
+			peakDayOn: dateRange(30)[usageDays.indexOf(Math.max(...usageDays))],
+			days: dateRange(30).map((day, i) => ({ day, requests: usageDays[i] })),
+			projection: {
+				percentUsed: (today / 100_000) * 100,
+				projectedToday: 68_000,
+				hoursToLimit: Infinity,
+				hoursToReset: 24 * (1 - elapsedFraction('day')),
+				willExhaustToday: false,
+				estimatedPaidOverageUsd: 0,
+				monthPercentOfPaidAllowance: (month / 10_000_000) * 100
+			}
+		}
+	};
+}
+
 export const DEV_SEED_UPDATED_AT = 1_700_000_000_000;
 
 const LEWISTON = {
@@ -832,9 +972,18 @@ const DEV_WIDGETS = [
 			}
 		}
 	},
-	{ id: 'dev-gh-projects', type: 'github-projects', title: 'GitHub Projects', section: 3, order: 1, size: { width: 0, height: 420 } },
-	{ id: 'dev-gh-prs', type: 'github-pull-requests', title: 'Pull Requests', section: 3, order: 2, size: { width: 0, height: 420 } },
-	{ id: 'dev-org-projects', type: 'organization-projects', title: 'Organization Projects', section: 3, order: 3, size: { width: 0, height: 420 } }
+	{
+		id: 'dev-nebulakit',
+		type: 'nebulakit',
+		title: 'NebulaKit Site',
+		section: 3,
+		order: 1,
+		size: { width: 0, height: 520 },
+		config: { nebulakit: { siteId: 'dev-preview-site', view: 'overview', days: 7 } }
+	},
+	{ id: 'dev-gh-projects', type: 'github-projects', title: 'GitHub Projects', section: 3, order: 2, size: { width: 0, height: 420 } },
+	{ id: 'dev-gh-prs', type: 'github-pull-requests', title: 'Pull Requests', section: 3, order: 3, size: { width: 0, height: 420 } },
+	{ id: 'dev-org-projects', type: 'organization-projects', title: 'Organization Projects', section: 3, order: 4, size: { width: 0, height: 420 } }
 ];
 
 const DEV_SECTIONS = [
@@ -848,13 +997,15 @@ const DEV_SECTIONS = [
  * The localStorage snapshot the preview seeds through the normal sync path, so
  * the client needs no dev-specific code to pick it up.
  *
- * The two placeholder credentials are what get the Analytics and Cloudflare
- * widgets past their Connect screens; the API fixtures only answer for exactly
- * these values, so a real token you paste in still goes to the real provider.
+ * The three placeholder credentials are what get the Analytics, Cloudflare and
+ * NebulaKit widgets past their Connect screens; the API fixtures only answer
+ * for exactly these values, so a real token you paste in still goes to the
+ * real provider.
  */
 export function devDashboardSnapshot(
 	gaRefreshToken: string,
-	cfApiToken: string
+	cfApiToken: string,
+	nkStatsToken: string
 ): Record<string, string | null> {
 	return {
 		'dashboard-widgets': JSON.stringify(DEV_WIDGETS),
@@ -865,6 +1016,11 @@ export function devDashboardSnapshot(
 		'dashboard-cloudflare-credentials': JSON.stringify({
 			credentials: [
 				{ id: 'dev-preview-credential', label: 'Dev Preview', token: cfApiToken }
+			]
+		}),
+		'dashboard-nebulakit-sites': JSON.stringify({
+			sites: [
+				{ id: 'dev-preview-site', label: 'Dev Preview Site', url: 'https://preview.example.com', token: nkStatsToken }
 			]
 		})
 	};

@@ -89,6 +89,12 @@
 			title: 'Cloudflare',
 			description: 'Domains, Pages & Workers stats — connect with an API token',
 			icon: '🟠'
+		},
+		{
+			type: 'nebulakit',
+			title: 'NebulaKit Site',
+			description: 'Traffic, audience, growth & plan usage for a site built on NebulaKit',
+			icon: '🌌'
 		}
 	];
 
@@ -136,7 +142,7 @@
 		// First-time setup flow: widgets with settings open them immediately
 		// and reveal (scroll + flash) once setup closes; widgets without
 		// settings reveal right away so it's clear where they landed.
-		const SETUP_TYPES: Widget['type'][] = ['weather', 'traffic', 'google-analytics', 'cloudflare'];
+		const SETUP_TYPES: Widget['type'][] = ['weather', 'traffic', 'google-analytics', 'cloudflare', 'nebulakit'];
 		if (SETUP_TYPES.includes(newWidget.type)) {
 			pendingSetupWidgetId.set(newWidget.id);
 		} else {

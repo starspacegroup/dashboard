@@ -130,7 +130,7 @@
 				{#if widgetsBySection[section.id]}
 					{#each widgetsBySection[section.id] as widget (widget.id)}
 						<div class="widget-container" data-widget-id={widget.id}>
-							<Widget {widget} on:widgetDrop={handleWidgetDrop} onSettingsClick={widget.type === 'weather' || widget.type === 'traffic' || widget.type === 'cloudflare' ? () => openWidgetSettings(widget.id) : undefined}>
+							<Widget {widget} on:widgetDrop={handleWidgetDrop} onSettingsClick={widget.type === 'weather' || widget.type === 'traffic' || widget.type === 'cloudflare' || widget.type === 'nebulakit' ? () => openWidgetSettings(widget.id) : undefined}>
 								{#if widget.type === 'weather'}
 									<svelte:component this={widgetComponents.WeatherWidget} {widget} bind:this={settingsWidgetRefs[widget.id]} />
 								{:else if widget.type === 'traffic'}
@@ -155,6 +155,8 @@
 									<svelte:component this={widgetComponents.GoogleAnalyticsWidget} {widget} />
 								{:else if widget.type === 'cloudflare'}
 									<svelte:component this={widgetComponents.CloudflareWidget} {widget} bind:this={settingsWidgetRefs[widget.id]} />
+								{:else if widget.type === 'nebulakit'}
+									<svelte:component this={widgetComponents.NebulaKitWidget} {widget} bind:this={settingsWidgetRefs[widget.id]} />
 								{/if}
 							</Widget>
 						</div>

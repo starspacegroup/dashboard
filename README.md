@@ -21,6 +21,11 @@ Pages.
   traffic for your domains, deployment status for Pages projects, and
   invocation stats for Workers — with an Overview rollup and interactive
   charts. Tokens don't expire, so you stay connected across devices.
+- 🌌 **NebulaKit Site Widget**: Connect any site built on
+  [NebulaKit](https://github.com/starspacegroup/NebulaKit) with the stats
+  token its owner issues on `/admin/analytics` to see the site's traffic,
+  audience, growth and Cloudflare plan usage — the same numbers as its own
+  admin dashboard, read-only
 - 📊 **Google Analytics Widget**: Connect a GA4 property for realtime and
   historical traffic (needs `GA_OAUTH_CLIENT_ID`/`GA_OAUTH_CLIENT_SECRET`)
 - 🪙 **Crypto Widget**: Spot price and chart for any CoinGecko-listed coin
@@ -86,7 +91,7 @@ npm run dev
 
 On localhost, `npm run dev` skips sign-in and opens on a dashboard with one
 widget of every type, each carrying sample data, so you can work on the UI
-without connecting a GitHub, Google Analytics or Cloudflare account. A
+without connecting a GitHub, Google Analytics, Cloudflare or NebulaKit account. A
 `DEV PREVIEW · SAMPLE DATA` badge stays in the header while it is on.
 
 From any other address the dev server answers on — a LAN IP, or the hostname
@@ -98,7 +103,7 @@ preview and gives you the real GitHub flow back, on any host.
 ⚠️ That means while your dev tunnel is up, anyone with the URL can click into the
 sample dashboard. Take the tunnel down when you are done with it.
 
-The GitHub, Analytics and Cloudflare numbers are generated, and the Traffic
+The GitHub, Analytics, Cloudflare and NebulaKit numbers are generated, and the Traffic
 widget draws a sample board when there is no `GOOGLE_MAPS_API_KEY` (set one and
 you get the real map). Weather, geocoding and crypto are keyless APIs, so those
 widgets show live data.

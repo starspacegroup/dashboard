@@ -14,6 +14,7 @@ import {
 	DEV_SESSION,
 	DEV_CF_API_TOKEN,
 	DEV_GA_REFRESH_TOKEN,
+	DEV_NK_STATS_TOKEN,
 	DEV_PREVIEW_COOKIE,
 	isDevPreview
 } from './devPreview';
@@ -22,7 +23,8 @@ import {
 	DEV_SEED_UPDATED_AT,
 	devAnalyticsResponse,
 	devCloudflareResponse,
-	devDashboardSnapshot
+	devDashboardSnapshot,
+	devNebulaKitResponse
 } from './devFixtures';
 
 interface StoredState {
@@ -59,7 +61,7 @@ async function fixtureResponse(event: RequestEvent): Promise<Response | null> {
 		if (event.request.method === 'GET') {
 			return json(
 				devState ?? {
-					state: devDashboardSnapshot(DEV_GA_REFRESH_TOKEN, DEV_CF_API_TOKEN),
+					state: devDashboardSnapshot(DEV_GA_REFRESH_TOKEN, DEV_CF_API_TOKEN, DEV_NK_STATS_TOKEN),
 					updatedAt: DEV_SEED_UPDATED_AT
 				}
 			);
@@ -99,6 +101,13 @@ async function fixtureResponse(event: RequestEvent): Promise<Response | null> {
 		const body = await peekBody(event);
 		if (String(body.apiToken ?? '').trim() !== DEV_CF_API_TOKEN) return null;
 		const data = devCloudflareResponse(action, event.url);
+		return data ? json(data) : json({ error: 'Invalid action.' }, { status: 400 });
+	}
+
+	if (path === '/api/nebulakit' && event.request.method === 'POST') {
+		const body = await peekBody(event);
+		if (String(body.token ?? '').trim() !== DEV_NK_STATS_TOKEN) return null;
+		const data = devNebulaKitResponse(action, event.url);
 		return data ? json(data) : json({ error: 'Invalid action.' }, { status: 400 });
 	}
 
