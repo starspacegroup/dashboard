@@ -88,6 +88,23 @@
 		isDraggingAny.set(false);
 	}
 	
+	function handleSectionDragStart(sectionId: number, event: DragEvent) {
+		draggedSectionId = sectionId;
+		isDraggingAny.set(true);
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData('text/plain', String(sectionId));
+			// Drag the whole section's image, not just the small handle
+			const sectionEl = (event.currentTarget as HTMLElement).closest('.section');
+			if (sectionEl) event.dataTransfer.setDragImage(sectionEl, 16, 16);
+		}
+	}
+
+	function handleSectionDragEnd() {
+		draggedSectionId = null;
+		isDraggingAny.set(false);
+	}
+
 	function handleWidgetDrop(event: CustomEvent<{targetSection: number, targetOrder: number, widgetId: string}>) {
 		const { targetSection, targetOrder, widgetId } = event.detail;
 		if (widgetId) {
@@ -126,6 +143,14 @@
 			role="region"
 			aria-label="Section {section.id}"
 		>
+			<button
+				class="section-drag-handle"
+				draggable="true"
+				on:dragstart={(e) => handleSectionDragStart(section.id, e)}
+				on:dragend={handleSectionDragEnd}
+				aria-label="Drag section"
+				title="Drag section to another column"
+				type="button">⋮⋮</button>
 			<div class="section-content">
 				{#if widgetsBySection[section.id]}
 					{#each widgetsBySection[section.id] as widget (widget.id)}
@@ -203,6 +228,8 @@
 	.drop-zone.active {
 		pointer-events: all;
 		opacity: 1;
+		/* Sit above the sections so the drop reaches the zone */
+		z-index: 3;
 		animation: pulseDropZone 1.5s ease-in-out infinite;
 	}
 
@@ -251,6 +278,52 @@
 		border-color: var(--primary-color);
 	}
 	
+	/* Same grip glyph and look as the widget's .drag-handle in Widget.svelte */
+	.section-drag-handle {
+		position: absolute;
+		top: -0.75rem;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 4;
+		background: var(--surface);
+		border: 2px solid transparent;
+		color: var(--text-secondary);
+		cursor: grab;
+		font-size: 1.25rem;
+		padding: 0.25rem;
+		line-height: 1;
+		border-radius: 0;
+		min-width: 24px;
+		min-height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		user-select: none;
+		opacity: 0;
+		transition: all var(--transition-fast) var(--ease-out);
+	}
+
+	.section:hover > .section-drag-handle,
+	.section.dragging > .section-drag-handle,
+	.section-drag-handle:focus-visible {
+		opacity: 1;
+	}
+
+	.section-drag-handle:hover {
+		color: var(--primary-color);
+		border-color: var(--primary-color);
+	}
+
+	.section-drag-handle:active {
+		cursor: grabbing;
+	}
+
+	@media (hover: none) {
+		.section-drag-handle {
+			opacity: 1;
+		}
+	}
+
 	.section-content {
 		padding: 0.5rem;
 		display: flex;
