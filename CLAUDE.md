@@ -123,6 +123,7 @@ rather than silently emptying the list.
 ### State Management
 - `src/lib/stores/theme.ts` - Theme toggle (light/dark)
 - `src/lib/stores/widgets.ts` - Widget/section state
+- `src/lib/stores/clock.ts` - The one clock for date/time displays: `clockSecond` (1s) and `clockMinute` (on the minute), both fed by a single interval that exists only while something subscribes. Read time from these; never start a per-widget `setInterval` for a clock, a date or a "today" rollover
 - `src/lib/stores/commands.ts` - Command palette actions
 - `src/lib/stores/weatherSettings.ts` - Weather widget configuration modal
 
