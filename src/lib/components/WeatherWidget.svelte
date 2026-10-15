@@ -9,6 +9,7 @@
 	import { getSavedLocation, saveResolvedCoords, getPositionIfGranted } from '$lib/utils/geolocation';
 	import { setWidgetAlerts, clearWidgetAlert } from '$lib/stores/widgetAlerts';
 	import { setLiveTitle } from '$lib/stores/liveTitles';
+	import { clockSecond } from '$lib/stores/clock';
 	import { moonPhase as moonPhaseStore, computeMoonPhase } from '$lib/stores/moonPhase';
 
 	export let widget: Widget;
@@ -1320,10 +1321,10 @@
 		window.addEventListener('location-changed', handleLocationChanged as EventListener);
 		window.addEventListener('location-cleared', handleLocationCleared);
 		
-		// Update the timestamp every second to trigger the reactive time computation
-		const interval = setInterval(() => {
-			currentTimestamp = Date.now();
-		}, 1000);
+		// Follow the shared clock every second to trigger the reactive time computation
+		const unsubClock = clockSecond.subscribe((ms) => {
+			currentTimestamp = ms;
+		});
 		
 		// Loading animation - accelerated day cycle (full day in ~40 seconds)
 		// Start at 05:23 AM as specified
@@ -1360,7 +1361,7 @@
 		}
 
 		return () => {
-			clearInterval(interval);
+			unsubClock();
 			clearInterval(loadingInterval);
 			clearInterval(weatherInterval);
 			window.removeEventListener('resize', handleResize);

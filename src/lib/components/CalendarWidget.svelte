@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { setLiveTitle } from '$lib/stores/liveTitles';
+	import { clockMinute } from '$lib/stores/clock';
 
 	type ViewMode = 'days' | 'months' | 'years' | 'decades';
 
@@ -60,30 +61,9 @@
 
 	onMount(() => {
 		mounted = true;
-		let timer: ReturnType<typeof setTimeout>;
-		const scheduleMidnight = () => {
-			clearTimeout(timer);
-			const now = new Date();
-			const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-			// Small buffer so we land just after the rollover, not just before it
-			timer = setTimeout(() => {
-				refreshToday();
-				scheduleMidnight();
-			}, nextMidnight.getTime() - now.getTime() + 1000);
-		};
-		// Timers stall in background tabs and during sleep; re-check when the page comes back
-		const onWake = () => {
-			refreshToday();
-			scheduleMidnight();
-		};
-		scheduleMidnight();
-		document.addEventListener('visibilitychange', onWake);
-		window.addEventListener('focus', onWake);
-		return () => {
-			clearTimeout(timer);
-			document.removeEventListener('visibilitychange', onWake);
-			window.removeEventListener('focus', onWake);
-		};
+		// The shared clock ticks each minute (and re-reads on wake from sleep);
+		// refreshToday() only acts when the day actually changed.
+		return clockMinute.subscribe(refreshToday);
 	});
 
 	function getDaysInMonth(year: number, month: number): number {

@@ -10,6 +10,7 @@
  */
 import { readable } from 'svelte/store';
 import { browser } from '$app/environment';
+import { clockMinute } from './clock';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -280,10 +281,14 @@ export const moonPhase = readable<MoonPhaseData>(
     // Recompute immediately so client-side hydration gets fresh data
     set(computeMoonPhase(new Date()));
 
-    const interval = setInterval(() => {
-      set(computeMoonPhase(new Date()));
-    }, MOON_UPDATE_INTERVAL);
-
-    return () => clearInterval(interval);
+    // Follow the shared clock; the hour gate keeps a once-a-minute tick
+    // from recomputing the phase more often than before.
+    let lastHour = Math.floor(Date.now() / MOON_UPDATE_INTERVAL);
+    return clockMinute.subscribe((ms) => {
+      const hour = Math.floor(ms / MOON_UPDATE_INTERVAL);
+      if (hour === lastHour) return;
+      lastHour = hour;
+      set(computeMoonPhase(new Date(ms)));
+    });
   }
 );

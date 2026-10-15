@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { moonPhase as moonPhaseStore } from '$lib/stores/moonPhase';
+	import { clockSecond } from '$lib/stores/clock';
 
 	// Weather caches are per widget instance: `dashboard-weather-data-<id>`.
 	// This widget has no UI for choosing which weather widget it mirrors, so it
@@ -124,11 +125,10 @@
 			timeTestMode = $page.url.searchParams.get('timeTest') === 'true';
 
 			// Update time
-			updateTime();
-			const timeInterval = setInterval(updateTime, 1000);
+			const unsubClock = clockSecond.subscribe(() => updateTime());
 
 			return () => {
-				clearInterval(timeInterval);
+				unsubClock();
 				clearInterval(weatherPoll);
 			};
 		}
