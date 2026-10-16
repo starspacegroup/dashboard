@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { widgets, sections } from '$lib/stores/widgets';
+import { widgets, sections, gridColumns } from '$lib/stores/widgets';
 import { analyticsConnection } from '$lib/stores/analyticsConnection';
 import { cloudflareConnection } from '$lib/stores/cloudflareConnection';
 import { cloudflareCredentials } from '$lib/stores/cloudflareCredentials';
@@ -19,6 +19,7 @@ const SYNCED_KEYS = [
 	'dashboard-sections',
 	'dashboard-layout-widgets',
 	'dashboard-current-layout',
+	'dashboard-grid-columns',
 	'dashboard-location',
 	'dashboard-zip-code',
 	'dashboard-temp-unit-global',
@@ -78,7 +79,9 @@ function applySnapshot(state: Record<string, string | null>) {
 			}
 		}
 
-		// Reload stores that cache localStorage state in memory
+		// Reload stores that cache localStorage state in memory. Columns first:
+		// sections are packed against the column count as they load.
+		gridColumns.load();
 		sections.load();
 		widgets.load();
 		analyticsConnection.reload();
@@ -208,6 +211,7 @@ function clearLocalState() {
 	}
 	stale.forEach((k) => localStorage.removeItem(k));
 
+	gridColumns.load();
 	sections.load();
 	widgets.load();
 	analyticsConnection.reload();
