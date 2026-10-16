@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import type { Widget, Section } from '$lib/types/widget';
 
 const WIDGETS_STORAGE_KEY = 'dashboard-widgets';
@@ -330,6 +330,66 @@ function saveSections(sections: Section[]) {
  */
 export const GRID_COLUMNS = 4;
 
+/**
+ * The column count is a per-dashboard setting (Settings → Dashboard columns).
+ * `GRID_COLUMNS` stays the default, and the column count the layout presets
+ * are drawn for; everything that packs, clamps or renders reads `gridColumns`.
+ */
+export const MIN_GRID_COLUMNS = 1;
+export const MAX_GRID_COLUMNS = 6;
+const GRID_COLUMNS_STORAGE_KEY = 'dashboard-grid-columns';
+
+function clampColumns(n: number): number {
+	if (!Number.isFinite(n)) return GRID_COLUMNS;
+	return Math.min(MAX_GRID_COLUMNS, Math.max(MIN_GRID_COLUMNS, Math.round(n)));
+}
+
+function loadGridColumns(): number {
+	if (typeof window === 'undefined') return GRID_COLUMNS;
+	const stored = localStorage.getItem(GRID_COLUMNS_STORAGE_KEY);
+	return stored ? clampColumns(parseInt(stored, 10)) : GRID_COLUMNS;
+}
+
+/**
+ * Move sections drawn for one column count onto another, keeping each one's
+ * share of the width. A section that would shrink to nothing keeps one column;
+ * the packer then stacks any that now share a column.
+ */
+export function scaleSectionsToColumns<T extends Pick<Section, 'gridColumn' | 'gridColumnSpan'>>(
+	list: T[],
+	from: number,
+	to: number
+): T[] {
+	if (from === to) return list;
+	return list.map((s) => {
+		const start = Math.min(to - 1, Math.round(((s.gridColumn - 1) * to) / from));
+		const end = Math.round(((s.gridColumn - 1 + (s.gridColumnSpan ?? 1)) * to) / from);
+		return { ...s, gridColumn: start + 1, gridColumnSpan: Math.max(1, Math.min(end, to) - start) };
+	});
+}
+
+// Read at module load: the section store below packs on the way in, and must
+// pack against the saved count or it would clamp a wider layout down to four.
+const gridColumnsStore = writable<number>(loadGridColumns());
+
+export const gridColumns = {
+	subscribe: gridColumnsStore.subscribe,
+	/** Change the column count and carry the current layout across to it. */
+	set: (n: number) => {
+		const next = clampColumns(n);
+		const prev = get(gridColumnsStore);
+		if (next === prev) return;
+		gridColumnsStore.set(next);
+		if (typeof window !== 'undefined') {
+			localStorage.setItem(GRID_COLUMNS_STORAGE_KEY, String(next));
+		}
+		sections.rescale(prev, next);
+	},
+	load: () => {
+		gridColumnsStore.set(loadGridColumns());
+	}
+};
+
 /** Rows to search before giving up — a section can't stack deeper than this. */
 const MAX_GRID_ROWS = 20;
 
@@ -344,7 +404,7 @@ const MAX_GRID_ROWS = 20;
  * widgets underneath force repaints. The shipped default layout had this from
  * the start; its fourth section has always been at row 20.
  */
-function calculateSectionRows(sections: Section[]): Section[] {
+export function calculateSectionRows(sections: Section[], columns = get(gridColumnsStore)): Section[] {
 	// Sort sections by column and existing row
 	const sorted = [...sections].sort((a, b) => {
 		if (a.gridColumn !== b.gridColumn) return a.gridColumn - b.gridColumn;
@@ -354,13 +414,13 @@ function calculateSectionRows(sections: Section[]): Section[] {
 	// Track occupied cells in the grid
 	const grid: boolean[][] = Array(MAX_GRID_ROWS)
 		.fill(null)
-		.map(() => Array(GRID_COLUMNS).fill(false));
+		.map(() => Array(columns).fill(false));
 
 	return sorted.map(section => {
 		// A section pointing outside the grid can never be placed; pull it back
 		// in rather than letting it fall through to the bottom of the board.
-		const startCol = Math.min(Math.max(1, section.gridColumn), GRID_COLUMNS);
-		const span = Math.min(Math.max(1, section.gridColumnSpan), GRID_COLUMNS - startCol + 1);
+		const startCol = Math.min(Math.max(1, section.gridColumn), columns);
+		const span = Math.min(Math.max(1, section.gridColumnSpan), columns - startCol + 1);
 
 		// Find the first available row for this section
 		let row = 1;
@@ -370,7 +430,7 @@ function calculateSectionRows(sections: Section[]): Section[] {
 			// Check if all columns this section needs are available in this row
 			const canPlace = Array(span).fill(0).every((_, i) => {
 				const col = startCol - 1 + i;
-				return col < GRID_COLUMNS && !grid[row - 1][col];
+				return col < columns && !grid[row - 1][col];
 			});
 
 			if (canPlace) {
@@ -580,7 +640,7 @@ function createSectionStore() {
 				if (!section) return sections;
 
 				// Ensure span doesn't exceed grid bounds
-				const maxSpan = GRID_COLUMNS - section.gridColumn + 1;
+				const maxSpan = get(gridColumnsStore) - section.gridColumn + 1;
 				const clampedSpan = Math.max(1, Math.min(newSpan, maxSpan));
 
 				const updatedSections = sections.map(s =>
@@ -618,13 +678,15 @@ function createSectionStore() {
 		},
 		applyLayout: (layoutSections: Omit<Section, 'id'>[]) => {
 			// Create new sections with sequential IDs
-			const newSections: Section[] = layoutSections.map((section, index) => ({
+			// Presets are drawn for GRID_COLUMNS; stretch them onto the chosen count.
+			const scaled = scaleSectionsToColumns(layoutSections, GRID_COLUMNS, get(gridColumnsStore));
+			const newSections: Section[] = calculateSectionRows(scaled.map((section, index) => ({
 				id: index,
 				gridColumn: section.gridColumn,
 				gridColumnSpan: section.gridColumnSpan,
 				gridRow: section.gridRow,
 				title: section.title
-			}));
+			})));
 
 			update(() => {
 				saveSections(newSections);
@@ -633,6 +695,13 @@ function createSectionStore() {
 
 			// Redistribute all current widgets to the new layout
 			widgets.redistributeToLayout(newSections);
+		},
+		rescale: (from: number, to: number) => {
+			update((sections) => {
+				const recalculatedSections = calculateSectionRows(scaleSectionsToColumns(sections, from, to), to);
+				saveSections(recalculatedSections);
+				return recalculatedSections;
+			});
 		},
 		reset: () => {
 			set(defaultSections);

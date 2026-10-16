@@ -4,6 +4,7 @@
 	import LocationPicker from './LocationPicker.svelte';
 	import { requestAndSaveLocation } from '$lib/utils/geolocation';
 	import { analyticsConnection, isAnalyticsConnected } from '$lib/stores/analyticsConnection';
+	import { gridColumns, MIN_GRID_COLUMNS, MAX_GRID_COLUMNS } from '$lib/stores/widgets';
 
 	export let isOpen = false;
 	export let onClose: () => void;
@@ -28,6 +29,10 @@
 	let isRequestingLocation = false;
 	let globalTemperatureUnit: 'celsius' | 'fahrenheit' = 'fahrenheit';
 	let isConnectingAnalytics = false;
+	const columnChoices = Array.from(
+		{ length: MAX_GRID_COLUMNS - MIN_GRID_COLUMNS + 1 },
+		(_, i) => MIN_GRID_COLUMNS + i
+	);
 
 	// Load saved location and temperature unit on mount
 	onMount(() => {
@@ -286,6 +291,27 @@
 
 			<!-- Content -->
 			<div class="modal-content">
+				<!-- Dashboard Columns Section -->
+				<div class="settings-section">
+					<h3 class="section-title">Dashboard Columns</h3>
+					<p class="section-description">
+						How many columns the dashboard grid has on a wide screen. Sections keep their share of the width. Tablets and phones still show two and one.
+					</p>
+
+					<div class="temperature-unit-selector column-count-selector" role="group" aria-label="Dashboard columns">
+						{#each columnChoices as n}
+							<button
+								class="unit-button"
+								class:active={$gridColumns === n}
+								aria-pressed={$gridColumns === n}
+								on:click={() => gridColumns.set(n)}
+							>
+								{n}
+							</button>
+						{/each}
+					</div>
+				</div>
+
 				<!-- Browser Location Access Section -->
 				<div class="settings-section">
 					<h3 class="section-title">Browser Location Access</h3>
@@ -756,7 +782,7 @@
 			justify-content: center;
 		}
 
-		.temperature-unit-selector {
+		.temperature-unit-selector:not(.column-count-selector) {
 			flex-direction: column;
 		}
 
