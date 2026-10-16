@@ -105,7 +105,14 @@ async function fetchSummary(origin: string, token: string, days: number): Promis
 	return body;
 }
 
-export const POST: RequestHandler = async ({ url, request }) => {
+export const POST: RequestHandler = async ({ url, request, locals }) => {
+	// Without this the route is an open proxy: anyone could make the server fetch
+	// any URL. Plain `error`, no `code` — `reconnect_required` means "bad token".
+	const session = await locals.auth();
+	if (!session?.user) {
+		return json({ error: 'Authentication required' }, { status: 401 });
+	}
+
 	const action = url.searchParams.get('action');
 	let body: { url?: unknown; token?: unknown };
 	try {
