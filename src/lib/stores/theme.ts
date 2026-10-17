@@ -6,27 +6,31 @@ export type Theme = 'light' | 'dark' | 'auto';
 const THEME_STORAGE_KEY = 'dashboard-theme';
 const THEME_SET_KEY = 'dashboard-theme-user-set';
 
+// A saved choice wins, including 'auto' (follow the system). With no saved
+// choice, follow the system when the browser reports one, else dark.
+export function pickInitialTheme(
+  stored: string | null,
+  userHasSet: string | null,
+  hasSystemPreference: boolean
+): Theme {
+  if (userHasSet === 'true' && (stored === 'light' || stored === 'dark' || stored === 'auto')) {
+    return stored;
+  }
+  if (!userHasSet && hasSystemPreference) return 'auto';
+  return 'dark';
+}
+
 function getInitialTheme(): Theme {
   if (!browser) return 'dark';
 
   try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    const userHasSet = localStorage.getItem(THEME_SET_KEY);
-
-    // If user has explicitly set a preference, use it
-    if (userHasSet === 'true' && (stored === 'light' || stored === 'dark')) {
-      return stored;
-    }
-
-    // First time user - check for system preference, otherwise use dark
-    if (!userHasSet) {
-      const hasSystemPreference = window.matchMedia('(prefers-color-scheme: dark)').matches ||
-        window.matchMedia('(prefers-color-scheme: light)').matches;
-      if (hasSystemPreference) {
-        return 'auto';
-      }
-      return 'dark';
-    }
+    const hasSystemPreference = window.matchMedia('(prefers-color-scheme: dark)').matches ||
+      window.matchMedia('(prefers-color-scheme: light)').matches;
+    return pickInitialTheme(
+      localStorage.getItem(THEME_STORAGE_KEY),
+      localStorage.getItem(THEME_SET_KEY),
+      hasSystemPreference
+    );
   } catch (error) {
     console.warn('Failed to load theme from localStorage:', error);
   }

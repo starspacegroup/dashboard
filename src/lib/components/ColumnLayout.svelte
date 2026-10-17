@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { widgets, sections, isDraggingAny } from '$lib/stores/widgets';
+	import { widgets, sections, isDraggingAny, gridColumns } from '$lib/stores/widgets';
 	import Widget from '$lib/components/Widget.svelte';
 	import WidgetPicker from '$lib/components/WidgetPicker.svelte';
 	import LayoutPicker from '$lib/components/LayoutPicker.svelte';
@@ -80,8 +80,7 @@
 	function handleSectionDrop(targetColumn: number, event: DragEvent) {
 		event.preventDefault();
 		if (draggedSectionId !== null) {
-			// Clamp to valid column range (1-4)
-			const validColumn = Math.max(1, Math.min(4, targetColumn));
+			const validColumn = Math.max(1, Math.min($gridColumns, targetColumn));
 			sections.moveSection(draggedSectionId, validColumn);
 		}
 		draggedSectionId = null;
@@ -116,9 +115,9 @@
 <WidgetPicker isOpen={effectiveWidgetPickerOpen} onClose={closeWidgetPicker} />
 <LayoutPicker isOpen={isLayoutPickerOpen} onClose={closeLayoutPicker} />
 
-<div class="dashboard-layout" bind:this={containerRef}>
+<div class="dashboard-layout" style="--grid-columns: {$gridColumns};" bind:this={containerRef}>
 	<!-- Drop zones for each column -->
-	{#each [1, 2, 3, 4] as columnNum}
+	{#each Array.from({ length: $gridColumns }, (_, i) => i + 1) as columnNum}
 		<div 
 			class="drop-zone" 
 			class:active={draggedSectionId !== null}
@@ -195,7 +194,7 @@
 <style>
 	.dashboard-layout {
 		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-template-columns: repeat(var(--grid-columns, 4), minmax(0, 1fr));
 		gap: 1.5rem;
 		width: 100%;
 		max-width: 100vw;

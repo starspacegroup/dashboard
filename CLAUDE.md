@@ -36,10 +36,20 @@ requires a dev OAuth app whose callback is
 - Widgets have `type`, `section` (which column), `order` (position within section), and optional `config`
 - Sections define a flexible grid layout (1-4 columns, spanning supported)
 - Widget positions are stored per-layout fingerprint to remember arrangements
-- Grid width is `GRID_COLUMNS` in the widgets store — the packer, the resize
-  clamp and `ColumnLayout` all read it. Don't hardcode a column count; the two
-  places that did disagreed with the layout and stranded every column-4 section
-  in one cell.
+- Grid width is the `gridColumns` store (1–6, default `GRID_COLUMNS` = 4), set
+  from Settings → Dashboard Columns and synced as `dashboard-grid-columns` — the
+  packer, the resize clamp, the drop zones and `ColumnLayout`'s CSS all read it.
+  Don't hardcode a column count; the two places that did disagreed with the
+  layout and stranded every column-4 section in one cell. Changing the count
+  rescales existing sections (`scaleSectionsToColumns`) — always from the layout
+  as it was before the first count change (`layoutForColumns`, kept in
+  `dashboard-original-layout` until any hand edit), so switching back restores
+  it exactly instead of re-spreading a lossy squeeze — and layout presets are
+  drawn for 4 and scaled the same way when applied. `gridColumns.load()` must run
+  before `sections.load()`: sections are packed against the count as they load.
+- The Settings panel (`SettingsModal.svelte`, opened from the user menu in the
+  nav) is the one home for per-dashboard settings: columns, location access,
+  temperature unit, Analytics connection, default location. Add new ones there.
 
 ### GitHub pull requests
 `+page.server.ts` runs four PR searches per (cache-missing) load: assigned,
@@ -121,7 +131,7 @@ rather than silently emptying the list.
 - `hooks.server.ts` dedupes concurrent OAuth token refreshes (GitHub refresh tokens are single-use) and only sets a session error once the access token is actually expired
 
 ### State Management
-- `src/lib/stores/theme.ts` - Theme toggle (light/dark)
+- `src/lib/stores/theme.ts` - Theme (light/dark/auto). No saved choice follows the system; a saved choice, `auto` included, survives reload. The nav `ThemeToggle` click flips to the opposite theme and wears that theme's colours (`--toggle-*` in `app.css`); press-and-hold (or right-click) opens a Light/Dark/System menu
 - `src/lib/stores/widgets.ts` - Widget/section state
 - `src/lib/stores/clock.ts` - The one clock for date/time displays: `clockSecond` (1s) and `clockMinute` (on the minute), both fed by a single interval that exists only while something subscribes. Read time from these; never start a per-widget `setInterval` for a clock, a date or a "today" rollover
 - `src/lib/stores/commands.ts` - Command palette actions
