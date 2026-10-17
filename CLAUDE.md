@@ -47,6 +47,12 @@ requires a dev OAuth app whose callback is
   it exactly instead of re-spreading a lossy squeeze — and layout presets are
   drawn for 4 and scaled the same way when applied. `gridColumns.load()` must run
   before `sections.load()`: sections are packed against the count as they load.
+- The grid sizes itself to the window: `ColumnLayout` measures its own width
+  (ResizeObserver) and renders only as many of the chosen columns as fit at
+  `MIN_COLUMN_WIDTH`. When squeezed, sections flow in reading order with their
+  span capped, and the drag handles and drop zones hide; nothing is saved, so
+  widening restores the layout. There are no column-count media queries and no
+  per-section span controls — don't add either back.
 - The Settings panel (`SettingsModal.svelte`, opened from the user menu in the
   nav) is the one home for per-dashboard settings: columns, location access,
   temperature unit, Analytics connection, default location. Add new ones there.

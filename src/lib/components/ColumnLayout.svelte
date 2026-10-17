@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { widgets, sections, isDraggingAny, gridColumns } from '$lib/stores/widgets';
 	import Widget from '$lib/components/Widget.svelte';
 	import WidgetPicker from '$lib/components/WidgetPicker.svelte';
@@ -69,6 +70,34 @@
 		if (a.gridRow !== b.gridRow) return a.gridRow - b.gridRow;
 		return a.gridColumn - b.gridColumn;
 	});
+
+	// The grid sizes itself to the window: it renders as many of the chosen
+	// columns as fit at MIN_COLUMN_WIDTH, measured from the container rather
+	// than fixed breakpoints, so a 6-column dashboard steps down 6→5→4… as the
+	// window narrows. Nothing is saved — widening again restores the layout.
+	const MIN_COLUMN_WIDTH = 320;
+	// Matches the .dashboard-layout gap (1.5rem) closely enough for the fit
+	const GRID_GAP = 24;
+	let layoutWidth = 0;
+	$: fitColumns = layoutWidth > 0
+		? Math.max(1, Math.min($gridColumns, Math.floor((layoutWidth + GRID_GAP) / (MIN_COLUMN_WIDTH + GRID_GAP))))
+		: $gridColumns;
+	$: isFitted = fitColumns < $gridColumns;
+
+	function sectionStyle(section: { gridColumn: number; gridColumnSpan: number; gridRow: number }, columns: number, fitted: boolean): string {
+		// Squeezed: sections flow in reading order, each keeping as much of its
+		// width as the narrower grid allows
+		if (fitted) return `grid-column: auto / span ${Math.min(section.gridColumnSpan, columns)}; grid-row: auto;`;
+		return `grid-column: ${section.gridColumn} / span ${section.gridColumnSpan}; grid-row: ${section.gridRow};`;
+	}
+
+	onMount(() => {
+		const observer = new ResizeObserver(([entry]) => {
+			layoutWidth = entry.contentRect.width;
+		});
+		observer.observe(containerRef);
+		return () => observer.disconnect();
+	});
 	
 	function handleSectionDragOver(event: DragEvent) {
 		event.preventDefault();
@@ -115,9 +144,10 @@
 <WidgetPicker isOpen={effectiveWidgetPickerOpen} onClose={closeWidgetPicker} />
 <LayoutPicker isOpen={isLayoutPickerOpen} onClose={closeLayoutPicker} />
 
-<div class="dashboard-layout" style="--grid-columns: {$gridColumns};" bind:this={containerRef}>
-	<!-- Drop zones for each column -->
-	{#each Array.from({ length: $gridColumns }, (_, i) => i + 1) as columnNum}
+<div class="dashboard-layout" style="--grid-columns: {fitColumns};" bind:this={containerRef}>
+	<!-- Drop zones for each column; a squeezed grid's columns aren't the saved
+	     ones, so there is nothing true to drop a section onto -->
+	{#each isFitted ? [] : Array.from({ length: $gridColumns }, (_, i) => i + 1) as columnNum}
 		<div 
 			class="drop-zone" 
 			class:active={draggedSectionId !== null}
@@ -138,10 +168,11 @@
 			class="section"
 			class:dragging={$isDraggingAny}
 			data-section-id={section.id}
-			style="grid-column: {section.gridColumn} / span {section.gridColumnSpan}; grid-row: {section.gridRow};"
+			style={sectionStyle(section, fitColumns, isFitted)}
 			role="region"
 			aria-label="Section {section.id}"
 		>
+			{#if !isFitted}
 			<button
 				class="section-drag-handle"
 				draggable="true"
@@ -150,6 +181,7 @@
 				aria-label="Drag section"
 				title="Drag section to another column"
 				type="button">⋮⋮</button>
+			{/if}
 			<div class="section-content">
 				{#if widgetsBySection[section.id]}
 					{#each widgetsBySection[section.id] as widget (widget.id)}
@@ -337,18 +369,12 @@
 		overflow: visible;
 	}
 	
-	/* Tablet responsive - 2 columns */
+	/* Column count is fitted to the measured width in the script; these only
+	   tighten spacing */
 	@media (max-width: 1024px) {
 		.dashboard-layout {
-			grid-template-columns: repeat(2, 1fr);
 			gap: 1.25rem;
 			padding: 1.25rem;
-			grid-auto-flow: row;
-		}
-		
-		.section {
-			grid-column: auto / span 1 !important;
-			grid-row: auto !important;
 		}
 
 		.section.dragging {
@@ -360,18 +386,13 @@
 		}
 	}
 
-	/* Mobile responsive - 1 column */
 	@media (max-width: 768px) {
 		.dashboard-layout {
-			grid-template-columns: 1fr;
 			padding: 0.75rem;
 			gap: 0.875rem;
-			grid-auto-flow: row;
 		}
 
 		.section {
-			grid-column: 1 / span 1 !important;
-			grid-row: auto !important;
 			border-radius: 0.625rem;
 		}
 
