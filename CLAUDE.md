@@ -128,7 +128,7 @@ rather than silently emptying the list.
 - `hooks.server.ts` dedupes concurrent OAuth token refreshes (GitHub refresh tokens are single-use) and only sets a session error once the access token is actually expired
 
 ### State Management
-- `src/lib/stores/theme.ts` - Theme toggle (light/dark)
+- `src/lib/stores/theme.ts` - Theme (light/dark/auto). No saved choice follows the system; a saved choice, `auto` included, survives reload. The nav `ThemeToggle` click flips to the opposite theme and wears that theme's colours (`--toggle-*` in `app.css`); press-and-hold (or right-click) opens a Light/Dark/System menu
 - `src/lib/stores/widgets.ts` - Widget/section state
 - `src/lib/stores/clock.ts` - The one clock for date/time displays: `clockSecond` (1s) and `clockMinute` (on the minute), both fed by a single interval that exists only while something subscribes. Read time from these; never start a per-widget `setInterval` for a clock, a date or a "today" rollover
 - `src/lib/stores/commands.ts` - Command palette actions
