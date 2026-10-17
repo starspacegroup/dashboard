@@ -308,12 +308,15 @@ function saveWidgets(widgets: Widget[], sections?: Section[]) {
 }
 
 // Save sections to localStorage
-function saveSections(sections: Section[]) {
+// A column-count change keeps the layout it started from; any other save is a
+// hand edit, which makes the current layout the new original.
+function saveSections(sections: Section[], keepOriginal = false) {
 	if (typeof window === 'undefined') {
 		return;
 	}
 
 	try {
+		if (!keepOriginal) localStorage.removeItem(ORIGINAL_LAYOUT_STORAGE_KEY);
 		localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(sections));
 		notifyStateChanged();
 	} catch (error) {
@@ -338,6 +341,7 @@ export const GRID_COLUMNS = 4;
 export const MIN_GRID_COLUMNS = 1;
 export const MAX_GRID_COLUMNS = 6;
 const GRID_COLUMNS_STORAGE_KEY = 'dashboard-grid-columns';
+const ORIGINAL_LAYOUT_STORAGE_KEY = 'dashboard-original-layout';
 
 function clampColumns(n: number): number {
 	if (!Number.isFinite(n)) return GRID_COLUMNS;
@@ -366,6 +370,45 @@ export function scaleSectionsToColumns<T extends Pick<Section, 'gridColumn' | 'g
 		const end = Math.round(((s.gridColumn - 1 + (s.gridColumnSpan ?? 1)) * to) / from);
 		return { ...s, gridColumn: start + 1, gridColumnSpan: Math.max(1, Math.min(end, to) - start) };
 	});
+}
+
+export interface OriginalLayout {
+	columns: number;
+	sections: Section[];
+}
+
+/**
+ * Lay the sections out for a new column count. Scaling is lossy — four quarter
+ * sections squeezed onto two columns stack, and spreading them back out cannot
+ * tell they were side by side. So the first change keeps the layout it started
+ * from, and every later change is drawn from that, not from the last squeeze:
+ * going back to the original count gives the original layout back exactly. The
+ * original is ignored if its sections are not the current ones (a sync from
+ * another device replaced them).
+ */
+export function layoutForColumns(
+	current: Section[],
+	from: number,
+	to: number,
+	saved: OriginalLayout | null
+): { sections: Section[]; original: OriginalLayout } {
+	const ids = (list: Section[]) => list.map((s) => s.id).sort((a, b) => a - b).join(',');
+	const original = saved && ids(saved.sections) === ids(current) ? saved : { columns: from, sections: current };
+	if (to === original.columns) return { sections: original.sections, original };
+	return {
+		sections: calculateSectionRows(scaleSectionsToColumns(original.sections, original.columns, to), to),
+		original
+	};
+}
+
+function loadOriginalLayout(): OriginalLayout | null {
+	if (typeof window === 'undefined') return null;
+	try {
+		const stored = localStorage.getItem(ORIGINAL_LAYOUT_STORAGE_KEY);
+		return stored ? JSON.parse(stored) : null;
+	} catch {
+		return null;
+	}
 }
 
 // Read at module load: the section store below packs on the way in, and must
@@ -697,10 +740,13 @@ function createSectionStore() {
 			widgets.redistributeToLayout(newSections);
 		},
 		rescale: (from: number, to: number) => {
-			update((sections) => {
-				const recalculatedSections = calculateSectionRows(scaleSectionsToColumns(sections, from, to), to);
-				saveSections(recalculatedSections);
-				return recalculatedSections;
+			update((current) => {
+				const { sections, original } = layoutForColumns(current, from, to, loadOriginalLayout());
+				if (typeof window !== 'undefined') {
+					localStorage.setItem(ORIGINAL_LAYOUT_STORAGE_KEY, JSON.stringify(original));
+				}
+				saveSections(sections, true);
+				return sections;
 			});
 		},
 		reset: () => {

@@ -41,7 +41,10 @@ requires a dev OAuth app whose callback is
   packer, the resize clamp, the drop zones and `ColumnLayout`'s CSS all read it.
   Don't hardcode a column count; the two places that did disagreed with the
   layout and stranded every column-4 section in one cell. Changing the count
-  rescales existing sections (`scaleSectionsToColumns`), and layout presets are
+  rescales existing sections (`scaleSectionsToColumns`) — always from the layout
+  as it was before the first count change (`layoutForColumns`, kept in
+  `dashboard-original-layout` until any hand edit), so switching back restores
+  it exactly instead of re-spreading a lossy squeeze — and layout presets are
   drawn for 4 and scaled the same way when applied. `gridColumns.load()` must run
   before `sections.load()`: sections are packed against the count as they load.
 - The Settings panel (`SettingsModal.svelte`, opened from the user menu in the
