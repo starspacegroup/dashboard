@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateSectionRows, scaleSectionsToColumns } from './widgets';
+import { calculateSectionRows, layoutForColumns, scaleSectionsToColumns } from './widgets';
 
 const sec = (id: number, gridColumn: number, gridColumnSpan: number) => ({
 	id,
@@ -48,5 +48,21 @@ describe('calculateSectionRows with a column count', () => {
 		);
 		const cells = packed.map((s) => `${s.gridColumn}:${s.gridRow}`);
 		expect(new Set(cells).size).toBe(cells.length);
+	});
+});
+
+describe('layoutForColumns', () => {
+	it('restores the original layout when the count goes back', () => {
+		const quarters = [sec(0, 1, 1), sec(1, 2, 1), sec(2, 3, 1), sec(3, 4, 1)];
+		const narrow = layoutForColumns(quarters, 4, 2, null);
+		expect(narrow.original).toEqual({ columns: 4, sections: quarters });
+		const wider = layoutForColumns(narrow.sections, 2, 3, narrow.original);
+		expect(layoutForColumns(wider.sections, 3, 4, wider.original).sections).toEqual(quarters);
+	});
+
+	it('ignores an original whose sections are not the current ones', () => {
+		const stale = { columns: 4, sections: [sec(9, 1, 4)] };
+		const current = [sec(0, 1, 2)];
+		expect(layoutForColumns(current, 2, 4, stale).original).toEqual({ columns: 2, sections: current });
 	});
 });
