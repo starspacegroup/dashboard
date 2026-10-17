@@ -18,6 +18,12 @@
 	--shadow: rgba(0, 0, 0, 0.04);
 	--shadow-hover: rgba(0, 0, 0, 0.08);
 	--shadow-strong: rgba(0, 0, 0, 0.12);
+
+	/* Theme toggle wears the colours of the theme it switches to */
+	--toggle-bg: #262626;
+	--toggle-text: #fafafa;
+	--toggle-border: #404040;
+	--toggle-hover-bg: #404040;
 	
 	/* Animation variables - Brutalist = snappy */
 	--transition-fast: 100ms;
@@ -75,6 +81,10 @@
 
 .dark {
 	/* Dark theme colors - Brutalist Purple */
+	--toggle-bg: #f5f5f5;
+	--toggle-text: #0a0a0a;
+	--toggle-border: #d4d4d4;
+	--toggle-hover-bg: #e5e5e5;
 	--primary-color: #a78bfa;
 	--primary-color-hover: #c4b5fd;
 	--primary-color-light: rgba(167, 139, 250, 0.12);
