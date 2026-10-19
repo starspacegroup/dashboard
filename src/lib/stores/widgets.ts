@@ -669,7 +669,17 @@ function createSectionStore() {
 		moveSection: (sectionId: number, newColumn: number) => {
 			update((sections) => {
 				const updatedSections = sections.map(section =>
-					section.id === sectionId ? { ...section, gridColumn: newColumn } : section
+					section.id === sectionId
+						? {
+								...section,
+								gridColumn: newColumn,
+								// Keep a wide section inside the grid when dropped near the right edge
+								gridColumnSpan: Math.max(
+									1,
+									Math.min(section.gridColumnSpan ?? 1, get(gridColumnsStore) - newColumn + 1)
+								)
+							}
+						: section
 				);
 				// Recalculate rows after position changes
 				const recalculatedSections = calculateSectionRows(updatedSections);

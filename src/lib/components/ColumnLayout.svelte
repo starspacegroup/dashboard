@@ -117,8 +117,6 @@
 	}
 	
 	function handleSectionDragStart(sectionId: number, event: DragEvent) {
-		draggedSectionId = sectionId;
-		isDraggingAny.set(true);
 		if (event.dataTransfer) {
 			event.dataTransfer.effectAllowed = 'move';
 			event.dataTransfer.setData('text/plain', String(sectionId));
@@ -126,6 +124,13 @@
 			const sectionEl = (event.currentTarget as HTMLElement).closest('.section');
 			if (sectionEl) event.dataTransfer.setDragImage(sectionEl, 16, 16);
 		}
+		// Flip the drag state after the browser has captured the drag image: the
+		// section padding and active drop zones reflow the page, and doing that
+		// inside dragstart makes Chrome cancel the drag outright.
+		setTimeout(() => {
+			draggedSectionId = sectionId;
+			isDraggingAny.set(true);
+		}, 0);
 	}
 
 	function handleSectionDragEnd() {
@@ -151,7 +156,7 @@
 		<div 
 			class="drop-zone" 
 			class:active={draggedSectionId !== null}
-			style="grid-column: {columnNum}; grid-row: 1 / -1;"
+			style="grid-column: {columnNum};"
 			on:dragover={handleSectionDragOver}
 			on:drop={(e) => handleSectionDrop(columnNum, e)}
 			role="region"
