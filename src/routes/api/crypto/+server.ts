@@ -10,6 +10,8 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_ENTRIES = 500; // search keys are user-typed, so the map needs a ceiling
+const FETCH_TIMEOUT_MS = 8000;
 
 function getCached(key: string): unknown | null {
   const entry = cache.get(key);
@@ -21,6 +23,11 @@ function getCached(key: string): unknown | null {
 }
 
 function setCache(key: string, data: unknown) {
+  if (cache.size >= MAX_CACHE_ENTRIES && !cache.has(key)) {
+    // Map iterates in insertion order, so the first key is the oldest write.
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
   cache.set(key, { data, timestamp: Date.now() });
 }
 
@@ -75,7 +82,8 @@ async function handleSearch(url: URL) {
   if (cached) return json(cached);
 
   const res = await fetch(`${COINGECKO_BASE}/search?query=${encodeURIComponent(query)}`, {
-    headers: cgHeaders()
+    headers: cgHeaders(),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
   });
   if (!res.ok) {
     const text = await res.text();
@@ -117,7 +125,7 @@ async function handlePrice(url: URL, skipCache: boolean) {
 
   const res = await fetch(
     `${COINGECKO_BASE}/simple/price?ids=${encodeURIComponent(coinId)}&vs_currencies=${encodeURIComponent(vsCurrency)}&include_24hr_change=true`,
-    { headers: cgHeaders() }
+    { headers: cgHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }
   );
   if (!res.ok) {
     const text = await res.text();
@@ -157,7 +165,7 @@ async function handleChart(url: URL, skipCache: boolean) {
 
   const res = await fetch(
     `${COINGECKO_BASE}/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=${encodeURIComponent(vsCurrency)}&days=${encodeURIComponent(days)}&precision=2`,
-    { headers: cgHeaders() }
+    { headers: cgHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }
   );
   if (!res.ok) {
     const text = await res.text();
