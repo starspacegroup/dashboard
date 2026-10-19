@@ -687,6 +687,39 @@ function createSectionStore() {
 				return recalculatedSections;
 			});
 		},
+		/**
+		 * Drop a section into a gap between columns. `slot` is the gap index:
+		 * 1 is before the first column, N+1 after the last. The sections the
+		 * mover passes over slide across to fill the space it left.
+		 */
+		insertSection: (sectionId: number, slot: number) => {
+			update((sections) => {
+				const mover = sections.find((s) => s.id === sectionId);
+				if (!mover) return sections;
+				const columns = get(gridColumnsStore);
+				const width = Math.max(1, Math.min(mover.gridColumnSpan ?? 1, columns));
+				const from = mover.gridColumn;
+				const gap = Math.max(1, Math.min(columns + 1, slot));
+				// Dropping beside itself changes nothing
+				if (gap >= from && gap <= from + width) return sections;
+
+				const moved = gap < from;
+				const target = moved ? gap : gap - width;
+				const updated = sections.map((s) => {
+					if (s.id === sectionId) return { ...s, gridColumn: target, gridColumnSpan: width };
+					if (moved && s.gridColumn >= gap && s.gridColumn < from) {
+						return { ...s, gridColumn: s.gridColumn + width };
+					}
+					if (!moved && s.gridColumn >= from + width && s.gridColumn < gap) {
+						return { ...s, gridColumn: s.gridColumn - width };
+					}
+					return s;
+				});
+				const recalculated = calculateSectionRows(updated);
+				saveSections(recalculated);
+				return recalculated;
+			});
+		},
 		resizeSection: (sectionId: number, newSpan: number) => {
 			update((sections) => {
 				const section = sections.find(s => s.id === sectionId);

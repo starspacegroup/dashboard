@@ -99,6 +99,25 @@
 		return () => observer.disconnect();
 	});
 	
+	// Gap between columns the drag is hovering (1 = before the first column)
+	let overGap: number | null = null;
+
+	function handleGapDragOver(slot: number, event: DragEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+		overGap = slot;
+	}
+
+	function handleGapDrop(slot: number, event: DragEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		if (draggedSectionId !== null) sections.insertSection(draggedSectionId, slot);
+		overGap = null;
+		draggedSectionId = null;
+		isDraggingAny.set(false);
+	}
+
 	function handleSectionDragOver(event: DragEvent) {
 		event.preventDefault();
 		if (event.dataTransfer) {
@@ -134,6 +153,7 @@
 	}
 
 	function handleSectionDragEnd() {
+		overGap = null;
 		draggedSectionId = null;
 		isDraggingAny.set(false);
 	}
@@ -167,6 +187,25 @@
 			{/if}
 		</div>
 	{/each}
+
+	<!-- Thin strips on the lines between columns: drop here to insert the
+	     section between two others, or at the very first or last slot -->
+	{#if !isFitted && draggedSectionId !== null}
+		{#each Array.from({ length: $gridColumns + 1 }, (_, i) => i + 1) as slot}
+			<div
+				class="gap-zone"
+				class:first={slot === 1}
+				class:last={slot === $gridColumns + 1}
+				class:over={overGap === slot}
+				style="grid-column: {Math.min(slot, $gridColumns)};"
+				on:dragover={(e) => handleGapDragOver(slot, e)}
+				on:dragleave={() => overGap === slot && (overGap = null)}
+				on:drop={(e) => handleGapDrop(slot, e)}
+				role="region"
+				aria-label="Insert between columns at position {slot}"
+			></div>
+		{/each}
+	{/if}
 	
 	{#each sortedSections as section (section.id)}
 		<div 
@@ -280,6 +319,34 @@
 		}
 	}
 	
+	.gap-zone {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		width: 2rem;
+		justify-self: start;
+		margin-left: -1.75rem;
+		z-index: 4;
+		border-radius: 1rem;
+		background: transparent;
+		transition: background var(--transition-fast) var(--ease-out);
+	}
+
+	.gap-zone.first {
+		margin-left: -1rem;
+	}
+
+	.gap-zone.last {
+		justify-self: end;
+		margin-left: 0;
+		margin-right: -1rem;
+	}
+
+	.gap-zone.over {
+		background: var(--primary-color);
+		opacity: 0.85;
+	}
+
 	.drop-zone-label {
 		font-size: 0.875rem;
 		font-weight: 700;
@@ -411,7 +478,8 @@
 			gap: 0.875rem;
 		}
 		
-		.drop-zone {
+		.drop-zone,
+		.gap-zone {
 			display: none;
 		}
 
