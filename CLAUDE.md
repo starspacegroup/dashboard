@@ -108,6 +108,7 @@ rather than silently emptying the list.
 ### API Routes
 - `/api/weather` - Weather data from Open-Meteo with server-side caching (`src/lib/server/weatherCache.ts`)
 - `/api/geocode` - Location geocoding
+- `/api/crypto` - CoinGecko proxy (`?action=search|price|chart`). Every upstream call has an 8s timeout (a hung CoinGecko answers 500, not a stuck request) and the 5-min in-memory cache holds at most 500 entries, oldest write evicted first, because search keys are whatever users type
 - `/api/maps-config` - Google Maps configuration
 - `/api/dashboard-state` - GET/PUT per-user dashboard state (Cloudflare KV, `DASHBOARD_KV` binding). PUT rejects snapshots over 512 KB (413), returns `{ ok: false, conflict: true }` when the stored state is newer, and `{ ok: true, unchanged: true }` without writing when the incoming state is byte-identical — the conflict check already reads the existing value, so the comparison is free and it catches the redundant pushes a per-tab client guard can't
 - `/api/analytics` - GA4 reports proxy; returns `{ code: 'reconnect_required' }` with 401 when the Google refresh token is dead (widget shows a Reconnect button)
