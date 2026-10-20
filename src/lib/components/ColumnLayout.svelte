@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { widgets, sections, isDraggingAny, gridColumns } from '$lib/stores/widgets';
 	import Widget from '$lib/components/Widget.svelte';
 	import WidgetPicker from '$lib/components/WidgetPicker.svelte';
@@ -99,6 +99,50 @@
 		return () => observer.disconnect();
 	});
 	
+	// Scroll the page while a section is dragged near the top or bottom edge —
+	// the browser's own drag auto-scroll is too timid to reach a far column
+	const SCROLL_ZONE = 100;
+	const SCROLL_MAX = 24;
+	let scrollRaf: number | null = null;
+	let dragClientY = -1;
+
+	function trackDragY(event: DragEvent) {
+		dragClientY = event.clientY;
+	}
+
+	function scrollStep() {
+		if (draggedSectionId === null) return stopAutoScroll();
+		const fromBottom = window.innerHeight - dragClientY;
+		let amount = 0;
+		if (dragClientY >= 0 && dragClientY < SCROLL_ZONE) {
+			amount = -SCROLL_MAX * (1 - dragClientY / SCROLL_ZONE) ** 2;
+		} else if (dragClientY >= 0 && fromBottom < SCROLL_ZONE) {
+			amount = SCROLL_MAX * (1 - fromBottom / SCROLL_ZONE) ** 2;
+		}
+		if (amount !== 0) {
+			const html = document.documentElement;
+			const original = html.style.scrollBehavior;
+			html.style.scrollBehavior = 'auto';
+			window.scrollBy(0, amount);
+			html.style.scrollBehavior = original;
+		}
+		scrollRaf = requestAnimationFrame(scrollStep);
+	}
+
+	function startAutoScroll() {
+		window.addEventListener('dragover', trackDragY, true);
+		if (scrollRaf === null) scrollRaf = requestAnimationFrame(scrollStep);
+	}
+
+	function stopAutoScroll() {
+		window.removeEventListener('dragover', trackDragY, true);
+		if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
+		scrollRaf = null;
+		dragClientY = -1;
+	}
+
+	onDestroy(stopAutoScroll);
+
 	// Gap between columns the drag is hovering (1 = before the first column)
 	let overGap: number | null = null;
 
@@ -149,10 +193,12 @@
 		setTimeout(() => {
 			draggedSectionId = sectionId;
 			isDraggingAny.set(true);
+			startAutoScroll();
 		}, 0);
 	}
 
 	function handleSectionDragEnd() {
+		stopAutoScroll();
 		overGap = null;
 		draggedSectionId = null;
 		isDraggingAny.set(false);
