@@ -29,6 +29,13 @@ interface CacheEntry {
 }
 const cache = new Map<string, CacheEntry>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const FETCH_TIMEOUT_MS = 12_000;
+
+// Every Cloudflare call goes through here so a hung upstream answers with an
+// error (the route's catch turns it into a 500) instead of a stuck request.
+function fetchWithTimeout(input: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+}
 
 function getCached(key: string): unknown | null {
   const entry = cache.get(key);
@@ -60,7 +67,7 @@ interface CfEnvelope<T> {
 }
 
 async function cfFetch<T>(token: string, path: string): Promise<CfEnvelope<T>> {
-  const res = await fetch(`${CF_API}${path}`, {
+  const res = await fetchWithTimeout(`${CF_API}${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json'
@@ -89,7 +96,7 @@ interface GraphQLResult<T> {
 }
 
 async function cfGraphQL<T>(token: string, query: string, variables: Record<string, unknown>): Promise<T> {
-  const res = await fetch(CF_GRAPHQL, {
+  const res = await fetchWithTimeout(CF_GRAPHQL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -220,7 +227,7 @@ export const POST: RequestHandler = async ({ url, request, locals }) => {
 // ─── verify ───────────────────────────────────────────────────────
 
 async function handleVerify(token: string) {
-  const res = await fetch(`${CF_API}/user/tokens/verify`, {
+  const res = await fetchWithTimeout(`${CF_API}/user/tokens/verify`, {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
   });
   const body = (await res.json()) as CfEnvelope<{ id: string; status: string }>;
