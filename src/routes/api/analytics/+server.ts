@@ -11,6 +11,13 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 const REALTIME_CACHE_DURATION = 30 * 1000; // 30 seconds for realtime data
+const FETCH_TIMEOUT_MS = 12_000;
+
+// Every Google call goes through here so a hung upstream answers with an error
+// (the route's catch turns it into a 500) instead of a stuck request.
+function fetchWithTimeout(input: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+}
 
 function getCached(key: string): unknown | null {
   const entry = cache.get(key);
@@ -46,7 +53,7 @@ async function getAccessTokenFromRefresh(refreshToken: string): Promise<string> 
     throw new Error('GA_OAUTH_CLIENT_ID / GA_OAUTH_CLIENT_SECRET not configured on the server');
   }
 
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+  const res = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -146,7 +153,7 @@ async function handleProperties(accessToken: string) {
   if (cached) return json(cached);
 
   // List all account summaries (includes properties) in a single call
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     'https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200',
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
@@ -243,7 +250,7 @@ async function handleReport(url: URL, skipCache: boolean, accessToken: string, c
     metricAggregations: ['TOTAL']
   };
 
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(propertyId)}:runReport`,
     {
       method: 'POST',
@@ -316,7 +323,7 @@ async function handleRealtime(url: URL, accessToken: string, cacheScope: string)
     metrics: [{ name: 'activeUsers' }]
   };
 
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(propertyId)}:runRealtimeReport`,
     {
       method: 'POST',
@@ -365,7 +372,7 @@ async function handleRealtimeHistory(url: URL, accessToken: string, cacheScope: 
     orderBys: [{ dimension: { dimensionName: 'minutesAgo', orderType: 'NUMERIC' }, desc: true }]
   };
 
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(propertyId)}:runRealtimeReport`,
     {
       method: 'POST',
