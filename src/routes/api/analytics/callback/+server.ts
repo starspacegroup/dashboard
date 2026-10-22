@@ -46,7 +46,8 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
       client_secret: clientSecret,
       redirect_uri: redirectUri,
       grant_type: 'authorization_code'
-    })
+    }),
+    signal: AbortSignal.timeout(12_000)
   });
 
   if (!tokenRes.ok) {
