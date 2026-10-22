@@ -135,6 +135,8 @@
 	}
 
 	function stopAutoScroll() {
+		// onDestroy also runs during server render, where there is no window
+		if (typeof window === 'undefined') return;
 		window.removeEventListener('dragover', trackDragY, true);
 		if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
 		scrollRaf = null;
