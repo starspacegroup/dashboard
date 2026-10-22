@@ -135,6 +135,7 @@ rather than silently emptying the list.
 ### GitHub Data Caching
 - `+page.server.ts` caches the assembled GitHub payload in KV per user (fresh window 3 min, stale kept 24h)
 - The KV write is skipped when the payload is unchanged, so `cached.timestamp` only advances on a *change*. A module-level `lastVerifiedAt` map supplies the fresh window in that case — without it, stable data fell outside the window on every load and re-ran the whole fan-out. Freshness = `max(cached.timestamp, lastVerifiedAt)`; anything that talks to GitHub successfully must call `markVerified()`
+- Every GitHub call in the load goes through a shadowed `fetch` with a 12s deadline, so a hung GitHub fails into the stale-cache path below instead of stalling the page. Keep new calls on that `fetch`, not `eventFetch`
 - On GitHub rate limiting (403/429 — the search API allows only 30 req/min and each load uses 3) or total failure, the stale cache is served instead of empty widgets
 - `hooks.server.ts` dedupes concurrent OAuth token refreshes (GitHub refresh tokens are single-use) and only sets a session error once the access token is actually expired
 

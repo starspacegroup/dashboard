@@ -156,6 +156,7 @@ const GITHUB_CACHE_FRESH_MS = 3 * 60 * 1000;
 /** How many orgs fit in one PR search before the query string gets too long. */
 const MAX_ORGS_IN_PR_QUERY = 10;
 // Keep stale copies around as a fallback when GitHub rate-limits us
+const GITHUB_FETCH_TIMEOUT_MS = 12_000;
 const GITHUB_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
 /**
@@ -181,7 +182,13 @@ function isFresh(cacheKey: string, cached: CachedGithubData | null): boolean {
   return Date.now() - freshestKnown < GITHUB_CACHE_FRESH_MS;
 }
 
-export const load: PageServerLoad = async ({ locals, fetch, platform, url, cookies }) => {
+export const load: PageServerLoad = async ({ locals, fetch: eventFetch, platform, url, cookies }) => {
+	// Every GitHub call below gets a deadline. A hung GitHub then fails the
+	// request and the stale-cache path serves the page, instead of the whole
+	// dashboard load waiting on it.
+	const fetch: typeof eventFetch = (input, init) =>
+		eventFetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS) });
+
 	// Dev preview short-circuits the whole GitHub fan-out: there is no real
 	// access token behind the fake session, so every call would 401.
 	if (isDevPreview({ url, cookies })) {
