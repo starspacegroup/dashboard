@@ -19,6 +19,7 @@
 	let hoveredLocation: Location | null = null;
 	let searchTimeout: number;
 	let lastSyncedLocation: Location | null = null;
+	let searchSeq = 0;
 
 	// Pre-fill the search box when the selected location itself changes.
 	// Keyed on the location (not searchQuery) so editing the text doesn't
@@ -32,8 +33,11 @@
 
 	// Search for locations with debounce
 	async function searchLocations() {
+		// A slow answer to an older query must not overwrite a newer one
+		const seq = ++searchSeq;
 		if (!searchQuery || searchQuery.trim().length < 2) {
 			searchResults = [];
+			isSearching = false;
 			return;
 		}
 
@@ -42,6 +46,7 @@
 		try {
 			const response = await fetch(`/api/geocode?q=${encodeURIComponent(searchQuery)}`);
 			const data = await response.json();
+			if (seq !== searchSeq) return;
 
 			if (data.results) {
 				searchResults = data.results;
@@ -49,7 +54,7 @@
 		} catch (error) {
 			console.error('Search error:', error);
 		} finally {
-			isSearching = false;
+			if (seq === searchSeq) isSearching = false;
 		}
 	}
 
