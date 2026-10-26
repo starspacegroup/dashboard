@@ -25,6 +25,7 @@ interface CacheEntry {
 }
 const cache = new Map<string, CacheEntry>();
 const CACHE_DURATION = 5 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 200; // keys carry a user-supplied URL and token, so the map needs a ceiling
 const FETCH_TIMEOUT = 12_000;
 const WINDOWS = [1, 7, 30, 90];
 
@@ -34,6 +35,15 @@ function getCached(key: string): unknown | null {
 	if (Date.now() - entry.timestamp < CACHE_DURATION) return entry.data;
 	cache.delete(key);
 	return null;
+}
+
+function setCache(key: string, data: unknown) {
+	if (cache.size >= MAX_CACHE_ENTRIES && !cache.has(key)) {
+		// Map iterates in insertion order, so the first key is the oldest write.
+		const oldest = cache.keys().next().value;
+		if (oldest !== undefined) cache.delete(oldest);
+	}
+	cache.set(key, { data, timestamp: Date.now() });
 }
 
 class ReconnectRequiredError extends Error {
@@ -143,7 +153,7 @@ export const POST: RequestHandler = async ({ url, request, locals }) => {
 				if (cached) return json(cached);
 			}
 			const summary = await fetchSummary(origin, token, days);
-			cache.set(cacheKey, { data: summary, timestamp: Date.now() });
+			setCache(cacheKey, summary);
 			return json(summary);
 		}
 
