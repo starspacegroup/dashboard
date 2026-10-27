@@ -29,6 +29,7 @@ interface CacheEntry {
 }
 const cache = new Map<string, CacheEntry>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_ENTRIES = 200; // keys carry a user-supplied token, so the map needs a ceiling
 const FETCH_TIMEOUT_MS = 12_000;
 
 // Every Cloudflare call goes through here so a hung upstream answers with an
@@ -46,6 +47,11 @@ function getCached(key: string): unknown | null {
 }
 
 function setCache(key: string, data: unknown) {
+  if (cache.size >= MAX_CACHE_ENTRIES && !cache.has(key)) {
+    // Map iterates in insertion order, so the first key is the oldest write.
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
   cache.set(key, { data, timestamp: Date.now() });
 }
 

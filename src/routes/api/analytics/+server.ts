@@ -11,6 +11,7 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 const REALTIME_CACHE_DURATION = 30 * 1000; // 30 seconds for realtime data
+const MAX_CACHE_ENTRIES = 200; // keys carry per-user property ids and ranges, so the map needs a ceiling
 const FETCH_TIMEOUT_MS = 12_000;
 
 // Every Google call goes through here so a hung upstream answers with an error
@@ -31,6 +32,11 @@ function getCached(key: string): unknown | null {
 }
 
 function setCache(key: string, data: unknown) {
+  if (cache.size >= MAX_CACHE_ENTRIES && !cache.has(key)) {
+    // Map iterates in insertion order, so the first key is the oldest write.
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
   cache.set(key, { data, timestamp: Date.now() });
 }
 
@@ -350,7 +356,7 @@ async function handleRealtime(url: URL, accessToken: string, cacheScope: string)
     : 0;
 
   const result = { activeUsers };
-  cache.set(cacheKey, { data: result, timestamp: Date.now() });
+  setCache(cacheKey, result);
   return json(result);
 }
 
@@ -416,6 +422,6 @@ async function handleRealtimeHistory(url: URL, accessToken: string, cacheScope: 
 
   const result = { history };
   // Short cache (30 seconds) so it stays fresh
-  cache.set(cacheKey, { data: result, timestamp: Date.now() });
+  setCache(cacheKey, result);
   return json(result);
 }
