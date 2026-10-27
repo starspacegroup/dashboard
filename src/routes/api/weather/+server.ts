@@ -129,7 +129,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
   // Sent coordinates but they didn't parse? Say so rather than quietly
   // reporting the weather for the default location.
-  if (!zip && ((rawLat !== null && lat === null) || (rawLon !== null && lon === null))) {
+  // One of the pair alone is bad input too, not a request for the default.
+  if (!zip && ((rawLat !== null) !== (rawLon !== null) || (rawLat !== null && lat === null) || (rawLon !== null && lon === null))) {
     return json({ error: 'Invalid lat/lon' }, { status: 400 });
   }
 
