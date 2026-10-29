@@ -16,6 +16,9 @@ const US_STATE_ABBREVIATIONS: Record<string, string> = {
   'District of Columbia': 'DC'
 };
 
+// Place names are short; anything longer is noise we would only forward upstream.
+const MAX_QUERY_LENGTH = 100;
+
 export const GET: RequestHandler = async ({ url, locals }) => {
   // Require authentication
   const session = await locals.auth();
@@ -23,9 +26,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     return json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  const query = url.searchParams.get('q');
+  const query = url.searchParams.get('q')?.trim().slice(0, MAX_QUERY_LENGTH);
 
-  if (!query || query.trim().length < 2) {
+  if (!query || query.length < 2) {
     return json({ results: [] });
   }
 
