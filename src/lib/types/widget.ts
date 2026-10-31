@@ -1,6 +1,6 @@
 export interface Widget {
 	id: string;
-	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table' | 'copilot-usage' | 'crypto' | 'google-analytics' | 'cloudflare' | 'nebulakit';
+	type: 'weather' | 'traffic' | 'calendar' | 'github' | 'organization-projects' | 'github-projects' | 'github-pull-requests' | 'data-table' | 'copilot-usage' | 'crypto' | 'google-analytics' | 'cloudflare' | 'nebulakit' | 'spotify';
 	title: string;
 	section: number; // Which section this widget belongs to
 	order: number; // Order within the section
