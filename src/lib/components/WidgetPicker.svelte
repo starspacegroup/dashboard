@@ -95,6 +95,12 @@
 			title: 'NebulaKit Site',
 			description: 'Traffic, audience, growth & plan usage for a site built on NebulaKit',
 			icon: '🌌'
+		},
+		{
+			type: 'spotify',
+			title: 'Spotify',
+			description: 'Now playing on the connected Spotify account',
+			icon: '🎧'
 		}
 	];
 

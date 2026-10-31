@@ -305,6 +305,8 @@
 									<svelte:component this={widgetComponents.CloudflareWidget} {widget} bind:this={settingsWidgetRefs[widget.id]} />
 								{:else if widget.type === 'nebulakit'}
 									<svelte:component this={widgetComponents.NebulaKitWidget} {widget} bind:this={settingsWidgetRefs[widget.id]} />
+								{:else if widget.type === 'spotify'}
+									<svelte:component this={widgetComponents.SpotifyWidget} {widget} />
 								{/if}
 							</Widget>
 						</div>
