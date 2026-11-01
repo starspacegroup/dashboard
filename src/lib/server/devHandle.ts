@@ -24,7 +24,8 @@ import {
 	devAnalyticsResponse,
 	devCloudflareResponse,
 	devDashboardSnapshot,
-	devNebulaKitResponse
+	devNebulaKitResponse,
+	devSpotifyResponse
 } from './devFixtures';
 
 interface StoredState {
@@ -85,6 +86,16 @@ async function fixtureResponse(event: RequestEvent): Promise<Response | null> {
 			return json({ devPreview: true });
 		}
 		return null;
+	}
+
+	// Spotify has no per-widget credential to match on: it is server env. With
+	// none configured the widget would show "not configured" in the preview, so
+	// answer with a sample track. Configured credentials win — real now-playing.
+	if (path === '/api/spotify' && event.request.method === 'GET') {
+		const configured = ['SPOTIFY_CLIENT_ID', 'SPOTIFY_CLIENT_SECRET', 'SPOTIFY_REFRESH_TOKEN'].every(
+			(k) => String(env[k] ?? '').trim()
+		);
+		return configured ? null : json(devSpotifyResponse());
 	}
 
 	// Below here: only answer for the preview's own placeholder credentials. A
