@@ -155,7 +155,7 @@ rather than silently emptying the list.
 `npm run dev` skips GitHub sign-in: `src/lib/server/devPreview.ts` hands out a
 fake session, `devHandle.ts` answers the credential-gated APIs from
 `devFixtures.ts`, and the dashboard opens on a seeded layout with one widget of
-every type — **all fourteen carrying sample data**. A `DEV PREVIEW · SAMPLE DATA`
+every type — **all fifteen carrying sample data**. A `DEV PREVIEW · SAMPLE DATA`
 badge sits in the header the whole time.
 
 - **Getting in:** on a loopback host the preview is just on, no click. Anywhere
@@ -170,7 +170,9 @@ badge sits in the header the whole time.
   tunnel OAuth callback. While `dev:tunnel` is up, anyone with the URL can click
   into the sample dashboard — take the tunnel down when you're done.
 - **What is faked:** the session, the GitHub payload behind the page load,
-  Google Analytics, Cloudflare, NebulaKit, and the Traffic map (a drawn stand-in, since a
+  Google Analytics, Cloudflare, NebulaKit, Spotify now-playing (a sample track,
+  only while no `SPOTIFY_*` env is set — configured credentials get the real
+  thing), and the Traffic map (a drawn stand-in, since a
   real map needs a billable Google key — a configured `GOOGLE_MAPS_API_KEY` still
   wins and you get the real map). **What is real:** weather, geocoding and crypto
   are keyless, so those widgets show live data.

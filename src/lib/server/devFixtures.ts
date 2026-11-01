@@ -894,6 +894,21 @@ export function devNebulaKitResponse(action: string | null, url: URL): unknown |
 	};
 }
 
+/** What /api/spotify answers in the preview when no Spotify credentials are configured. */
+export function devSpotifyResponse() {
+	return {
+		configured: true,
+		playing: true,
+		track: {
+			name: 'Dev Preview Theme',
+			artists: 'Sample Artist',
+			album: 'Sample Album',
+			image: null,
+			url: null
+		}
+	};
+}
+
 export const DEV_SEED_UPDATED_AT = 1_700_000_000_000;
 
 const LEWISTON = {
@@ -931,6 +946,7 @@ const DEV_WIDGETS = [
 	{ id: 'dev-traffic', type: 'traffic', title: 'Traffic', section: 1, order: 0, size: { width: 300, height: 300 }, config: { location: LEWISTON } },
 	{ id: 'dev-calendar', type: 'calendar', title: 'Calendar', section: 1, order: 1, size: { width: 300, height: 300 } },
 	{ id: 'dev-crypto', type: 'crypto', title: 'Bitcoin', section: 1, order: 2, size: { width: 300, height: 300 }, config: { crypto: { coinId: 'bitcoin', vsCurrency: 'usd', days: 7 } } },
+	{ id: 'dev-spotify', type: 'spotify', title: 'Spotify', section: 1, order: 3, size: { width: 300, height: 140 } },
 
 	{
 		id: 'dev-analytics',
