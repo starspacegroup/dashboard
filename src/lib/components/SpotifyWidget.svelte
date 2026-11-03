@@ -3,8 +3,8 @@
 	import type { Widget } from '$lib/types/widget';
 
 	// Nothing per-widget is configurable yet; the prop keeps the widget API uniform.
+	// svelte-ignore unused-export-let
 	export let widget: Widget;
-	$: void widget;
 
 	const REFRESH_INTERVAL = 15 * 1000;
 
