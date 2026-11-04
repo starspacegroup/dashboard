@@ -101,6 +101,12 @@
 			title: 'Spotify',
 			description: 'Now playing on the connected Spotify account',
 			icon: '🎧'
+		},
+		{
+			type: 'internet-health',
+			title: 'Internet Health',
+			description: 'Global outages and protocol adoption from Cloudflare Radar',
+			icon: '🌐'
 		}
 	];
 

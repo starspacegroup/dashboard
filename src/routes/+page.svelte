@@ -13,6 +13,7 @@
 	import CloudflareWidget from '$lib/components/CloudflareWidget.svelte';
 	import NebulaKitWidget from '$lib/components/NebulaKitWidget.svelte';
 	import SpotifyWidget from '$lib/components/SpotifyWidget.svelte';
+	import InternetHealthWidget from '$lib/components/InternetHealthWidget.svelte';
 	import ColumnLayout from '$lib/components/ColumnLayout.svelte';
 	import { widgets, sections } from '$lib/stores/widgets';
 	import { startSync } from '$lib/stores/sync';
@@ -38,7 +39,8 @@
 		GoogleAnalyticsWidget,
 		CloudflareWidget,
 		NebulaKitWidget,
-		SpotifyWidget
+		SpotifyWidget,
+		InternetHealthWidget
 	};
 
 	let isWidgetPickerOpen = false;

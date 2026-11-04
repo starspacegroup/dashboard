@@ -307,6 +307,8 @@
 									<svelte:component this={widgetComponents.NebulaKitWidget} {widget} bind:this={settingsWidgetRefs[widget.id]} />
 								{:else if widget.type === 'spotify'}
 									<svelte:component this={widgetComponents.SpotifyWidget} {widget} />
+								{:else if widget.type === 'internet-health'}
+									<svelte:component this={widgetComponents.InternetHealthWidget} {widget} />
 								{/if}
 							</Widget>
 						</div>
