@@ -947,6 +947,38 @@
 		? generateGraphPath(next24HoursData.map(h => h.temperature), earthSize, 80)
 		: '';
 
+	// Where the 24h high and low sit on the graph, in SVG coordinates. Mirrors
+	// generateGraphPath (width = earthSize, height 80) plus the 10px translate
+	// the line is drawn with, so labels land on the line's own peak and trough.
+	$: graphExtremes = (() => {
+		const temps = next24HoursData.map((h) => h.temperature);
+		if (temps.length < 2 || !tempHighLow) return null;
+		const minV = Math.min(...temps);
+		const maxV = Math.max(...temps);
+		const range = maxV - minV || 10;
+		const at = (idx: number) => ({
+			x: (idx / (temps.length - 1)) * earthSize,
+			y: 10 + 80 - ((temps[idx] - minV) / range) * 80
+		});
+		return {
+			high: { ...at(temps.indexOf(maxV)), text: `H ${tempHighLow.high}°` },
+			low: { ...at(temps.indexOf(minV)), text: `L ${tempHighLow.low}°` },
+			flat: maxV === minV
+		};
+	})();
+
+	// Place a label beside an extreme, level with its point. Above or below the
+	// point would land on the location text or the wind/humidity row, so it goes
+	// to the side: outward from the globe's centre, or inward when the point is
+	// too near an edge for the label to fit (the sphere clips anything outside).
+	function extremeLabel(pt: { x: number; y: number }, lift = 0) {
+		const nearEdge = pt.x < 24 || pt.x > earthSize - 24;
+		const goLeft = nearEdge ? pt.x > earthSize / 2 : pt.x < earthSize / 2;
+		return goLeft
+			? { x: pt.x - 12, y: pt.y + 5 - lift, anchor: 'end' as const }
+			: { x: pt.x + 12, y: pt.y + 5 - lift, anchor: 'start' as const };
+	}
+
 	function getTemperatureColor(temp: number): string {
 		// 32°F or lower = white
 		if (temp <= 32) return '#ffffff';
@@ -2097,6 +2129,16 @@
 					filter="url(#tempGlow-{widget.id})"
 					transform="translate(0, 10)"
 				/>
+
+				<!-- High above its peak, low below its trough -->
+				{#if graphExtremes}
+					{@const hi = extremeLabel(graphExtremes.high)}
+					<text class="graph-extreme high" x={hi.x} y={hi.y} text-anchor={hi.anchor}>{graphExtremes.high.text}</text>
+					{#if !graphExtremes.flat}
+						{@const lo = extremeLabel(graphExtremes.low, 16)}
+						<text class="graph-extreme low" x={lo.x} y={lo.y} text-anchor={lo.anchor}>{graphExtremes.low.text}</text>
+					{/if}
+				{/if}
 			</svg>
 		{/if}
 
@@ -2104,16 +2146,6 @@
 		<div class="temperature">
 			<span class="temp-number">{displayTemp}</span><span class="degree-symbol">°{isCelsius ? 'C' : 'F'}</span>
 		</div>
-
-		<!-- High/Low -->
-		{#if tempHighLow}
-			<div class="temp-details">
-				<span class="high-low">
-					<span class="high">H:{tempHighLow.high}°</span>
-					<span class="low">L:{tempHighLow.low}°</span>
-				</span>
-			</div>
-		{/if}
 
 		<!-- Bottom Info Row - Enhanced wind, pressure, humidity -->
 		<div class="bottom-info-row">
@@ -2693,34 +2725,23 @@
 	}
 
 	/* ======== FEELS LIKE & HIGH/LOW ======== */
-	.temp-details {
-		position: absolute;
-		top: 66%;
-		left: 50%;
-		transform: translateX(-50%);
-		z-index: 3;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.25rem;
+	/* 24h high/low labels, drawn in the graph at the line's peak and trough */
+	.graph-extreme {
 		font-size: calc(0.85rem * var(--row-scale, 1));
-		color: var(--text-color, var(--text-primary));
-		text-shadow: 0 1px 3px var(--shadow);
+		font-weight: 600;
+		pointer-events: none;
+		paint-order: stroke;
+		stroke: var(--shadow, rgba(0, 0, 0, 0.6));
+		stroke-width: 3px;
+		stroke-linejoin: round;
 	}
 
-	.high-low {
-		display: flex;
-		gap: 0.75rem;
-		font-weight: 500;
-		opacity: 0.9;
+	.graph-extreme.high {
+		fill: #f97316;
 	}
 
-	.high-low .high {
-		color: #f97316;
-	}
-
-	.high-low .low {
-		color: #60a5fa;
+	.graph-extreme.low {
+		fill: #bfdbfe;
 	}
 
 	/* ======== BOTTOM INFO ROW - ENHANCED ======== */
