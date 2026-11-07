@@ -169,3 +169,9 @@ secret must rotate before migration finishes, temporarily set
 ## License
 
 MIT
+
+## Related repositories
+
+Internal planning, design and docs live in a separate private repository,
+`starspacegroup/dashboard-umbrella`, which has this repository checked out at `dashboard/`. Nothing in
+it is needed to build or run this one.

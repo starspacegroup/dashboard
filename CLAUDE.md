@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Where this sits
+
+This repo is normally checked out at `dashboard/` inside the private umbrella repo
+`starspacegroup/dashboard-umbrella` (planning, design, docs). Workspace-only planning stays there;
+never copy it into this repo.
+
 ## Project Overview
 
 A SvelteKit 2 dashboard application with draggable widgets (weather, traffic, calendar, GitHub repos/PRs, GA4 analytics, Cloudflare, NebulaKit sites). Deployed to Cloudflare Pages using `@sveltejs/adapter-cloudflare`. Authentication via Auth.js with GitHub OAuth.
