@@ -967,16 +967,22 @@
 		};
 	})();
 
-	// Place a label beside an extreme, level with its point. Above or below the
-	// point would land on the location text or the wind/humidity row, so it goes
-	// to the side: outward from the globe's centre, or inward when the point is
+	// The low goes straight under its trough, centred; at either end of the line
+	// it hangs inward so the sphere's edge doesn't clip it.
+	function lowLabel(pt: { x: number; y: number }) {
+		const anchor = pt.x < 20 ? 'start' : pt.x > earthSize - 20 ? 'end' : 'middle';
+		return { x: pt.x, y: pt.y + 22, anchor: anchor as 'start' | 'middle' | 'end' };
+	}
+
+	// Place the high beside its point, level with it. Above would land on the
+	// location text, so it goes to the side: outward from the globe's centre, or inward when the point is
 	// too near an edge for the label to fit (the sphere clips anything outside).
-	function extremeLabel(pt: { x: number; y: number }, lift = 0) {
+	function extremeLabel(pt: { x: number; y: number }) {
 		const nearEdge = pt.x < 24 || pt.x > earthSize - 24;
 		const goLeft = nearEdge ? pt.x > earthSize / 2 : pt.x < earthSize / 2;
 		return goLeft
-			? { x: pt.x - 12, y: pt.y + 5 - lift, anchor: 'end' as const }
-			: { x: pt.x + 12, y: pt.y + 5 - lift, anchor: 'start' as const };
+			? { x: pt.x - 12, y: pt.y + 5, anchor: 'end' as const }
+			: { x: pt.x + 12, y: pt.y + 5, anchor: 'start' as const };
 	}
 
 	function getTemperatureColor(temp: number): string {
@@ -2135,7 +2141,7 @@
 					{@const hi = extremeLabel(graphExtremes.high)}
 					<text class="graph-extreme high" x={hi.x} y={hi.y} text-anchor={hi.anchor}>{graphExtremes.high.text}</text>
 					{#if !graphExtremes.flat}
-						{@const lo = extremeLabel(graphExtremes.low, 16)}
+						{@const lo = lowLabel(graphExtremes.low)}
 						<text class="graph-extreme low" x={lo.x} y={lo.y} text-anchor={lo.anchor}>{graphExtremes.low.text}</text>
 					{/if}
 				{/if}
