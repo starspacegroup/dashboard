@@ -222,7 +222,9 @@ async function handleProperties(accessToken: string) {
 async function handleReport(url: URL, skipCache: boolean, accessToken: string, cacheScope: string) {
   const propertyId = url.searchParams.get('propertyId');
   const metricsParam = url.searchParams.get('metrics');
-  const days = parseInt(url.searchParams.get('days') || '7', 10);
+  const parsedDays = parseInt(url.searchParams.get('days') || '7', 10);
+  // A non-numeric `days` would otherwise reach Google as "NaNdaysAgo".
+  const days = Number.isFinite(parsedDays) ? parsedDays : 7;
 
   if (!propertyId) {
     return json({ error: 'Missing propertyId parameter' }, { status: 400 });
