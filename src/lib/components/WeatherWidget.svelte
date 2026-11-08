@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
+	import { placeLabel, type Box } from '$lib/utils/labelPlacement';
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import type { Widget } from '$lib/types/widget';
@@ -967,22 +968,72 @@
 		};
 	})();
 
-	// The low goes straight under its trough, centred; at either end of the line
-	// it hangs inward so the sphere's edge doesn't clip it.
-	function lowLabel(pt: { x: number; y: number }) {
-		const anchor = pt.x < 20 ? 'start' : pt.x > earthSize - 20 ? 'end' : 'middle';
-		return { x: pt.x, y: pt.y + 22, anchor: anchor as 'start' | 'middle' | 'end' };
+	// Where the high/low labels end up. Each goes on the best free spot near its
+	// point — the low prefers straight below, the high straight above — measured
+	// against the location text, the temperature and the info row, so a label
+	// never lands on any of them. The graph SVG shares a box with those, which
+	// is how their rects convert into its coordinates.
+	let graphSvg: SVGSVGElement | undefined;
+	let extremeLabels: { high?: { x: number; y: number }; low?: { x: number; y: number } } = {};
+
+	async function placeExtremes() {
+		await tick();
+		const extremes = graphExtremes;
+		if (!graphSvg || !extremes) {
+			extremeLabels = {};
+			return;
+		}
+		const svgRect = graphSvg.getBoundingClientRect();
+		const k = svgRect.width / earthSize || 1;
+		const root = graphSvg.parentElement;
+		if (!root) return;
+
+		// Text rects hug the glyphs (a Range), not the full-width block around them
+		const obstacles: Box[] = [];
+		for (const el of root.querySelectorAll('.location, .condition-text, .temperature, .info-item')) {
+			const range = document.createRange();
+			range.selectNodeContents(el);
+			const r = range.getBoundingClientRect();
+			if (r.width === 0 || r.height === 0) continue;
+			obstacles.push({ x: (r.left - svgRect.left) / k, y: (r.top - svgRect.top) / k, w: r.width / k, h: r.height / k });
+		}
+
+		const line = next24HoursData.length > 1 ? graphLinePoints() : [];
+		const bounds = { cx: earthSize / 2, cy: 50, r: earthSize / 2 - 2 };
+		const next: typeof extremeLabels = {};
+
+		const measure = (cls: string) => {
+			const bb = (graphSvg?.querySelector(`.graph-extreme.${cls}`) as SVGTextElement | null)?.getBBox();
+			return bb ? { w: bb.width, h: bb.height } : null;
+		};
+
+		const hiSize = measure('high');
+		if (hiSize) {
+			next.high = placeLabel({ point: extremes.high, size: hiSize, prefer: -Math.PI / 2, obstacles, bounds, line });
+			obstacles.push({ x: next.high.x - hiSize.w / 2, y: next.high.y - hiSize.h / 2, w: hiSize.w, h: hiSize.h });
+		}
+		const loSize = extremes.flat ? null : measure('low');
+		if (loSize) {
+			next.low = placeLabel({ point: extremes.low, size: loSize, prefer: Math.PI / 2, obstacles, bounds, line });
+		}
+		extremeLabels = next;
 	}
 
-	// Place the high beside its point, level with it. Above would land on the
-	// location text, so it goes to the side: outward from the globe's centre, or inward when the point is
-	// too near an edge for the label to fit (the sphere clips anything outside).
-	function extremeLabel(pt: { x: number; y: number }) {
-		const nearEdge = pt.x < 24 || pt.x > earthSize - 24;
-		const goLeft = nearEdge ? pt.x > earthSize / 2 : pt.x < earthSize / 2;
-		return goLeft
-			? { x: pt.x - 12, y: pt.y + 5, anchor: 'end' as const }
-			: { x: pt.x + 12, y: pt.y + 5, anchor: 'start' as const };
+	// The drawn line, sampled, so labels can avoid sitting on it
+	function graphLinePoints() {
+		const temps = next24HoursData.map((h) => h.temperature);
+		const minV = Math.min(...temps);
+		const range = Math.max(...temps) - minV || 10;
+		return temps.map((t, i) => ({
+			x: (i / (temps.length - 1)) * earthSize,
+			y: 10 + 80 - ((t - minV) / range) * 80
+		}));
+	}
+
+	// Re-place whenever anything a label could collide with changes
+	$: if (graphSvg && graphExtremes) {
+		void [displayTemp, description, location, earthSize];
+		placeExtremes();
 	}
 
 	function getTemperatureColor(temp: number): string {
@@ -2090,7 +2141,7 @@
 
 		<!-- 24-Hour Temperature Graph (layered behind temperature) -->
 		{#if next24HoursData.length > 0}
-			<svg class="temp-graph-svg" width="{earthSize}" height="100" viewBox="0 0 {earthSize} 100">
+			<svg class="temp-graph-svg" bind:this={graphSvg} width="{earthSize}" height="100" viewBox="0 0 {earthSize} 100">
 				<!-- Define gradient and glow filter for temperature colors -->
 				<defs>
 					<linearGradient id="tempGradient-{widget.id}" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -2136,13 +2187,11 @@
 					transform="translate(0, 10)"
 				/>
 
-				<!-- High above its peak, low below its trough -->
+				<!-- High and low, each on a free spot beside its point -->
 				{#if graphExtremes}
-					{@const hi = extremeLabel(graphExtremes.high)}
-					<text class="graph-extreme high" x={hi.x} y={hi.y} text-anchor={hi.anchor}>{graphExtremes.high.text}</text>
+					<text class="graph-extreme high" x={extremeLabels.high?.x ?? graphExtremes.high.x} y={extremeLabels.high?.y ?? graphExtremes.high.y} text-anchor="middle" dominant-baseline="central" opacity={extremeLabels.high ? 1 : 0}>{graphExtremes.high.text}</text>
 					{#if !graphExtremes.flat}
-						{@const lo = lowLabel(graphExtremes.low)}
-						<text class="graph-extreme low" x={lo.x} y={lo.y} text-anchor={lo.anchor}>{graphExtremes.low.text}</text>
+						<text class="graph-extreme low" x={extremeLabels.low?.x ?? graphExtremes.low.x} y={extremeLabels.low?.y ?? graphExtremes.low.y} text-anchor="middle" dominant-baseline="central" opacity={extremeLabels.low ? 1 : 0}>{graphExtremes.low.text}</text>
 					{/if}
 				{/if}
 			</svg>
