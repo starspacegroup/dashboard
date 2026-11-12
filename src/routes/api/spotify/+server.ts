@@ -4,10 +4,46 @@ import type { RequestHandler } from './$types';
 
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const NOW_PLAYING_URL = 'https://api.spotify.com/v1/me/player/currently-playing';
+const PLAYLISTS_URL = 'https://api.spotify.com/v1/me/playlists?limit=5';
 const TIMEOUT_MS = 12_000;
 
 function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
   return fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+}
+
+interface Playlist {
+  name: string;
+  image: string | null;
+  url: string | null;
+}
+
+/**
+ * The account's most recent playlists (Spotify lists them in the order the user
+ * sees in the app). Best-effort: a refresh token granted without the
+ * playlist-read-private scope, or any upstream failure, gives an empty list and
+ * never fails the now-playing answer.
+ */
+async function fetchPlaylists(headers: Record<string, string>): Promise<Playlist[]> {
+  try {
+    const res = await fetchWithTimeout(PLAYLISTS_URL, { headers });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      items?: ({
+        name?: string;
+        images?: { url: string }[] | null;
+        external_urls?: { spotify?: string };
+      } | null)[];
+    };
+    return (data.items ?? [])
+      .filter((p): p is NonNullable<typeof p> => !!p)
+      .map((p) => ({
+        name: p.name ?? '',
+        image: p.images?.[0]?.url ?? null,
+        url: p.external_urls?.spotify ?? null
+      }));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -46,12 +82,11 @@ export const GET: RequestHandler = async ({ locals }) => {
       return json({ configured: true, error: 'Spotify sent no access token' }, { status: 502 });
     }
 
-    const res = await fetchWithTimeout(NOW_PLAYING_URL, {
-      headers: { Authorization: 'Bearer ' + tokenBody.access_token }
-    });
+    const headers = { Authorization: 'Bearer ' + tokenBody.access_token };
+    const res = await fetchWithTimeout(NOW_PLAYING_URL, { headers });
     // 204: nothing is playing. A non-track item (ad, podcast) is treated the same.
     if (res.status === 204) {
-      return json({ configured: true, playing: false });
+      return json({ configured: true, playing: false, playlists: await fetchPlaylists(headers) });
     }
     if (!res.ok) {
       return json({ configured: true, error: 'Spotify is unavailable' }, { status: 502 });
@@ -67,12 +102,14 @@ export const GET: RequestHandler = async ({ locals }) => {
       } | null;
     };
     const item = data.item;
+    const playlists = await fetchPlaylists(headers);
     if (!item || item.type !== 'track') {
-      return json({ configured: true, playing: false });
+      return json({ configured: true, playing: false, playlists });
     }
     return json({
       configured: true,
       playing: !!data.is_playing,
+      playlists,
       track: {
         name: item.name ?? '',
         artists: (item.artists ?? []).map((a) => a.name).join(', '),

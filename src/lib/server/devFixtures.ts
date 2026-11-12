@@ -905,7 +905,11 @@ export function devSpotifyResponse() {
 			album: 'Sample Album',
 			image: null,
 			url: null
-		}
+		},
+		playlists: [
+			{ name: 'Sample Mix', image: null, url: null },
+			{ name: 'Sample Favourites', image: null, url: null }
+		]
 	};
 }
 
