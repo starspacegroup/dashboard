@@ -63,6 +63,7 @@ describe('/api/spotify', () => {
 		expect(body).toEqual({
 			configured: true,
 			playing: true,
+			playlists: [],
 			track: {
 				name: 'Song',
 				artists: 'A, B',
@@ -85,7 +86,46 @@ describe('/api/spotify', () => {
 
 	it('reports nothing playing on 204', async () => {
 		fetchMock.mockResolvedValueOnce(tokenOk()).mockResolvedValueOnce(noContent());
-		expect(await (await GET(event())).json()).toEqual({ configured: true, playing: false });
+		expect(await (await GET(event())).json()).toEqual({
+			configured: true,
+			playing: false,
+			playlists: []
+		});
+	});
+
+	it('returns the recent playlists, even when nothing is playing', async () => {
+		fetchMock
+			.mockResolvedValueOnce(tokenOk())
+			.mockResolvedValueOnce(noContent())
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						items: [
+							{ name: 'Mix', images: [{ url: 'http://img/p' }], external_urls: { spotify: 'http://open/p' } },
+							null,
+							{ name: 'Bare', images: null }
+						]
+					}),
+					{ status: 200 }
+				)
+			);
+		const body = await (await GET(event())).json();
+		expect(body.playlists).toEqual([
+			{ name: 'Mix', image: 'http://img/p', url: 'http://open/p' },
+			{ name: 'Bare', image: null, url: null }
+		]);
+		expect(fetchMock.mock.calls[2][0]).toContain('/v1/me/playlists');
+		expect(fetchMock.mock.calls[2][1].headers.Authorization).toBe('Bearer at');
+	});
+
+	it('leaves playlists empty, not failed, when Spotify refuses them (missing scope)', async () => {
+		fetchMock
+			.mockResolvedValueOnce(tokenOk())
+			.mockResolvedValueOnce(noContent())
+			.mockResolvedValueOnce(new Response('{}', { status: 403 }));
+		const res = await GET(event());
+		expect(res.status).toBe(200);
+		expect((await res.json()).playlists).toEqual([]);
 	});
 
 	it('treats a non-track item (podcast, ad) as nothing playing', async () => {
@@ -96,7 +136,11 @@ describe('/api/spotify', () => {
 					status: 200
 				})
 			);
-		expect(await (await GET(event())).json()).toEqual({ configured: true, playing: false });
+		expect(await (await GET(event())).json()).toEqual({
+			configured: true,
+			playing: false,
+			playlists: []
+		});
 	});
 
 	it('answers 502 when Spotify rejects the credentials', async () => {

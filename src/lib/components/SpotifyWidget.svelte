@@ -17,6 +17,13 @@
 		url: string | null;
 	}
 
+	interface Playlist {
+		name: string;
+		image: string | null;
+		url: string | null;
+	}
+
+	let playlists: Playlist[] = [];
 	let loading = true;
 	let configured = true;
 	let playing = false;
@@ -32,6 +39,7 @@
 			error = res.ok ? '' : body.error || 'Spotify is unavailable';
 			playing = !!body.playing;
 			track = body.track ?? null;
+			playlists = Array.isArray(body.playlists) ? body.playlists : [];
 		} catch {
 			error = 'Spotify is unreachable';
 		} finally {
@@ -75,6 +83,22 @@
 	{:else}
 		<p class="muted">Nothing is playing.</p>
 	{/if}
+	{#if !loading && configured && !error && playlists.length}
+		<div class="recents">
+			<span class="label">Recent playlists</span>
+			<ul>
+				{#each playlists as pl}
+					<li>
+						{#if pl.url}
+							<a href={pl.url} target="_blank" rel="noopener noreferrer">{pl.name}</a>
+						{:else}
+							<span>{pl.name}</span>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -110,6 +134,26 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.recents {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 0;
+	}
+	.recents ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.recents li {
+		font-size: 0.85rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.recents a {
+		color: var(--text-primary);
 	}
 	.state {
 		color: var(--text-primary);
