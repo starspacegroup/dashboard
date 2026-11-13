@@ -112,7 +112,7 @@ rather than silently emptying the list.
   tell these failure modes apart from the outside — they all render identically.
 
 ### API Routes
-- `/api/weather` - Weather data from Open-Meteo with server-side caching (`src/lib/server/weatherCache.ts`)
+- `/api/weather` - Weather data from Open-Meteo with server-side caching (`src/lib/server/weatherCache.ts`). The `zip` param is trimmed and cut to 100 characters (a blank one counts as absent), like `/api/geocode`'s query
 - `/api/geocode` - Location geocoding; the query is trimmed and cut to 100 characters before it goes upstream
 - `/api/crypto` - CoinGecko proxy (`?action=search|price|chart`). Every upstream call has an 8s timeout (a hung CoinGecko answers 500, not a stuck request) and the 5-min in-memory cache holds at most 500 entries, oldest write evicted first, because search keys are whatever users type
 - `/api/analytics` and `/api/cloudflare` send every upstream call through a local `fetchWithTimeout` (12s), so a hung Google or Cloudflare answers 500 instead of a stuck request. New upstream calls in those routes must use it, not bare `fetch`. Both keep their response cache at 200 entries at most (oldest write evicted first) — write through `setCache`, never `cache.set` directly

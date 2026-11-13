@@ -24,4 +24,18 @@ describe('/api/weather', () => {
 		const res = await GET(event('lat=91&lon=0'));
 		expect(res.status).toBe(400);
 	});
+
+	it('cuts a long zip to 100 characters before it goes upstream', async () => {
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify({ results: [] })));
+		vi.stubGlobal('fetch', fetchMock);
+		try {
+			const res = await GET(event(`zip=${'9'.repeat(500)}`));
+			expect(res.status).toBe(400);
+			const first = new URL(String((fetchMock.mock.calls[0] as unknown[])[0]));
+			expect(first.hostname).toBe('geocoding-api.open-meteo.com');
+			expect(first.searchParams.get('name')).toBe(`${'9'.repeat(100)} USA`);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
 });
