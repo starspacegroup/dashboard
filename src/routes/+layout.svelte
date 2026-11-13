@@ -72,7 +72,6 @@
 <div class="app">
 	{#if !isMinimalLayout}
 	<header>
-		<h1>Dashboard</h1>
 		{#if data.devPreview}
 			<!-- Every number below is sample data, and it would be very easy to
 			     forget that. Say so, permanently, in the chrome. -->
@@ -137,26 +136,19 @@
 
 	header {
 		background-color: var(--surface);
-		padding: 1rem 2rem;
+		padding: 0.25rem 1rem;
 		display: flex;
-		justify-content: space-between;
+		justify-content: flex-start;
 		align-items: center;
-		border-bottom: 4px solid var(--primary-color);
+		border-bottom: 2px solid var(--primary-color);
 		position: sticky;
 		top: 0;
 		z-index: 100;
-		box-shadow: 4px 4px 0 var(--shadow);
-	}
-
-	h1 {
-		font-size: 1.5rem;
-		font-weight: 900;
-		letter-spacing: 0.05em;
-		color: var(--primary-color);
-		text-transform: uppercase;
+		box-shadow: 0 2px 0 var(--shadow);
 	}
 
 	nav {
+		margin-left: auto;
 		display: flex;
 		gap: 0.75rem;
 		align-items: center;
@@ -193,7 +185,7 @@
 		background-color: var(--surface-variant);
 		color: var(--text-primary);
 		border: 1px solid var(--border);
-		padding: 0.5rem 1.25rem;
+		padding: 0.3rem 1rem;
 		border-radius: 0.5rem;
 		cursor: pointer;
 		font-size: 0.875rem;
@@ -229,8 +221,8 @@
 		background-color: var(--surface);
 		color: var(--primary-color);
 		border: 3px solid var(--primary-color);
-		padding: 0.5rem 0.75rem;
-		font-size: 1.25rem;
+		padding: 0.2rem 0.6rem;
+		font-size: 1.1rem;
 		line-height: 1;
 		border-radius: 0;
 		box-shadow: 3px 3px 0 var(--shadow-hover);
@@ -246,7 +238,7 @@
 
 	main {
 		flex: 1;
-		padding: 2rem;
+		padding: 1rem 2rem 2rem;
 		width: 100%;
 		max-width: 100%;
 		margin: 0 auto;
@@ -273,12 +265,7 @@
 	/* Mobile optimizations */
 	@media (max-width: 768px) {
 		header {
-			padding: 0.75rem 1rem;
-			border-bottom-width: 3px;
-		}
-
-		h1 {
-			font-size: 1.1rem;
+			padding: 0.25rem 0.5rem;
 		}
 
 		nav {
@@ -315,10 +302,6 @@
 	}
 
 	@media (max-width: 480px) {
-		h1 {
-			font-size: 1rem;
-		}
-
 		button {
 			padding: 0.5rem;
 			font-size: 0.7rem;
