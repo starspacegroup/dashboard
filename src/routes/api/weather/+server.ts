@@ -114,6 +114,8 @@ function parseCoord(raw: string | null, limit: number): string | null {
   return String(n);
 }
 
+const MAX_ZIP_LENGTH = 100;
+
 export const GET: RequestHandler = async ({ url, locals }) => {
   // Require authentication
   const session = await locals.auth();
@@ -125,7 +127,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const rawLon = url.searchParams.get('lon');
   const lat = parseCoord(rawLat, 90);
   const lon = parseCoord(rawLon, 180);
-  const zip = url.searchParams.get('zip');
+  // Same bound as /api/geocode: the zip is forwarded upstream as a place name.
+  // A blank one is no zip at all, not a search for " USA".
+  const zip = url.searchParams.get('zip')?.trim().slice(0, MAX_ZIP_LENGTH) || null;
 
   // Sent coordinates but they didn't parse? Say so rather than quietly
   // reporting the weather for the default location.
