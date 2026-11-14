@@ -37,30 +37,38 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
   const redirectUri = `${url.origin}/api/analytics/callback`;
 
   // Exchange auth code for tokens
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      client_secret: clientSecret,
-      redirect_uri: redirectUri,
-      grant_type: 'authorization_code'
-    }),
-    signal: AbortSignal.timeout(12_000)
-  });
-
-  if (!tokenRes.ok) {
-    const errBody = await tokenRes.text();
-    console.error('GA OAuth token exchange failed:', tokenRes.status, errBody);
-    return popupError('Failed to exchange authorization code for tokens');
-  }
-
-  const tokenData = (await tokenRes.json()) as {
+  // A hung or unreachable Google must end in the popup's own error message, not
+  // a bare 500 page the opener never hears about.
+  let tokenData: {
     access_token: string;
     refresh_token?: string;
     expires_in: number;
   };
+  try {
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      }),
+      signal: AbortSignal.timeout(12_000)
+    });
+
+    if (!tokenRes.ok) {
+      const errBody = await tokenRes.text();
+      console.error('GA OAuth token exchange failed:', tokenRes.status, errBody);
+      return popupError('Failed to exchange authorization code for tokens');
+    }
+
+    tokenData = await tokenRes.json();
+  } catch (err) {
+    console.error('GA OAuth token exchange error:', err);
+    return popupError('Could not reach Google. Try connecting again.');
+  }
 
   if (!tokenData.refresh_token) {
     return popupError('No refresh token received. Try disconnecting and reconnecting.');
