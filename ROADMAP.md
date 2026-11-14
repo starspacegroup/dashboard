@@ -86,7 +86,14 @@ Plan: **`../planning/cloudflare-widget-fixes.md`**.
 
 ## Priority: Medium
 
-### TODO: Internet Health widget (Cloudflare Radar) — 2026-07-29
+### DONE: Internet Health widget (Cloudflare Radar) — 2026-07-29
+
+**Built.** `InternetHealthWidget.svelte` and `/api/radar` shipped with three
+panels (global outages, IPv6 share, HTTP/3 share, last 24h). It uses one
+server-side `CLOUDFLARE_RADAR_TOKEN`, a 5-min in-memory cache, and a 10-min
+poll; see `CLAUDE.md` → API Routes. The notes below are the original spec.
+The panels not built (traffic trend, attack activity, speed, local scope) stay
+open ideas.
 
 Add a new widget showing **realtime global internet health** from
 [Cloudflare Radar](https://radar.cloudflare.com/). Unlike the existing
