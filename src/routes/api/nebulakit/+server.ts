@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { dev } from '$app/environment';
 import type { RequestHandler } from './$types';
 
 /**
@@ -53,16 +54,77 @@ class ReconnectRequiredError extends Error {
 	}
 }
 
+/**
+ * True for a host this server must never fetch for a user: loopback, private,
+ * link-local, unspecified and cloud-metadata addresses. `new URL` has already
+ * turned decimal/hex/octal IPv4 spellings into dotted form and lower-cased the
+ * name, so this compares the normalised hostname.
+ */
+function isBlockedHost(hostname: string): boolean {
+	let h = hostname.toLowerCase();
+	if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+	if (h.endsWith('.')) h = h.slice(0, -1);
+
+	if (h === 'localhost' || h.endsWith('.localhost')) return true;
+	if (h === 'metadata.google.internal' || h === 'metadata' || h.endsWith('.internal')) return true;
+
+	const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+	if (v4) {
+		const [a, b] = [Number(v4[1]), Number(v4[2])];
+		return (
+			a === 0 || // unspecified / "this network"
+			a === 10 || // private
+			a === 127 || // loopback
+			(a === 100 && b >= 64 && b <= 127) || // carrier-grade NAT
+			(a === 169 && b === 254) || // link-local, incl. 169.254.169.254 metadata
+			(a === 172 && b >= 16 && b <= 31) || // private
+			(a === 192 && b === 168) || // private
+			(a === 192 && b === 0) || // protocol assignments
+			(a === 198 && (b === 18 || b === 19)) // benchmarking
+		);
+	}
+
+	if (h.includes(':')) {
+		if (h === '::' || h === '::1') return true;
+		// IPv4-mapped (::ffff:a.b.c.d, or the hex form URL produces): judge the embedded v4.
+		const mapped = h.match(/^(?:0*:){0,5}:?ffff:(.+)$/);
+		if (mapped) {
+			const tail = mapped[1];
+			if (tail.includes('.')) return isBlockedHost(tail);
+			const parts = tail.split(':').map((p) => parseInt(p, 16));
+			if (parts.length === 2 && parts.every((n) => Number.isFinite(n))) {
+				const [hi, lo] = parts;
+				return isBlockedHost(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+			}
+			return true;
+		}
+		const first = parseInt(h.split(':')[0] || '0', 16);
+		return (
+			(first & 0xfe00) === 0xfc00 || // fc00::/7 unique local (incl. AWS fd00:ec2::254)
+			(first & 0xffc0) === 0xfe80 // fe80::/10 link-local
+		);
+	}
+	return false;
+}
+
 /** The site origin out of the request body, or null if it isn't one. */
 function siteOrigin(raw: unknown): string | null {
 	if (typeof raw !== 'string' || !raw.trim()) return null;
 	try {
 		const u = new URL(raw.trim());
 		if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+		// `npm run dev` may point at a site on this machine; a deployed build may not.
+		if (isBlockedHost(u.hostname) && !(dev && isLocalhost(u.hostname))) return null;
 		return u.origin;
 	} catch {
 		return null;
 	}
+}
+
+/** Loopback only — dev's allowance does not extend to private LAN or metadata addresses. */
+function isLocalhost(hostname: string): boolean {
+	const h = hostname.toLowerCase();
+	return h === 'localhost' || h.endsWith('.localhost') || h === '127.0.0.1' || h === '[::1]';
 }
 
 function clampDays(raw: string | null): number {
@@ -77,13 +139,19 @@ async function fetchSummary(origin: string, token: string, days: number): Promis
 	try {
 		res = await fetch(`${origin}/api/stats/summary?window=${days}`, {
 			headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-			signal: controller.signal
+			signal: controller.signal,
+			// A redirect could carry the token to an address the host check never saw.
+			redirect: 'manual'
 		});
 	} catch (e) {
 		const aborted = e instanceof Error && e.name === 'AbortError';
 		throw new Error(aborted ? 'The site did not answer in time.' : `Could not reach ${origin}.`);
 	} finally {
 		clearTimeout(timer);
+	}
+
+	if (res.status >= 300 && res.status < 400) {
+		throw new Error('The site redirected. Use its final address as the site URL.');
 	}
 
 	let body: Record<string, unknown> = {};

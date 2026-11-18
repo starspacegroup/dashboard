@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const env = vi.hoisted(() => ({ dev: false }));
+vi.mock('$app/environment', () => ({
+	get dev() {
+		return env.dev;
+	}
+}));
+
 import { POST } from './+server';
 
 function event(signedIn: boolean, action = 'verify', body: unknown = { url: 'https://site.test', token: 'tok' }) {
@@ -53,6 +60,72 @@ describe('/api/nebulakit', () => {
 		expect((await POST(event(true, 'verify', { url: 'ftp://site.test', token: 'tok' }))).status).toBe(400);
 		expect((await POST(event(true, 'verify', { url: 'https://site.test', token: '  ' }))).status).toBe(400);
 		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('refuses loopback hosts', async () => {
+		vi.stubGlobal('fetch', vi.fn());
+		for (const url of ['http://localhost:4200', 'http://app.localhost', 'http://127.0.0.1', 'http://127.8.8.8', 'http://[::1]', 'http://2130706433', 'http://0x7f.1', 'http://0.0.0.0']) {
+			expect((await POST(event(true, 'verify', { url, token: 'tok' }))).status, url).toBe(400);
+		}
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('refuses private network hosts', async () => {
+		vi.stubGlobal('fetch', vi.fn());
+		for (const url of ['http://10.0.0.5', 'http://172.16.0.1', 'http://172.31.255.255', 'http://192.168.1.1', 'http://100.64.0.1', 'http://[fd00::1]', 'http://[fc00::1]']) {
+			expect((await POST(event(true, 'verify', { url, token: 'tok' }))).status, url).toBe(400);
+		}
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('refuses link-local and cloud metadata hosts', async () => {
+		vi.stubGlobal('fetch', vi.fn());
+		for (const url of ['http://169.254.169.254/latest/meta-data', 'http://169.254.0.1', 'http://[fe80::1]', 'http://[fd00:ec2::254]', 'http://metadata.google.internal', 'http://metadata.internal']) {
+			expect((await POST(event(true, 'verify', { url, token: 'tok' }))).status, url).toBe(400);
+		}
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('refuses private addresses written as IPv4-mapped IPv6', async () => {
+		vi.stubGlobal('fetch', vi.fn());
+		for (const url of ['http://[::ffff:127.0.0.1]', 'http://[::ffff:169.254.169.254]', 'http://[::ffff:10.0.0.1]']) {
+			expect((await POST(event(true, 'verify', { url, token: 'tok' }))).status, url).toBe(400);
+		}
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('still allows public hosts, including ones next to private ranges', async () => {
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify({ stats: {} }), { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+		for (const url of ['https://example.com', 'http://172.32.0.1', 'http://11.0.0.1', 'http://100.128.0.1']) {
+			expect((await POST(event(true, 'verify', { url, token: 'tok' }))).status, url).toBe(200);
+		}
+	});
+
+	it('allows localhost in dev, but not private or metadata addresses', async () => {
+		env.dev = true;
+		try {
+			const fetchMock = vi.fn(async () => new Response(JSON.stringify({ stats: {} }), { status: 200 }));
+			vi.stubGlobal('fetch', fetchMock);
+			expect((await POST(event(true, 'verify', { url: 'http://localhost:5173', token: 'tok' }))).status).toBe(200);
+			expect((await POST(event(true, 'verify', { url: 'http://127.0.0.1:5173', token: 'tok' }))).status).toBe(200);
+			expect((await POST(event(true, 'verify', { url: 'http://169.254.169.254', token: 'tok' }))).status).toBe(400);
+			expect((await POST(event(true, 'verify', { url: 'http://10.0.0.5', token: 'tok' }))).status).toBe(400);
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+		} finally {
+			env.dev = false;
+		}
+	});
+
+	it('does not follow a redirect to another address', async () => {
+		const fetchMock = vi.fn(async () => new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const res = await POST(event(true, 'verify'));
+
+		expect(res.status).toBe(502);
+		expect((await res.json()).error).toMatch(/redirected/);
+		expect(fetchMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ redirect: 'manual' }));
 	});
 
 	it('rejects an unknown action', async () => {
