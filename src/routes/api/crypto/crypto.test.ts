@@ -34,6 +34,40 @@ describe('/api/crypto', () => {
 		expect(res.status).toBe(500);
 	});
 
+	it('answers 400 for a blank search query instead of searching for spaces', async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+
+		const res = await GET(event('action=search&q=%20%20'));
+
+		expect(res.status).toBe(400);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('cuts an overlong search query to 100 characters before it goes upstream', async () => {
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify({ coins: [] }), { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await GET(event(`action=search&q=${'x'.repeat(5000)}`));
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			expect.stringContaining(`/search?query=${'x'.repeat(100)}`),
+			expect.anything()
+		);
+		const sent = (fetchMock.mock.calls[0] as unknown as [string])[0];
+		expect(sent.endsWith('x'.repeat(100))).toBe(true);
+	});
+
+	it('cuts an overlong coin id and trims a padded one', async () => {
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await GET(event(`action=price&skipCache=1&coinId=%20${'y'.repeat(900)}`));
+
+		const sent = (fetchMock.mock.calls[0] as unknown as [string])[0];
+		expect(sent).toContain(`ids=${'y'.repeat(100)}&`);
+	});
+
 	it('keeps serving fresh results after more distinct searches than the cache holds', async () => {
 		const fetchMock = vi.fn(async () => new Response(JSON.stringify({ coins: [] }), { status: 200 }));
 		vi.stubGlobal('fetch', fetchMock);

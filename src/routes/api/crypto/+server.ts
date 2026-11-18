@@ -12,6 +12,14 @@ const cache = new Map<string, CacheEntry>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE_ENTRIES = 500; // search keys are user-typed, so the map needs a ceiling
 const FETCH_TIMEOUT_MS = 8000;
+// Like /api/geocode: user-typed values are trimmed and cut before they reach the
+// cache key or CoinGecko. Coin ids, currencies and day counts are all short.
+const MAX_PARAM_LENGTH = 100;
+
+/** A trimmed, length-bounded query param, or null when absent or blank. */
+function param(url: URL, name: string): string | null {
+  return url.searchParams.get(name)?.trim().slice(0, MAX_PARAM_LENGTH) || null;
+}
 
 function getCached(key: string): unknown | null {
   const entry = cache.get(key);
@@ -72,7 +80,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 /** Search for coins by name/symbol */
 async function handleSearch(url: URL) {
-  const query = url.searchParams.get('q');
+  const query = param(url, 'q');
   if (!query) {
     return json({ error: 'Missing search query (q)' }, { status: 400 });
   }
@@ -110,8 +118,8 @@ async function handleSearch(url: URL) {
  *  displayed price is always the real-time value, independent of
  *  whichever chart timeframe is selected. */
 async function handlePrice(url: URL, skipCache: boolean) {
-  const coinId = url.searchParams.get('coinId');
-  const vsCurrency = url.searchParams.get('vs') || 'usd';
+  const coinId = param(url, 'coinId');
+  const vsCurrency = param(url, 'vs') || 'usd';
 
   if (!coinId) {
     return json({ error: 'Missing coinId parameter' }, { status: 400 });
@@ -149,9 +157,9 @@ async function handlePrice(url: URL, skipCache: boolean) {
  *  and period change %. The "current price" is fetched separately
  *  via the price action so it stays consistent across timeframes. */
 async function handleChart(url: URL, skipCache: boolean) {
-  const coinId = url.searchParams.get('coinId');
-  const vsCurrency = url.searchParams.get('vs') || 'usd';
-  const days = url.searchParams.get('days') || '7';
+  const coinId = param(url, 'coinId');
+  const vsCurrency = param(url, 'vs') || 'usd';
+  const days = param(url, 'days') || '7';
 
   if (!coinId) {
     return json({ error: 'Missing coinId parameter' }, { status: 400 });
