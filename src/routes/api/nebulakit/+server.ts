@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { dev } from '$app/environment';
+import { resolveHost } from '$lib/server/resolveHost';
 import type { RequestHandler } from './$types';
 
 /**
@@ -127,6 +128,31 @@ function isLocalhost(hostname: string): boolean {
 	return h === 'localhost' || h.endsWith('.localhost') || h === '127.0.0.1' || h === '[::1]';
 }
 
+/**
+ * Check what a hostname points at. A public-looking name can resolve to a
+ * private address, so every resolved address is judged and one bad one refuses
+ * the lot. IP literals were already judged by `siteOrigin`; dev's localhost
+ * allowance is kept. Returns a plain reason when the site must not be fetched.
+ */
+async function refuseByResolution(origin: string): Promise<string | null> {
+	const hostname = new URL(origin).hostname;
+	const h = hostname.startsWith('[') ? hostname : hostname.toLowerCase();
+	if (h.startsWith('[') || /^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return null;
+	if (dev && isLocalhost(h)) return null;
+
+	let addresses: string[];
+	try {
+		addresses = await resolveHost(h);
+	} catch {
+		return `Could not look up ${h}.`;
+	}
+	if (addresses.length === 0) return `${h} did not resolve to an address.`;
+	if (addresses.some((a) => isBlockedHost(a))) {
+		return `${h} points at a private or internal address.`;
+	}
+	return null;
+}
+
 function clampDays(raw: string | null): number {
 	const n = parseInt(raw || '7', 10);
 	return WINDOWS.includes(n) ? n : 7;
@@ -203,6 +229,9 @@ export const POST: RequestHandler = async ({ url, request, locals }) => {
 	const token = typeof body.token === 'string' ? body.token.trim() : '';
 	if (!origin) return json({ error: 'A site URL is required.' }, { status: 400 });
 	if (!token) return json({ error: 'A stats token is required.' }, { status: 400 });
+
+	const refusal = await refuseByResolution(origin);
+	if (refusal) return json({ error: refusal }, { status: 400 });
 
 	const days = clampDays(url.searchParams.get('days'));
 	const skipCache = url.searchParams.get('skipCache') === '1';

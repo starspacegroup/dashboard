@@ -7,6 +7,9 @@ vi.mock('$app/environment', () => ({
 	}
 }));
 
+const dns = vi.hoisted(() => ({ resolveHost: vi.fn(async (_h: string): Promise<string[]> => ['93.184.216.34']) }));
+vi.mock('$lib/server/resolveHost', () => dns);
+
 import { POST } from './+server';
 
 function event(signedIn: boolean, action = 'verify', body: unknown = { url: 'https://site.test', token: 'tok' }) {
@@ -115,6 +118,63 @@ describe('/api/nebulakit', () => {
 		} finally {
 			env.dev = false;
 		}
+	});
+
+	it('refuses a public name that resolves to a loopback, private, link-local or metadata address', async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+		for (const address of ['127.0.0.1', '10.1.2.3', '192.168.0.9', '169.254.169.254', '::1', 'fd00:ec2::254', '::ffff:7f00:1']) {
+			dns.resolveHost.mockResolvedValueOnce([address]);
+			const res = await POST(event(true, 'verify', { url: 'https://evil.test', token: 'tok' }));
+			expect(res.status, address).toBe(400);
+			expect((await res.json()).error).toMatch(/private or internal/);
+		}
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('refuses when any one of several resolved addresses is private', async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+		dns.resolveHost.mockResolvedValueOnce(['93.184.216.34', '10.0.0.1']);
+
+		const res = await POST(event(true, 'verify', { url: 'https://mixed.test', token: 'tok' }));
+
+		expect(res.status).toBe(400);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('refuses when the name does not resolve or the lookup fails', async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+		dns.resolveHost.mockResolvedValueOnce([]);
+		expect((await POST(event(true, 'verify', { url: 'https://none.test', token: 'tok' }))).status).toBe(400);
+		dns.resolveHost.mockRejectedValueOnce(new Error('dns down'));
+		expect((await POST(event(true, 'verify', { url: 'https://down.test', token: 'tok' }))).status).toBe(400);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('allows a name whose addresses are all public', async () => {
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify({ stats: {} }), { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+		dns.resolveHost.mockResolvedValueOnce(['93.184.216.34', '2606:2800:220:1:248:1893:25c8:1946']);
+
+		const res = await POST(event(true, 'verify', { url: 'https://good.test', token: 'tok' }));
+
+		expect(res.status).toBe(200);
+		expect(dns.resolveHost).toHaveBeenLastCalledWith('good.test');
+	});
+
+	it('does not look up IP literals, and in dev does not look up localhost', async () => {
+		dns.resolveHost.mockClear();
+		vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ stats: {} }), { status: 200 })));
+		await POST(event(true, 'verify', { url: 'http://11.0.0.1', token: 'tok' }));
+		env.dev = true;
+		try {
+			await POST(event(true, 'verify', { url: 'http://localhost:5173', token: 'tok' }));
+		} finally {
+			env.dev = false;
+		}
+		expect(dns.resolveHost).not.toHaveBeenCalled();
 	});
 
 	it('does not follow a redirect to another address', async () => {
