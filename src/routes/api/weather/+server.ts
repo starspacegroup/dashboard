@@ -116,6 +116,27 @@ function parseCoord(raw: string | null, limit: number): string | null {
 
 const MAX_ZIP_LENGTH = 100;
 
+const UNKNOWN_LOCATION = 'Unknown Location';
+
+// A failed lookup is a blip, not an answer: caching it would pin "Unknown
+// Location" on the widget for the full 24h location TTL.
+function cacheLocationName(lat: string, lon: string, name: string): void {
+  if (name !== UNKNOWN_LOCATION) setLocationCache(lat, lon, name);
+}
+
+// fetchAstronomicalData swallows a sunrise-sunset.org failure and returns
+// zeroed sun times (sunrise = 1970). Caching those would show the epoch for the
+// rest of the day, so only a real sun time is stored.
+function cacheAstronomicalData(
+  lat: string,
+  lon: string,
+  date: Date,
+  data: Parameters<typeof setAstronomicalCache>[3],
+  timezone?: string
+): void {
+  if (data.sunrise > 0) setAstronomicalCache(lat, lon, date, data, timezone);
+}
+
 export const GET: RequestHandler = async ({ url, locals }) => {
   // Require authentication
   const session = await locals.auth();
@@ -181,9 +202,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       if (!locationName) {
         try {
           locationName = await getLocationName(latitude, longitude);
-          setLocationCache(latitude, longitude, locationName);
+          cacheLocationName(latitude, longitude, locationName);
         } catch {
-          locationName = 'Unknown Location';
+          locationName = UNKNOWN_LOCATION;
         }
       }
 
@@ -192,7 +213,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       if (!astroData) {
         try {
           astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
-          setAstronomicalCache(latitude, longitude, now, astroData, cachedWeather.timezone);
+          cacheAstronomicalData(latitude, longitude, now, astroData, cachedWeather.timezone);
         } catch {
           // Use default values if astronomical fetch fails
           const midnightTs = Math.floor(now.getTime() / 1000);
@@ -397,7 +418,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     if (!astroData) {
       try {
         astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
-        setAstronomicalCache(latitude, longitude, now, astroData, data.timezone);
+        cacheAstronomicalData(latitude, longitude, now, astroData, data.timezone);
       } catch (astroError) {
         console.error('Astronomical data fetch error:', astroError);
         // Use default values if astronomical fetch fails
@@ -426,10 +447,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     if (!locationName) {
       try {
         locationName = await getLocationName(latitude, longitude);
-        setLocationCache(latitude, longitude, locationName);
+        cacheLocationName(latitude, longitude, locationName);
       } catch (locationError) {
         console.error('Location name fetch error:', locationError);
-        locationName = 'Unknown Location';
+        locationName = UNKNOWN_LOCATION;
       }
     }
 
@@ -931,5 +952,5 @@ async function getLocationName(lat: string, lon: string): Promise<string> {
     console.error('Error getting location name:', error);
   }
 
-  return 'Unknown Location';
+  return UNKNOWN_LOCATION;
 }
