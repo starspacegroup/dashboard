@@ -87,6 +87,9 @@ describe('/api/weather', () => {
 		try {
 			const first = await (await GET(event('lat=12.5&lon=34.5'))).json();
 			expect(first.location).toBe('Unknown Location');
+			// Even the failed answer must not carry a 1970 sunrise.
+			expect(first.sunrise).toBeGreaterThan(0);
+			expect(first.sunset).toBeGreaterThan(first.sunrise);
 
 			upstreamUp = true;
 			const second = await (await GET(event('lat=12.5&lon=34.5'))).json();

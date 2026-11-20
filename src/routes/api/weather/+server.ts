@@ -137,6 +137,30 @@ function cacheAstronomicalData(
   if (data.sunrise > 0) setAstronomicalCache(lat, lon, date, data, timezone);
 }
 
+// A failed sunrise-sunset.org lookup leaves the sun times at zero. The widget
+// must not be handed 1970, so the response carries rough six-to-six times for
+// that day instead (never cached — see cacheAstronomicalData). Moon data is
+// computed locally and stays real.
+function withSunFallback<T extends Parameters<typeof setAstronomicalCache>[3]>(data: T, date: Date): T {
+  if (data.sunrise > 0) return data;
+  const dayStart = new Date(date);
+  dayStart.setHours(0, 0, 0, 0);
+  const start = Math.floor(dayStart.getTime() / 1000);
+  return {
+    ...data,
+    sunrise: start + 6 * 3600,
+    sunset: start + 18 * 3600,
+    solarNoon: start + 12 * 3600,
+    dayLength: 12 * 3600,
+    civilTwilightBegin: start + 5.5 * 3600,
+    civilTwilightEnd: start + 18.5 * 3600,
+    nauticalTwilightBegin: start + 5 * 3600,
+    nauticalTwilightEnd: start + 19 * 3600,
+    astronomicalTwilightBegin: start + 4.5 * 3600,
+    astronomicalTwilightEnd: start + 19.5 * 3600
+  };
+}
+
 export const GET: RequestHandler = async ({ url, locals }) => {
   // Require authentication
   const session = await locals.auth();
@@ -214,6 +238,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
         try {
           astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
           cacheAstronomicalData(latitude, longitude, now, astroData, cachedWeather.timezone);
+          astroData = withSunFallback(astroData, now);
         } catch {
           // Use default values if astronomical fetch fails
           const midnightTs = Math.floor(now.getTime() / 1000);
@@ -419,6 +444,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       try {
         astroData = await fetchAstronomicalData(parseFloat(latitude), parseFloat(longitude), now);
         cacheAstronomicalData(latitude, longitude, now, astroData, data.timezone);
+        astroData = withSunFallback(astroData, now);
       } catch (astroError) {
         console.error('Astronomical data fetch error:', astroError);
         // Use default values if astronomical fetch fails
