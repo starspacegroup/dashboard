@@ -68,6 +68,30 @@ describe('/api/crypto', () => {
 		expect(sent).toContain(`ids=${'y'.repeat(100)}&`);
 	});
 
+	it('answers 404, and caches nothing, when CoinGecko knows no such coin', async () => {
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const res = await GET(event('action=price&coinId=nosuchcoin'));
+		expect(res.status).toBe(404);
+
+		await GET(event('action=price&coinId=nosuchcoin'));
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it('reads the price when the caller sends the currency in capitals', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				new Response(JSON.stringify({ bitcoin: { eur: 90000, eur_24h_change: 1.5 } }), { status: 200 })
+			)
+		);
+
+		const res = await GET(event('action=price&coinId=Bitcoin&vs=EUR&skipCache=1'));
+
+		expect(await res.json()).toEqual({ price: 90000, change24h: 1.5 });
+	});
+
 	it('keeps serving fresh results after more distinct searches than the cache holds', async () => {
 		const fetchMock = vi.fn(async () => new Response(JSON.stringify({ coins: [] }), { status: 200 }));
 		vi.stubGlobal('fetch', fetchMock);

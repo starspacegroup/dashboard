@@ -142,10 +142,16 @@ async function handlePrice(url: URL, skipCache: boolean) {
   }
 
   const data = await res.json();
-  const coinData = data[coinId] || {};
+  // CoinGecko answers 200 with `{}` for an id it does not know, and keys the
+  // reply by lowercase id and currency. Passing that on as price 0 would show
+  // a real coin as worthless and cache it for 5 minutes, so say "not found".
+  const coinData = data[coinId.toLowerCase()];
+  if (!coinData || typeof coinData[vsCurrency.toLowerCase()] !== 'number') {
+    return json({ error: 'Coin or currency not found' }, { status: 404 });
+  }
   const result = {
-    price: coinData[vsCurrency] ?? 0,
-    change24h: coinData[`${vsCurrency}_24h_change`] ?? 0
+    price: coinData[vsCurrency.toLowerCase()],
+    change24h: coinData[`${vsCurrency.toLowerCase()}_24h_change`] ?? 0
   };
 
   setCache(cacheKey, result);
