@@ -33,6 +33,23 @@ describe('/api/analytics', () => {
 		expect(res.status).toBe(400);
 	});
 
+	it('serves the property list from cache even though each request gets a new access token', async () => {
+		let minted = 0;
+		const fetchMock = vi.fn(async (input: string, _init?: RequestInit) =>
+			String(input).includes('oauth2')
+				? new Response(JSON.stringify({ access_token: `at-${++minted}-xxxxxxxx` }), { status: 200 })
+				: new Response(JSON.stringify({ accountSummaries: [] }), { status: 200 })
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const body = { refreshToken: 'cache-test-refresh-token' };
+
+		expect((await POST(event(true, 'action=properties', body))).status).toBe(200);
+		expect((await POST(event(true, 'action=properties', body))).status).toBe(200);
+
+		const adminCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes('analyticsadmin'));
+		expect(adminCalls).toHaveLength(1);
+	});
+
 	it('treats a non-numeric days value as the 7-day default', async () => {
 		const fetchMock = vi.fn(async (input: string, _init?: RequestInit) =>
 			String(input).includes('oauth2')

@@ -132,7 +132,7 @@ export const POST: RequestHandler = async ({ url, request, locals }) => {
     const cacheScope = refreshToken.slice(-12);
 
     if (action === 'properties') {
-      return await handleProperties(accessToken);
+      return await handleProperties(accessToken, cacheScope);
     } else if (action === 'report') {
       return await handleReport(url, skipCache, accessToken, cacheScope);
     } else if (action === 'realtime') {
@@ -153,8 +153,10 @@ export const POST: RequestHandler = async ({ url, request, locals }) => {
 };
 
 /** List all GA4 properties the user has access to via the Admin API. */
-async function handleProperties(accessToken: string) {
-  const cacheKey = `properties:${accessToken.slice(-8)}`;
+async function handleProperties(accessToken: string, cacheScope: string) {
+  // Keyed by the connection, like every other handler: the access token is
+  // minted fresh on each request, so keying on it meant the cache never hit.
+  const cacheKey = `properties:${cacheScope}`;
   const cached = getCached(cacheKey);
   if (cached) return json(cached);
 
