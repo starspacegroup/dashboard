@@ -39,4 +39,25 @@ describe('/api/cloudflare', () => {
 
 		expect(res.status).toBe(500);
 	});
+
+	it('says so plainly when Cloudflare answers with an HTML error page', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>Bad gateway</html>', { status: 502 })));
+
+		const res = await POST(event('action=verify'));
+
+		expect(res.status).toBe(500);
+		const body = await res.json();
+		expect(body.error).toContain('unreadable');
+		expect(body.error).toContain('502');
+		expect(body.error).not.toContain('Unexpected token');
+	});
+
+	it('asks for a reconnect when Cloudflare answers 401', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 401 })));
+
+		const res = await POST(event('action=accounts'));
+
+		expect(res.status).toBe(401);
+		expect((await res.json()).code).toBe('reconnect_required');
+	});
 });
