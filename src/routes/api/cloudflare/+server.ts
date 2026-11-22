@@ -65,6 +65,16 @@ class ReconnectRequiredError extends Error {
 
 // ─── Low-level Cloudflare fetch helpers ───────────────────────────
 
+// Cloudflare's edge answers an outage with an HTML page. A bare res.json() would
+// surface that as `Unexpected token '<'…` in the widget; say what happened instead.
+async function readJson<T>(res: Response): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new Error(`Cloudflare answered with something unreadable (HTTP ${res.status}). Try again shortly.`);
+  }
+}
+
 interface CfEnvelope<T> {
   success: boolean;
   result: T;
@@ -84,7 +94,7 @@ async function cfFetch<T>(token: string, path: string): Promise<CfEnvelope<T>> {
     throw new ReconnectRequiredError();
   }
 
-  const body = (await res.json()) as CfEnvelope<T>;
+  const body = await readJson<CfEnvelope<T>>(res);
   if (!body.success) {
     const first = body.errors?.[0];
     // 1000/9109 = auth problems; treat as needing reconnect
@@ -115,7 +125,7 @@ async function cfGraphQL<T>(token: string, query: string, variables: Record<stri
     throw new ReconnectRequiredError();
   }
 
-  const body = (await res.json()) as GraphQLResult<T>;
+  const body = await readJson<GraphQLResult<T>>(res);
   if (body.errors && body.errors.length > 0) {
     const msg = body.errors[0].message;
     if (/authentic|permission|forbidden|not authorized/i.test(msg)) {
@@ -236,7 +246,7 @@ async function handleVerify(token: string) {
   const res = await fetchWithTimeout(`${CF_API}/user/tokens/verify`, {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
   });
-  const body = (await res.json()) as CfEnvelope<{ id: string; status: string }>;
+  const body = await readJson<CfEnvelope<{ id: string; status: string }>>(res);
   if (!res.ok || !body.success || body.result?.status !== 'active') {
     const msg = body.errors?.[0]?.message || 'Token verification failed.';
     return json({ valid: false, error: msg }, { status: 401 });
