@@ -43,6 +43,17 @@ const WMO_CODES: Record<number, { condition: string; icon: string; description: 
   99: { condition: 'thunderstorm', icon: '11d', description: 'Thunderstorm with heavy hail' }
 };
 
+/**
+ * Open-Meteo answers with `timezone=auto` as wall-clock strings in the
+ * location's own zone ("2026-11-24T18:00", no offset). `new Date()` would read
+ * them in the server's zone (UTC on Workers) and shift every hour by the
+ * location's UTC offset, so convert with the offset Open-Meteo reports instead.
+ * Returns unix seconds.
+ */
+function localTimeToUnix(local: string, utcOffsetSeconds: number): number {
+  return Date.parse(`${local}Z`) / 1000 - utcOffsetSeconds;
+}
+
 // Get weather info from WMO code
 function getWeatherFromWMO(code: number, isNight: boolean = false): { condition: string; icon: string; description: string; } {
   const weather = WMO_CODES[code] || { condition: 'clear', icon: '01d', description: 'Unknown' };
@@ -356,15 +367,21 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     const windDirection = data.current.wind_direction_10m; // degrees (0=N, 90=E, 180=S, 270=W)
     const windGust = data.current.wind_gusts_10m; // mph
 
+    // Offset of the location from UTC, in seconds (Open-Meteo reports it; the
+    // IANA lookup is the fallback)
+    const timezoneOffset = typeof data.utc_offset_seconds === 'number'
+      ? data.utc_offset_seconds
+      : getTimezoneOffset(data.timezone);
+
     // Calculate pressure trend from last 3 hours of hourly data
-    const pressureTrend = calculatePressureTrend(data.hourly.time, data.hourly.surface_pressure);
+    const pressureTrend = calculatePressureTrend(data.hourly.time, data.hourly.surface_pressure, timezoneOffset);
 
     // Process hourly data - combine past and future
     const hourlyData = [];
     const nowTimestamp = Math.floor(Date.now() / 1000);
 
     for (let i = 0; i < data.hourly.time.length; i++) {
-      const hourTime = new Date(data.hourly.time[i]).getTime() / 1000;
+      const hourTime = localTimeToUnix(data.hourly.time[i], timezoneOffset);
       // Include 24 hours back and 24 hours forward
       if (hourTime >= nowTimestamp - 24 * 3600 && hourTime <= nowTimestamp + 24 * 3600) {
         const hourIsNight = data.hourly.is_day[i] === 0;
@@ -410,9 +427,6 @@ export const GET: RequestHandler = async ({ url, locals }) => {
         });
       }
     }
-
-    // Get timezone offset in seconds
-    const timezoneOffset = getTimezoneOffset(data.timezone);
 
     // Get current feels-like temperature
     const currentFeelsLike = Math.round(data.current.apparent_temperature);
@@ -515,13 +529,13 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 // Calculate pressure trend from hourly data
 // Returns: 'rising', 'falling', 'steady', or 'rapidly-rising', 'rapidly-falling'
-function calculatePressureTrend(times: string[], pressures: number[]): { direction: string; change: number; } {
+function calculatePressureTrend(times: string[], pressures: number[], utcOffsetSeconds: number): { direction: string; change: number; } {
   const now = Date.now();
 
   // Find the index of the most recent hour (closest to now but not in the future)
   let currentIndex = -1;
   for (let i = 0; i < times.length; i++) {
-    const time = new Date(times[i]).getTime();
+    const time = localTimeToUnix(times[i], utcOffsetSeconds) * 1000;
     if (time <= now) {
       currentIndex = i;
     } else {
