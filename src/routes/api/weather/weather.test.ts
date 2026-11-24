@@ -39,6 +39,50 @@ describe('/api/weather', () => {
 		}
 	});
 
+	it('reads Open-Meteo local hours with the location offset, not the server zone', async () => {
+		const offset = -5 * 3600; // a Maine winter
+		const now = Math.floor(Date.now() / 1000);
+		// Open-Meteo sends wall-clock time in the location's zone, no offset marker.
+		const times = Array.from({ length: 48 }, (_, i) =>
+			new Date((now - 24 * 3600 + i * 3600 + offset) * 1000).toISOString().slice(0, 16)
+		);
+		const hourly = (v: number) => times.map(() => v);
+		const forecast = {
+			timezone: 'America/New_York',
+			utc_offset_seconds: offset,
+			current: {
+				temperature_2m: 50, relative_humidity_2m: 50, apparent_temperature: 50, weather_code: 0,
+				is_day: 1, surface_pressure: 1000, wind_speed_10m: 5, wind_direction_10m: 90, wind_gusts_10m: 8
+			},
+			hourly: {
+				time: times, temperature_2m: hourly(50), relative_humidity_2m: hourly(50),
+				dew_point_2m: hourly(40), apparent_temperature: hourly(50), weather_code: hourly(0),
+				is_day: hourly(1), surface_pressure: hourly(1000), wind_speed_10m: hourly(5),
+				wind_direction_10m: hourly(90), wind_gusts_10m: hourly(8)
+			},
+			daily: null
+		};
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL) => {
+				const host = new URL(String(input)).hostname;
+				if (host === 'api.open-meteo.com') return new Response(JSON.stringify(forecast));
+				if (host === 'api.weather.gov') return new Response(JSON.stringify({ features: [] }));
+				return new Response('down', { status: 503 });
+			})
+		);
+		try {
+			const body = await (await GET(event('lat=44.5&lon=-70.5&refresh=true'))).json();
+			const stamps: number[] = body.hourly.map((h: { time: number }) => h.time);
+			// The forecast runs a full day ahead. Read in server time (UTC) it would
+			// stop five hours short.
+			expect(Math.max(...stamps)).toBeGreaterThanOrEqual(now + 22 * 3600);
+			expect(Math.min(...stamps)).toBeLessThanOrEqual(now - 22 * 3600);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
 	it('does not cache a failed place-name or sun-time lookup', async () => {
 		let upstreamUp = false;
 		const now = Math.floor(Date.now() / 1000);
