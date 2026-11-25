@@ -155,6 +155,51 @@ describe('/api/spotify', () => {
 		expect((await GET(event())).status).toBe(502);
 	});
 
+	describe('access token reuse', () => {
+		const tokenLong = () =>
+			new Response(JSON.stringify({ access_token: 'at', expires_in: 3600 }), { status: 200 });
+
+		it('swaps the refresh token once, then reuses the access token', async () => {
+			mockEnv.SPOTIFY_REFRESH_TOKEN = 'reuse-a';
+			fetchMock
+				.mockResolvedValueOnce(tokenLong())
+				.mockResolvedValueOnce(noContent())
+				.mockResolvedValueOnce(new Response('{}', { status: 200 }))
+				.mockResolvedValueOnce(noContent())
+				.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+			await GET(event());
+			await GET(event());
+			const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+			expect(urls.filter((u) => u.includes('/api/token'))).toHaveLength(1);
+		});
+
+		it('swaps again after Spotify answers 401 to the player call', async () => {
+			mockEnv.SPOTIFY_REFRESH_TOKEN = 'reuse-b';
+			fetchMock
+				.mockResolvedValueOnce(tokenLong())
+				.mockResolvedValueOnce(new Response('{}', { status: 401 }))
+				.mockResolvedValueOnce(tokenLong())
+				.mockResolvedValueOnce(noContent())
+				.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+			expect((await GET(event())).status).toBe(502);
+			expect((await (await GET(event())).json()).playing).toBe(false);
+			const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+			expect(urls.filter((u) => u.includes('/api/token'))).toHaveLength(2);
+		});
+
+		it('does not reuse a token after the refresh token changes', async () => {
+			mockEnv.SPOTIFY_REFRESH_TOKEN = 'reuse-c';
+			fetchMock.mockResolvedValue(noContent());
+			fetchMock.mockResolvedValueOnce(tokenLong());
+			await GET(event());
+			mockEnv.SPOTIFY_REFRESH_TOKEN = 'reuse-d';
+			fetchMock.mockResolvedValueOnce(tokenLong());
+			await GET(event());
+			const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+			expect(urls.filter((u) => u.includes('/api/token'))).toHaveLength(2);
+		});
+	});
+
 	it('answers 502 when the network fails', async () => {
 		fetchMock.mockRejectedValueOnce(new Error('boom'));
 		expect((await GET(event())).status).toBe(502);
