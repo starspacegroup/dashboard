@@ -7,6 +7,11 @@ const NOW_PLAYING_URL = 'https://api.spotify.com/v1/me/player/currently-playing'
 const PLAYLISTS_URL = 'https://api.spotify.com/v1/me/playlists?limit=5';
 const TIMEOUT_MS = 12_000;
 
+// The access token lives about an hour and the widget polls every 15s, so it is kept
+// and reused instead of swapped on every poll. One entry: there is one operator account.
+const TOKEN_MARGIN_S = 60;
+let tokenCache: { key: string; token: string; expiresAt: number } | null = null;
+
 function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
   return fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
 }
@@ -66,24 +71,36 @@ export const GET: RequestHandler = async ({ locals }) => {
   }
 
   try {
-    const tokenRes = await fetchWithTimeout(TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: 'Basic ' + btoa(clientId + ':' + clientSecret),
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
-    });
-    if (!tokenRes.ok) {
-      return json({ configured: true, error: 'Spotify rejected the credentials' }, { status: 502 });
-    }
-    const tokenBody = (await tokenRes.json()) as { access_token?: string };
-    if (!tokenBody.access_token) {
-      return json({ configured: true, error: 'Spotify sent no access token' }, { status: 502 });
+    const cacheKey = clientId + ':' + refreshToken;
+    let accessToken =
+      tokenCache && tokenCache.key === cacheKey && Date.now() < tokenCache.expiresAt
+        ? tokenCache.token
+        : null;
+    if (!accessToken) {
+      const tokenRes = await fetchWithTimeout(TOKEN_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: 'Basic ' + btoa(clientId + ':' + clientSecret),
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
+      });
+      if (!tokenRes.ok) {
+        return json({ configured: true, error: 'Spotify rejected the credentials' }, { status: 502 });
+      }
+      const tokenBody = (await tokenRes.json()) as { access_token?: string; expires_in?: number };
+      if (!tokenBody.access_token) {
+        return json({ configured: true, error: 'Spotify sent no access token' }, { status: 502 });
+      }
+      accessToken = tokenBody.access_token;
+      const lifetimeMs = Math.max(0, (tokenBody.expires_in ?? 0) - TOKEN_MARGIN_S) * 1000;
+      tokenCache = lifetimeMs > 0 ? { key: cacheKey, token: accessToken, expiresAt: Date.now() + lifetimeMs } : null;
     }
 
-    const headers = { Authorization: 'Bearer ' + tokenBody.access_token };
+    const headers = { Authorization: 'Bearer ' + accessToken };
     const res = await fetchWithTimeout(NOW_PLAYING_URL, { headers });
+    // A token Spotify no longer accepts is dropped, so the next poll swaps for a fresh one.
+    if (res.status === 401) tokenCache = null;
     // 204: nothing is playing. A non-track item (ad, podcast) is treated the same.
     if (res.status === 204) {
       return json({ configured: true, playing: false, playlists: await fetchPlaylists(headers) });
